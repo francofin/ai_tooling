@@ -64,11 +64,43 @@ Stripe integration implementation is explicitly deferred but the permission scaf
 
 ---
 
-## 4. Feature Extensibility
+## 4. Development Workflow — Jupyter Notebook Prototyping
 
-The platform is designed for continuous growth. New analytics modules, data sources (additional APIs, alternative data), and dashboard pages will be added over time as research evolves. Section 9 (Custom Analytics Module Framework) defines the contract every new module must satisfy to ensure additions remain modular and do not require core refactoring.
+All backend logic — data fetching, computation, analytics, and pipeline classes — **must be prototyped and validated in Jupyter notebooks before being ported to Django app code.** The `backend/class_files/` directory is the designated workspace for this.
+
+**Workflow:**
+
+1. **Prototype in notebook** (`backend/class_files/<feature>.ipynb`)
+   - Write the class or function in a notebook cell
+   - Test it against real data (live FMP API, S3 parquet files, or DB)
+   - Validate outputs visually (print DataFrames, plot charts inline)
+   - Iterate until logic is correct and edge cases are handled
+
+2. **Graduate to Django app**
+   - Once the notebook validates the logic, extract the class/function into the relevant Django app (`factor_engine/engine/compute.py`, `backtester/engine/`, `news/normalizer.py`, etc.)
+   - The notebook remains in `class_files/` as a reference and regression check
+   - Port only clean, tested logic — no debugging scaffolding
+
+3. **Notebook naming convention:**
+   - `backend/class_files/<app_name>_<feature>.ipynb`
+   - Examples: `factor_engine_scoring.ipynb`, `backtester_signal.ipynb`, `news_normalizer.ipynb`, `watchlist_performance.ipynb`
+
+**Existing notebooks** (already in `backend/class_files/`):
+- `homepage_data.ipynb` — homepage data aggregation patterns
+- `fintank_data_getter.ipynb` — FMP and S3 data fetching utilities
+- `news_updater.ipynb` — news article update pipeline
+- `save_data_into_format.ipynb` — data serialisation helpers
+
+New features must follow this same pattern. No production Django code is written until the notebook prototype is complete and reviewed.
+
+---
+
+## 5. Feature Extensibility
+
+The platform is designed for continuous growth. New analytics modules, data sources (additional APIs, alternative data), and dashboard pages will be added over time as research evolves. Section 10 (Custom Analytics Module Framework) defines the contract every new module must satisfy to ensure additions remain modular and do not require core refactoring.
 
 When adding a new feature:
+- Prototype first in `backend/class_files/` (see §4)
 - It gets its own Django app (or a clearly bounded module within an existing app)
 - It follows the app-wide Celery serving model (section 2)
 - It declares its permission tier (free / paid) at the config level
@@ -76,7 +108,7 @@ When adding a new feature:
 
 ---
 
-## 5. User Roles & Access Control
+## 6. User Roles & Access Control
 
 The existing `CustomUser` model already defines roles: `SUBSCRIBER`, `EMPLOYEE`, `ADMIN`, `INSTITUTIONAL_INVESTOR`.
 
@@ -91,9 +123,9 @@ The existing `CustomUser` model already defines roles: `SUBSCRIBER`, `EMPLOYEE`,
 
 ---
 
-## 6. Backend Architecture
+## 7. Backend Architecture
 
-### 6.1 Django App Structure
+### 7.1 Django App Structure
 
 ```
 backend/
@@ -108,7 +140,7 @@ backend/
 └── pages/                # existing: HTML views (staff portal)
 ```
 
-### 6.2 Async Computation Pattern (All New Analytics Apps)
+### 7.2 Async Computation Pattern (All New Analytics Apps)
 
 Every analytics computation follows this pipeline:
 
@@ -124,7 +156,7 @@ Every analytics computation follows this pipeline:
 
 On-demand jobs (backtesting) return a `task_id` immediately; frontend polls `/backtester/results/<task_id>/` until status = `complete`.
 
-### 6.3 Caching Strategy
+### 7.3 Caching Strategy
 
 Extend existing pattern (`home:{data_type}:{qualifier}:v1`) with:
 
@@ -141,9 +173,9 @@ All cache values remain gzip-compressed JSON (existing pattern). S3 holds durabl
 
 ---
 
-## 7. Feature Specifications
+## 8. Feature Specifications
 
-### 7.1 Market Overview Dashboard (Enhance Existing)
+### 8.1 Market Overview Dashboard (Enhance Existing)
 
 **Status:** Largely built. Enhance without breaking.
 
@@ -162,7 +194,7 @@ All cache values remain gzip-compressed JSON (existing pattern). S3 holds durabl
 
 ---
 
-### 7.2 Asset Detail Pages
+### 8.2 Asset Detail Pages
 
 **Status:** `/src/pages/stock-data/` directory exists but empty. Build out.
 
@@ -187,7 +219,7 @@ Sections:
 
 ---
 
-### 7.3 News Aggregation Engine (Enhance Existing `news/` App)
+### 8.3 News Aggregation Engine (Enhance Existing `news/` App)
 
 **Current state:** `GetNewsArticles` class pulls category JSON from S3. No ticker linking, no multi-source.
 
@@ -229,7 +261,7 @@ Sections:
 
 ---
 
-### 7.4 Spread Analysis & Capital Markets (Enhance Existing)
+### 8.4 Spread Analysis & Capital Markets (Enhance Existing)
 
 **Status:** `EquityCharts.js` and `EconomicCharts.js` are built. Enhance.
 
@@ -246,7 +278,7 @@ Sections:
 
 ---
 
-### 7.5 Watchlist & Performance Tracking (New `watchlist/` App)
+### 8.5 Watchlist & Performance Tracking (New `watchlist/` App)
 
 **Current state:** `ProfileStock` in `stockuploader` links user to stock, but no entry price/date tracking.
 
@@ -277,7 +309,7 @@ class WatchlistEntry(models.Model):
 
 ---
 
-### 7.6 Factor Engine & Decile Analysis (New `factor_engine/` App)
+### 8.6 Factor Engine & Decile Analysis (New `factor_engine/` App)
 
 **Django app (`backend/factor_engine/`):**
 
@@ -313,7 +345,7 @@ class WatchlistEntry(models.Model):
 
 ---
 
-### 7.7 Backtesting Engine (New `backtester/` App — Phased)
+### 8.7 Backtesting Engine (New `backtester/` App — Phased)
 
 #### V1: Signal Backtesting
 
@@ -367,7 +399,7 @@ V2 is specced here for awareness but not implemented until V1 signal backtesting
 
 ---
 
-### 7.8 Stock Screener (Enhance Existing)
+### 8.8 Stock Screener (Enhance Existing)
 
 **Status:** `Screener.js` exists with sector filtering. Enhance.
 
@@ -384,7 +416,7 @@ V2 is specced here for awareness but not implemented until V1 signal backtesting
 
 ---
 
-### 7.9 Custom Analytics Module Framework
+### 8.9 Custom Analytics Module Framework
 
 Design pattern for adding future research modules without refactoring:
 
@@ -410,9 +442,9 @@ src/hooks/use{ModuleName}.js  # data fetching hook
 
 ---
 
-## 8. Frontend Architecture
+## 9. Frontend Architecture
 
-### 8.1 Routing
+### 9.1 Routing
 
 | Router | Hosts |
 |--------|-------|
@@ -421,7 +453,7 @@ src/hooks/use{ModuleName}.js  # data fetching hook
 
 New pages all go in Pages Router, following the existing Bootstrap + Chart.js pattern in `src/componentsLegacy/`.
 
-### 8.2 New Pages Summary
+### 9.2 New Pages Summary
 
 | Route | Description | Status |
 |-------|-------------|--------|
@@ -436,7 +468,7 @@ New pages all go in Pages Router, following the existing Bootstrap + Chart.js pa
 | `/screener` (or enhance index) | Stock screener | Enhance |
 | `/spreads` | Capital markets spreads | Enhance |
 
-### 8.3 New Hooks
+### 9.3 New Hooks
 
 | Hook | Purpose |
 |------|---------|
@@ -447,13 +479,13 @@ New pages all go in Pages Router, following the existing Bootstrap + Chart.js pa
 | `useWatchlistPerformance.js` | Watchlist entries with live P&L |
 | `useStockDetail.js` | Aggregate hook for stock detail page |
 
-### 8.4 State Management
+### 9.4 State Management
 
 No changes to Redux structure. New pages use SWR (consistent with existing hooks) for server state. Watchlist additions/removals invalidate the watchlist cache via POST/DELETE → refetch pattern.
 
 ---
 
-## 9. Data Architecture
+## 10. Data Architecture
 
 ```
 PostgreSQL (via Django ORM)
@@ -480,7 +512,7 @@ AWS S3 (thetradingfloor bucket, us-east-1)
 
 ---
 
-## 10. Non-Functional Requirements
+## 11. Non-Functional Requirements
 
 ### Performance
 - All read endpoints serve from Redis cache (p50 < 50ms)
@@ -514,7 +546,7 @@ AWS S3 (thetradingfloor bucket, us-east-1)
 
 ---
 
-## 11. Environment Variables (Extended)
+## 12. Environment Variables (Extended)
 
 Existing vars documented in CLAUDE.md. Add:
 
@@ -531,7 +563,7 @@ Existing vars documented in CLAUDE.md. Add:
 
 ---
 
-## 12. Critical Files — Existing (Reuse / Extend)
+## 13. Critical Files — Existing (Reuse / Extend)
 
 | File | Role |
 |------|------|
@@ -555,22 +587,24 @@ Existing vars documented in CLAUDE.md. Add:
 
 ---
 
-## 13. Build Sequence (Recommended Order)
+## 14. Build Sequence (Recommended Order)
 
-1. **Stock detail page** — highest user value, reuses most existing components and hooks
-2. **Enhanced news engine** — multi-source ingestion + ticker linking; unlocks news on detail pages
-3. **Watchlist app** — split `ProfileStock` into dedicated app, add entry price tracking
-4. **Factor engine** — decile analysis and factor scores; builds on existing DB models
-5. **Backtesting V1** — signal backtesting; depends on factor engine being stable
-6. **Market overview enhancements** — breadth, VIX strip, news ticker tags
-7. **Screener enhancements** — add factor filters after factor engine is live
-8. **ETF / Index / Crypto detail pages** — parallel to stock detail, similar pattern
-9. **Custom analytics framework** — document the module contract once patterns are proven
-10. **Backtesting V2** — strategy simulation after V1 validates the engine
+Each item follows the §4 workflow: **prototype in `backend/class_files/` notebook → validate → graduate to Django app.**
+
+1. **Stock detail page** — highest user value; backend logic prototyped in `class_files/stock_detail.ipynb`, then ported to Django views + existing hooks reused on frontend
+2. **Enhanced news engine** — `class_files/news_normalizer.ipynb` prototypes multi-source fetch and ticker extraction; unlocks news on all asset detail pages
+3. **Watchlist app** — `class_files/watchlist_performance.ipynb` validates entry-price tracking and P&L calculation; then new `watchlist/` Django app and frontend page
+4. **Factor engine** — `class_files/factor_engine_scoring.ipynb` validates Z-score normalisation and decile construction against real DB data; then `factor_engine/` Django app
+5. **Backtesting V1** — `class_files/backtester_signal.ipynb` validates quintile return calculation and IC computation; then `backtester/` Django app
+6. **Market overview enhancements** — breadth indicator prototyped in `class_files/market_breadth.ipynb`; VIX strip and news ticker tags added to existing frontend
+7. **Screener enhancements** — factor score filters added after factor engine is live; no new notebook needed (uses factor engine output)
+8. **ETF / Index / Crypto detail pages** — same pattern as stock detail page; share backend logic
+9. **Custom analytics framework** — formalise the module contract once the above patterns are proven; update §8.9
+10. **Backtesting V2** — `class_files/backtester_strategy.ipynb` validates portfolio construction logic; then extend `backtester/` app
 
 ---
 
-## 14. Verification Checklist
+## 15. Verification Checklist
 
 - [ ] `python manage.py check` passes with all new apps registered
 - [ ] `python manage.py migrate` runs cleanly (no conflicts)
