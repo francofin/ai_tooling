@@ -1,0 +1,51 @@
+[project]
+name = "fintank-backend"
+version = "0.1.0"
+description = "Django REST Framework API for the Fintank financial platform"
+requires-python = ">=3.12"
+dependencies = [
+    "django>=5.2",
+    "djangorestframework>=3.16.1",
+    "djangorestframework-simplejwt>=5.5.1",
+    "dj-rest-auth>=2.2.5",
+    "django-allauth>=0.51.0",
+    "django-celery-beat>=2.8.1",
+    "django-celery-results>=2.6.0",
+    "celery>=5.6.0",
+    "redis>=7.1.0",
+    "psycopg2-binary>=2.9.11",
+    "django-filter>=21.1",
+    "django-pandas>=0.6.6",
+    "django-redis>=6.0.0",
+    "django-storages>=1.12.3",
+    "boto3>=1.42.14",
+    "django-cors-headers>=3.12.0",
+    "whitenoise>=6.11.0",
+    "dj-database-url>=0.5.0",
+    "django-import-export>=2.9.0",
+    "python-decouple>=3.6",
+    "pillow>=9.2.0",
+    "openpyxl>=3.1.5",
+    "xlrd>=2.0.2",
+    "xlwt>=1.3.0",
+    "odfpy>=1.4.1",
+    "tablib>=3.9.0",
+    "pyarrow>=22.0.0",
+    "pandas>=2.3.3",
+    "numpy>=2.3.3",
+    "s3fs>=2024.1.0",
+    "python-dotenv>=1.1.1",
+    "requests>=2.32.5",
+    "httpx>=0.28.1",
+    "anthropic>=0.40.0",
+    # fintank-specific
+    "scipy>=1.15.0",
+    "pandas-market-calendars>=4.4.0",
+    "pytz>=2024.1",
+    "PyYAML>=6.0.2",
+    "python-dateutil>=2.9.0",
+]
+
+[tool.uv]
+# Shared virtual environment — avoids duplicating the llm-engineering package set
+# Activate with: source /home/franc/projects/ai_agents/llm_engineering/.venv/bin/activate
