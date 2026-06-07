@@ -14,6 +14,7 @@ const HeroSection = ({ data }) => {
   )
 
   const randomTickerSearch = () => {
+    if (!allStocks || allStocks.length === 0) return
     const idx = Math.floor(Math.random() * allStocks.length)
     router.push(`/stock-data/${allStocks[idx].symbol}`)
   }
@@ -43,7 +44,7 @@ const HeroSection = ({ data }) => {
                 </p>
               </div>
             )}
-            <Button onClick={randomTickerSearch} disabled={!allStocks}>
+            <Button onClick={randomTickerSearch} disabled={!allStocks || allStocks.length === 0}>
               Random Ticker Search
             </Button>
           </Col>
