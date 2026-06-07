@@ -24,8 +24,8 @@ const NewsSection = ({ articles, data }) => {
           </Col>
         </Row>
         <Row>
-          {articles.slice(0, 64).map((post, index) => (
-            <Col key={index} lg="3" sm="6" className="mb-4 hover-animate">
+          {articles.slice(0, 64).map((post) => (
+            <Col key={post.link} lg="3" sm="6" className="mb-4 hover-animate">
               <NewsPost data={post} />
             </Col>
           ))}
