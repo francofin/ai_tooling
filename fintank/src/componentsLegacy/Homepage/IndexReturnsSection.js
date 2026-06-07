@@ -4,7 +4,7 @@ import Swiper from "../Swiper"
 import { useHomeIndex } from "../../hooks/useHomeIndex"
 
 const IndexReturnsSection = ({ data }) => {
-  const indexData = useHomeIndex()
+  const { data: indexReturnsData } = useHomeIndex()
 
   if (!data.topBlocks) return null
 
@@ -23,7 +23,7 @@ const IndexReturnsSection = ({ data }) => {
           md={2}
           lg={3}
           xl={4}
-          data={indexData.data}
+          data={indexReturnsData}
           loop
           speed={1000}
           pagination
