@@ -22,10 +22,9 @@ export async function getServerSideProps() {
 
   let responseNews = []
   try {
-    const fmpRes = await axios.get(
+    responseNews = await fetcher(
       `${process.env.NEXT_PUBLIC_FINTANK_API_URL}/get_articles/fmp`
-    )
-    responseNews = fmpRes.data ?? []
+    ) ?? []
   } catch (_) {
     // news fetch failed — page renders with empty articles
   }
