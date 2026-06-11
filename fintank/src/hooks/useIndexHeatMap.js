@@ -76,7 +76,7 @@ export const useIndexHeatMaps = (index, initialIndexName) => {
             }
         }
         fetchData()
-    }, [index, initialIndexName, router]);
+    }, [index, initialIndexName]);
 
     return { options, series, loading, indexUniverseData }
 }
