@@ -6,7 +6,6 @@ export const useIndexHeatMaps = (index, initialIndexName) => {
     const [loading, setLoading] = useState(true)
     const [series, setSeries] = useState([])
     const [options, setOptions] = useState(undefined)
-    const [indexName, setIndexName] = useState(initialIndexName)
     const [indexUniverseData, setIndexUniverseData] = useState([])
     const router = useRouter()
 
@@ -38,7 +37,7 @@ export const useIndexHeatMaps = (index, initialIndexName) => {
                     }
                   },
                   title: {
-                    text: `${indexName} Stock Performance`,
+                    text: `${initialIndexName} Stock Performance`,
                     align: 'left',
                     style: { color: '#c9d1d9' }
                   },
@@ -77,7 +76,7 @@ export const useIndexHeatMaps = (index, initialIndexName) => {
             }
         }
         fetchData()
-    }, [index, indexName]);
+    }, [index, initialIndexName, router]);
 
     return { options, series, loading, indexUniverseData }
 }
