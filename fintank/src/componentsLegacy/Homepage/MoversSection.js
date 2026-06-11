@@ -77,13 +77,25 @@ const MoversSection = ({ moverData, data }) => {
           <p className="h2">{indexHeatMapLabel} Constituent Stock Performance</p>
         </div>
         <Row>
-          {typeof window !== "undefined" && heatMapOptions && (
-            <ReactApexChart
-              options={heatMapOptions}
-              series={heatMapSeries}
-              type="treemap"
-              height={750}
-            />
+          {typeof window !== "undefined" && (
+            heatMapOptions ? (
+              <ReactApexChart
+                options={heatMapOptions}
+                series={heatMapSeries}
+                type="treemap"
+                height={750}
+              />
+            ) : (
+              <div
+                style={{
+                  height: 750,
+                  background: '#0d1117',
+                  borderRadius: 6,
+                  opacity: 0.5,
+                }}
+                className="placeholder-glow"
+              />
+            )
           )}
         </Row>
       </Container>
