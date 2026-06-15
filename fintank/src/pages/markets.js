@@ -29,6 +29,13 @@ const UNIVERSE_DATA_OPTIONS = [
   { value: "etf", label: "ETF" },
 ]
 
+const CRYPTO_LIST = ["BTCUSD,ETHUSD,USDTUSD,BNBUSD,SOLUSD,SLAMUSD,SETHUSD,USDCUSD,XRPUSD,STETHUSD,DOGEUSD,HFTUSD,WTRXUSD,TRXUSD,TONUSD, \
+                ADAUSD,WSTETHUSD,AVAXUSD,SHIBUSD,WBTCUSD,USTUSD,WETHUSD,VINUUSD,BCHUSD,LINKUSD,ETHMUSD,DOTUSD,LEOUSD,DAIUSD,LTCUSD,NEARUSD, \
+                SUIUSD,APTUSD,UNIUSD,BTCBUSD,WBETHUSD,WEOSUSD,PEPEUSD,TAOUSD,ICPUSD,FETUSD,STEAMXUSD,KASUSD,XMRUSD,USDE,XLMUSD,ETCUSD,WBTUSD,STXUSD, \
+                RNDRUSD,WIFUSD,OKBUSD,AAVEUSD,IMXUSD,FILUSD,ARBUSD,OPUSD,MNTUSD,CROUSD,FTMUSD,INJUSD,HBARUSD,RUNEUSD,VETUSD,ATOMUSD,LUNA1USD,BGBUSD,BONKUSD, \
+                PAIUSD,POPCATUSD,GRTUSD,SEIUSD,JUPUSD,RETHUSD,PYTHUSD,FLOKIUSD,OMUSD,WLDUSD,THETAUSD,HNTUSD,TIAUSD,ZBUUSD,FLZUSD,KCSUSD,ARUSD,ONDOUSD,ALGOUSD,MKRUSD, \
+                MSOLUSD,RAYUSD,BEAMUSD,LDOUSD,BSVUSD,BRETTUSD,MEWUSD,JASMYUSD,MATICUSD,BTTUSD,APEUSD,FTNUSD"]
+
 export async function getStaticProps() {
 
 //     const res = await axios.get(`${process.env.NEXT_PUBLIC_FINTANK_API_URL}/market_indexes/`);
@@ -53,19 +60,16 @@ const KnowledgeBase = (props) => {
     const {data: cryptoData} = useCryptoPerformance();
 
     const [universeData, setUniverseData] = useState("equity");
-    const [universeDataLabel, setUniverseDataLabel] = useState("Equity");
     const [allIndexData, setAllIndexData] = useState([])
+    const universeDataLabel = UNIVERSE_DATA_OPTIONS.find(o => o.value === universeData)?.label ?? "Equity";
 
     useEffect(() => {
-        if (universeData === "equity") { 
+        if (universeData === "equity") {
             setAllIndexData(indexData)
-            setUniverseDataLabel("Equity")
         } else if (universeData === "etf") {
             setAllIndexData(etfData)
-            setUniverseDataLabel("ETF")
         } else if (universeData === "crypto") {
             setAllIndexData(cryptoData)
-            setUniverseDataLabel("Crypto")
         }
     }, [indexData, etfData, cryptoData, universeData])
 
