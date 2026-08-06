@@ -691,8 +691,11 @@ class FactorRankTests(SimpleTestCase):
         self.assertEqual(total, 205)
 
     def test_ten_buckets_above_a_hundred_rows_and_five_at_or_below(self):
-        self.assertEqual(len(self._run(frame=self._frame(n=205))['data']['pe']['buckets']), 10)
-        self.assertEqual(len(self._run(frame=self._frame(n=80))['data']['pe']['buckets']), 5)
+        """Two universes, so the second call cannot hit the first's cache entry."""
+        self.assertEqual(
+            len(self._run(frame=self._frame(n=205), universe='sp500')['data']['pe']['buckets']), 10)
+        self.assertEqual(
+            len(self._run(frame=self._frame(n=80), universe='nas')['data']['pe']['buckets']), 5)
 
     def test_beta_buckets_rank_on_beta_not_price_to_cash_flow(self):
         """Every legacy frequency method read beta = self.get_pcf_metrics(...)."""
