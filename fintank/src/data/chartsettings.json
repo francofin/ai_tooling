@@ -1,0 +1,419 @@
+{
+    "title": "Stay on Manhattan, NY",
+    "content": "Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi.",
+    "regions": [
+        {
+            "label": "US",
+            "value": "US"
+        },
+        {
+            "label": "Canada",
+            "value": "Canada"
+        },
+        {
+            "label": "Global",
+            "value": "Global"
+        }
+    ],
+    "frequency": [
+        {
+            "label": "1 Minute",
+            "value": "1min"
+        },
+        {
+            "label": "5 Minute",
+            "value": "5min"
+        },
+        {
+            "label": "10 Minute",
+            "value": "10min"
+        },
+        {
+            "label": "30 Minute",
+            "value": "30min"
+        },
+        {
+            "label": "1 Hour",
+            "value": "1hr"
+        },
+        {
+            "label": "3 Hour",
+            "value": "3hr"
+        },
+        {
+            "label": "1 Day",
+            "value": "1day"
+        }
+    ],
+    "markets": [
+        { "label": "S&P 500", "value": "sp500" },
+        { "label": "NASDAQ 100", "value": "nas" },
+        { "label": "Russell 2000", "value": "r2000" },
+        { "label": "Russell Microcap", "value": "rmicro" },
+        { "label": "S&P/TSX Composite", "value": "tsx" },
+        { "label": "S&P/TSX SmallCap", "value": "tsx_small_cap" },
+        { "label": "MSCI EAFE", "value": "msci_eafe" },
+        { "label": "MSCI World Small Cap", "value": "msci_sm" }
+    ],
+    "factorPeriods": [
+        {
+            "label": "1 Month Returns",
+            "value": "1M"
+        },
+        {
+            "label": "3 Month Returns",
+            "value": "3M"
+        },
+        {
+            "label": "6 Month Returns",
+            "value": "6M"
+        },
+        {
+            "label": "Year to Date Returns",
+            "value": "ytd"
+        }
+    ],
+    "technicalPeriods": [
+        {
+            "label": "1 Period",
+            "value": "1"
+        },
+        {
+            "label": "9 Period",
+            "value": "9"
+        },
+        {
+            "label": "10 Period",
+            "value": "10"
+        },
+        {
+            "label": "13 Period",
+            "value": "13"
+        },
+        {
+            "label": "20 Period",
+            "value": "20"
+        },
+        {
+            "label": "26 Period",
+            "value": "26"
+        },
+        {
+            "label": "50 Period",
+            "value": "50"
+        },
+        {
+            "label": "3 Period",
+            "value": "3hr"
+        },
+        {
+            "label": "1 Period",
+            "value": "1day"
+        }
+    ],
+    "economicdata": [
+        {
+            "label": "GDP",
+            "value": "GDP"
+        },
+        {
+            "label": "Real GDP",
+            "value": "realGDP "
+        },
+        {
+            "label": "Real GDP Per Capita",
+            "value": "realGDPPerCapita "
+        },
+        {
+            "label": "Fed Fund Rate",
+            "value": "federalFunds"
+        },
+        {
+            "label": "CPI",
+            "value": "CPI"
+        },
+        {
+            "label": "Inflation Rate",
+            "value": "inflationRate"
+        },
+        {
+            "label": "Inflation",
+            "value": "inflation"
+        },
+        {
+            "label": "Retail Sales",
+            "value": "retailSales"
+        },
+        {
+            "label": "Consumer Sentiment",
+            "value": "consumerSentiment"
+        },
+        {
+            "label": "Unemployment Rate",
+            "value": "unemploymentRate "
+        },
+        {
+            "label": "Non Farm Payroll",
+            "value": "totalNonfarmPayroll "
+        },
+        {
+            "label": "Industrial Production",
+            "value": "industrialProductionTotalIndex "
+        },
+        {
+            "label": "Vehicle Sales",
+            "value": "totalVehicleSales"
+        },
+        {
+            "label": "Recession Probabilities",
+            "value": "smoothedUSRecessionProbabilities "
+        },
+        {
+            "label": "30 yr Ficed Rate",
+            "value": "30YearFixedRateMortgageAverage "
+        },
+        {
+            "label": "New Privately Owned Housing Starts",
+            "value": "newPrivatelyOwnedHousingUnitsStartedTotalUnits "
+        }
+    ],
+    "indexes": [
+        {"label": "ICE BofAML MOVE Index", "value": "^MOVE"},
+        {"label": "FTSE 350 Oil. Gas and Coal Inde", "value": "NMX601010.FGI"},
+        {"label": "Austrian Traded Index in EUR", "value": "^ATX"},
+        {"label": "S&P 100 INDEX", "value": "^OEX"},
+        {"label": "NASDAQ 100", "value": "^NDX"},
+        {"label": "S&P/ASX 200", "value": "^AXJO"},
+        {"label": "IBEX 35", "value": "^IBEX"},
+        {"label": "FTSE Bursa Malaysia KLCI", "value": "^KLSE"},
+        {"label": "Wilshire 5000 Total Market Index", "value": "^W5000"},
+        {"label": "Russell 1000 Total Return", "value": "^RUITR"},
+        {"label": "SET Index", "value": "^SET.BK"},
+        {"label": "13 Week Treasury Bill", "value": "^IRX"},
+        {"label": "S&P MID CAP 400 INDEX", "value": "^MID"},
+        {"label": "Russell 2000", "value": "^RUT"},
+        {"label": "HANG SENG CHINA ENTERPRISES INDEX", "value": "^HSCE"},
+        {"label": "BIST 100", "value": "XU100.IS"},
+        {"label": "Ossiam Japan ESG Low Carbon Minimum Variance", "value": "OSXJ.DE"},
+        {"label": "Russell 3000", "value": "^RUA"},
+        {"label": "KOSPI Composite Index", "value": "^KS11"},
+        {"label": "S&P BSE SENSEX", "value": "^BSESN"},
+        {"label": "Tadawul All Shares Index", "value": "^TASI.SR"},
+        {"label": "Dow Jones U.S. Semiconductors Index", "value": "^DJUSSC"},
+        {"label": "NYSE AMEX COMPOSITE INDEX", "value": "^XAX"},
+        {"label": "STXE 600 PR.EUR", "value": "^STOXX"},
+        {"label": "NASDAQ 100 Total Return Index", "value": "^XNDX"},
+        {"label": "SSE Composite Index", "value": "000001.SS"},
+        {"label": "S&P/TSX 60 Index", "value": "TX60.TS"},
+        {"label": "MDAX PERFORMANCE-INDEX", "value": "^MDAXI"},
+        {"label": "Dow Jones Utility Average", "value": "^DJU"},
+        {"label": "ALL ORDINARIES", "value": "^AORD"},
+        {"label": "Russell 3000 Total Return", "value": "^RUATR"},
+        {"label": "Dow Jones Transportation Average", "value": "^DJT"},
+        {"label": "Thomson Reuters/CoreCommodity C", "value": "^TRCCRBTR"},
+        {"label": "KOSPI 200 Index", "value": "KOSPI200.KS"},
+        {"label": "CBOE 20+ Year Treasury Bond ETF", "value": "^VXTLT"},
+        {"label": "CBOE VIX VOLATILITY INDEX", "value": "^VVIX"},
+        {"label": "NYSE Arca Tech 100 Index", "value": "^PSE"},
+        {"label": "EGX 30 Price Return Index", "value": "^CASE30"},
+        {"label": "CBOE NASDAQ 100 Volatility", "value": "^VXN"},
+        {"label": "Nikkei 300", "value": "^N300"},
+        {"label": "STI Index", "value": "^STI"},
+        {"label": "AEX-INDEX", "value": "^AEX"},
+        {"label": "Parallel Market Capped Index ", "value": "^NOMUC.SR"},
+        {"label": "FTSE MIB Index", "value": "FTSEMIB.MI"},
+        {"label": "Treasury Yield 5 Years", "value": "^FVX"},
+        {"label": "S&P 500", "value": "^GSPC"},
+        {"label": "CAC 40", "value": "^FCHI"},
+        {"label": "DAX PERFORMANCE-INDEX", "value": "^GDAXI"},
+        {"label": "Jakarta Composite Index", "value": "^JKSE"},
+        {"label": "Dow Jones Industrial Average", "value": "^DJI"},
+        {"label": "Treasury Yield 10 Years", "value": "^TNX"},
+        {"label": "S&P GSCI Index", "value": "^SPGSCI"},
+        {"label": "Nikkei 225", "value": "^N225"},
+        {"label": "NYSE COMPOSITE (DJ)", "value": "^NYA"},
+        {"label": "FTSE 100", "value": "^FTSE"},
+        {"label": "MERVAL", "value": "^MERV"},
+        {"label": "Russell 1000", "value": "^RUI"},
+        {"label": "EURONEXT 100", "value": "^N100"},
+        {"label": "Dow Jones U.S. Total Stock Mark", "value": "^DWCF"},
+        {"label": "MOEX Russia Index", "value": "IMOEX.ME"},
+        {"label": "SDAX PERFORMANCEINDEX", "value": "^SDAXI"},
+        {"label": "S&P Global Natural Resources Index", "value": "^SPGNRUP"},
+        {"label": "Treasury Yield 30 Years", "value": "^TYX"},
+        {"label": "US Dollar/USDX - Index - Cash ", "value": "DX-Y.NYB"},
+        {"label": "NASDAQ Composite", "value": "^IXIC"},
+        {"label": "TA-125", "value": "^TA125.TA"},
+        {"label": "S&P/TSX Composite index", "value": "^GSPTSE"},
+        {"label": "Dow Jones Industrial Average TR", "value": "^DJITR"},
+        {"label": "FTSE Italia All-Share Index", "value": "ITLMS.MI"},
+        {"label": "Cboe UK 100 Price Return", "value": "^BUK100P"},
+        {"label": "Dow Jones Hong Kong Titans 30 I", "value": "^XLHK"},
+        {"label": "S&P 500 (TR)", "value": "^SP500TR"},
+        {"label": "TSEC weighted index", "value": "^TWII"},
+        {"label": "MSCIUSREIT INDEX", "value": "^RMZ"},
+        {"label": "SMI PR", "value": "^SSMI"},
+        {"label": "BEL 20", "value": "^BFX"},
+        {"label": "CBOE Volatility Index", "value": "^VIX"},
+        {"label": "NYSE International 100 Index", "value": "^NYITR"},
+        {"label": "S&P/TSX Composite Index - Banks", "value": "TXBA.TS"},
+        {"label": "WIG20", "value": "WIG20.WA"},
+        {"label": "ALERIAN MLP INDEX", "value": "^AMZ"},
+        {"label": "FTSE 250", "value": "^FTMC"},
+        {"label": "HANG SENG INDEX", "value": "^HSI"},
+        {"label": "NIFTY BANK", "value": "^NSEBANK"},
+        {"label": "FTSE 350 Index - Oil & Gas Prod", "value": "^NMX0530"},
+        {"label": "XCSE:OMX Stockholm 30 Index", "value": "^OMXS30"},
+        {"label": "Russell Midcap Total Return", "value": "^RMCCTR"},
+        {"label": "CBOE Gold Volatitity Index", "value": "^GVZ"},
+        {"label": "S&P/NZX 50 INDEX GROSS", "value": "^NZ50"},
+        {"label": "FTSE 350", "value": "^FTLC"},
+        {"label": "Top 40 USD Net TRI Index", "value": "^JN0U.JO"},
+        {"label": "S&P 500 MINI SPX OPTIONS INDEX", "value": "^XSP"},
+        {"label": "TECDAX TR", "value": "^TECDAX"},
+        {"label": "CBOE Crude Oil Volatility Index", "value": "^OVX"},
+        {"label": "IBOVESPA", "value": "^BVSP"},
+        {"label": "RTS Index", "value": "RTSI.ME"},
+        {"label": "CES CHINA HK MAINLAND INDEX", "value": "512.HK"},
+        {"label": "NIFTY 50", "value": "^NSEI"},
+        {"label": "Russell 2000 Total Return", "value": "^RUTTR"},
+        {"label": "CBOE SILVER ETF VOLATILITY INDEX", "value": "^VXSLV"},
+        {"label": "ESTX 50 PR.EUR", "value": "^STOXX50E"},
+        {"label": "Cboe Russell 2000 Volatility Index", "value": "^RVX"},
+        {"label": "IPC MEXICO", "value": "^MXX"}
+    ],
+    "tags": {
+        "title": "Neighbourhood Tag",
+        "items": [
+            {
+                "value": "type_0",
+                "label": "Hipster"
+            },
+            {
+                "value": "type_1",
+                "label": "Bussines"
+            },
+            {
+                "value": "type_2",
+                "label": "Family"
+            },
+            {
+                "value": "type_3",
+                "label": "Green"
+            }
+        ]
+    },
+    "amenities": {
+        "title": "Amenities",
+        "items": [
+            {
+                "value": "amenities_0",
+                "label": "Kitchen"
+            },
+            {
+                "value": "amenities_1",
+                "label": "Shampoo"
+            },
+            {
+                "value": "amenities_2",
+                "label": "Heating"
+            },
+            {
+                "value": "amenities_3",
+                "label": "Air conditioning"
+            },
+            {
+                "value": "amenities_4",
+                "label": "Washer"
+            },
+            {
+                "value": "amenities_5",
+                "label": "Dryer"
+            },
+            {
+                "value": "amenities_6",
+                "label": "Wifi"
+            },
+            {
+                "value": "amenities_7",
+                "label": "Breakfast"
+            },
+            {
+                "value": "amenities_8",
+                "label": "Indoor fireplace"
+            },
+            {
+                "value": "amenities_9",
+                "label": "Buzzer/wireless intercom"
+            },
+            {
+                "value": "amenities_10",
+                "label": "Doorman"
+            },
+            {
+                "value": "amenities_11",
+                "label": "Hangers"
+            },
+            {
+                "value": "amenities_12",
+                "label": "Iron"
+            },
+            {
+                "value": "amenities_13",
+                "label": "Hair dryer"
+            },
+            {
+                "value": "amenities_14",
+                "label": "Laptop friendly workspace"
+            }
+        ]
+    },
+    "facilities": {
+        "title": "Facilities",
+        "items": [
+            {
+                "value": "facilities_0",
+                "label": "Free parking on premises"
+            },
+            {
+                "value": "facilities_1",
+                "label": "Gym"
+            },
+            {
+                "value": "facilities_2",
+                "label": "Hot tub"
+            },
+            {
+                "value": "facilities_3",
+                "label": "Pool"
+            }
+        ]
+    },
+    "sortby": [
+        {
+            "value": "popular",
+            "label":  "Most popular"
+            
+        },
+        {
+            "value": "recommended",
+            "label":  "Recommended"
+            
+        },
+        {
+            "value": "newest",
+            "label":  "Newest"
+            
+        },
+        {
+            "value": "oldest",
+            "label":  "Oldest"
+            
+        },
+        {
+            "value": "closest",
+            "label":  "Closest"
+            
+        }
+    ]
+}
