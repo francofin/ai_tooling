@@ -217,11 +217,21 @@ filesystem, key `stock_data/factor_metrics/{universe}_metrics_returns.parquet`,
 ### `Rankings.py` rewrite
 
 `GetStockRanks` is ~940 lines, of which ~700 are four near-identical
-frequency methods differing only in a string literal. The rewrite:
+frequency methods differing only in a string literal.
 
-- **Removes hardcoded `fmp_api` / `fred_api` literals** (lines 15–16) — neither
-  is used by this class. Same class of exposure as the burned credentials in
-  `homepage_data.ipynb`.
+**It is replaced, not edited in place.** The logic moves to a new
+`backend/analyzer/analyzer_utils/factor_tools.py`, mirroring `index_tools.py` —
+same neighbourhood, same `data_getter` + gzip'd `cache` conventions, and the
+same testability: `analyzer/tests.py` already covers `index_tools` with 34
+`SimpleTestCase` cases that patch the loaders and run in 0.4s with no database.
+`backend/utils/Rankings.py` is then deleted; nothing imports it.
+
+The rewrite:
+
+- **Removes hardcoded `fmp_api` / `fred_api` literals** (`Rankings.py:15-16`) —
+  neither is used by the class. Same class of exposure as the burned credentials
+  in `homepage_data.ipynb`. Deleting the file removes them from the working tree
+  (not from git history — rotation is still the real fix).
 - Replaces `pickle.loads(...)` with the parquet reader, and the six
   `*_file_name` constants with the 8-slug universe list.
 - Collapses `get_one_month_metrics` / `get_three_month_metrics` /
@@ -266,10 +276,12 @@ frequency methods differing only in a string literal. The rewrite:
 ### View and URL
 
 `get_stock_quintiles_task(request, frequency, universe)` in `analyzer/views.py`,
-following the `get_universe_profiles_task` pattern: validate the slug and
-frequency against allow-lists (400 on unknown), try the gzip'd Redis blob at
-`home:factor_ranks:{universe}:{frequency}:v1`, fall back to computing from the
-parquet, 500 with the error string on failure. Returns `{"data": <pack>}`.
+following the `get_index_page_risk` pattern exactly: a local import of the
+getter, `KeyError` → 404, `(ValueError, TypeError)` → 400, anything else → 500.
+Caching lives in `factor_tools` (gzip'd blob at
+`factor:ranks:{universe}:{frequency}:v1`, `CACHE_TTL = 86400`), as it does in
+`index_tools`. Returns `{"data": <pack>}` — the frontend reads
+`periodicityResults.data.pe`, so the wrapper key is required.
 
 ```python
 path('getstockquintiles/<str:frequency>/<str:universe>/',
@@ -310,10 +322,14 @@ The producer is a notebook, so verification is by inspection at each stage:
    FMP's is not.
 3. Full run across all 8 lists — confirm row counts track the constituent
    counts (sp500 ≈ 503, nas ≈ 102, msci_sm ≈ 3,522) and read the skip tallies.
-4. Backend: `load_factor_metrics("sp500")` round-trips after upload;
-   `get_all_frequency_metrics("1M", "sp500")` returns all 15 keys and no
-   `int_cov`; bucket membership sums to the input row count (the tail-drop
-   regression test).
+4. Backend: `SimpleTestCase` cases in `analyzer/tests.py`, patching
+   `data_getter.load_factor_metrics` with a synthetic frame — the pattern
+   `RiskTests` already uses. Covers: all 15 pack keys present and no `int_cov`;
+   bucket membership sums to the input row count (the tail-drop regression);
+   `beta` buckets ranked on `beta`, not `pcf` (the mislabel regression); an
+   equal-weight bucket's value equals the mean of its returns / 100 (the
+   aggregation fix); a sparse column with fewer rows than buckets returns an
+   empty pack instead of raising. Run: `python manage.py test analyzer`.
 5. `curl /api/getstockquintiles/1M/sp500/` and load `/factor-performance`.
 
 ## Rollout
