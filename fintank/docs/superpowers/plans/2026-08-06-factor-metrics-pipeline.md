@@ -83,8 +83,13 @@ Parquets are local staging and are not in git — there is nothing to commit for
 The heart of the producer: given a symbol's `adjClose` series, compute the 1M/3M/6M/YTD return and stdev. Built and tested as a standalone function first, because it is where every legacy bug lived.
 
 **Files:**
-- Create: `backend/class_files/tests/test_factor_windows.py`
-- Create: `backend/class_files/factor_windows.py`
+- Create: `backend/utils/factor_windows.py`
+- Create: `backend/utils/test_factor_windows.py`
+
+`/backend/class_files` is gitignored wholesale, so tracked source cannot live
+there. `backend/utils/` already holds four standalone scripts no Django code
+imports (`RunCovar`, `GetPrices`, `SP500PeerList`, `PeerCalculations`), so a
+producer-only module fits its existing use.
 
 **Interfaces:**
 - Consumes: nothing.
@@ -96,14 +101,19 @@ Task 3 imports both from this module into the notebook.
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `backend/class_files/tests/test_factor_windows.py`:
+Create `backend/utils/test_factor_windows.py`. It sits next to the module
+rather than in a `tests/` package: `manage.py test` discovers `test*.py` from
+`backend/`, so it gets imported during Django test discovery — the import must
+be package-qualified or discovery raises. Django collects zero tests from it
+(these are plain pytest functions, not `TestCase` subclasses), which is
+expected.
 
 ```python
 import numpy as np
 import pandas as pd
 import pytest
 
-from factor_windows import WINDOWS, window_return_and_std
+from utils.factor_windows import WINDOWS, window_return_and_std
 
 
 def _series(dates, values):
@@ -168,15 +178,15 @@ def test_window_labels_cover_the_frontend_periods():
 - [ ] **Step 2: Run the tests to verify they fail**
 
 ```bash
-cd /home/franc/projects/ai_agents/ai_tooling/fintank/backend/class_files
-/home/franc/projects/ai_agents/ai_tooling/.venv/bin/python -m pytest tests/test_factor_windows.py -v
+cd /home/franc/projects/ai_agents/ai_tooling/fintank/backend
+/home/franc/projects/ai_agents/ai_tooling/.venv/bin/python -m pytest utils/test_factor_windows.py -v
 ```
 
 Expected: collection error — `ModuleNotFoundError: No module named 'factor_windows'`.
 
 - [ ] **Step 3: Write the implementation**
 
-Create `backend/class_files/factor_windows.py`:
+Create `backend/utils/factor_windows.py`:
 
 ```python
 """Trading-day window returns for the factor metrics producer.
@@ -246,8 +256,8 @@ def window_return_and_std(adj_close, label):
 - [ ] **Step 4: Run the tests to verify they pass**
 
 ```bash
-cd /home/franc/projects/ai_agents/ai_tooling/fintank/backend/class_files
-/home/franc/projects/ai_agents/ai_tooling/.venv/bin/python -m pytest tests/test_factor_windows.py -v
+cd /home/franc/projects/ai_agents/ai_tooling/fintank/backend
+/home/franc/projects/ai_agents/ai_tooling/.venv/bin/python -m pytest utils/test_factor_windows.py -v
 ```
 
 Expected: 8 passed.
@@ -256,11 +266,13 @@ Expected: 8 passed.
 
 ```bash
 cd /home/franc/projects/ai_agents/ai_tooling/fintank
-git add backend/class_files/factor_windows.py backend/class_files/tests/test_factor_windows.py
+git add backend/utils/factor_windows.py backend/utils/test_factor_windows.py
 git commit -m "feat: add trading-day window returns for factor metrics
 
 Replaces the legacy calendar-date arithmetic that crashed in Jan-Jun and on
-days 29-31, and the 240-day lookback that silently truncated YTD."
+days 29-31, and the 240-day lookback that silently truncated YTD.
+
+Lives in backend/utils rather than class_files, which is gitignored."
 ```
 
 ---
@@ -315,9 +327,9 @@ Use `NotebookEdit` to insert a code cell at index 30 with this source:
 # create_fundamentals_dataframes() first — this reads their output.
 
 import sys
-if "." not in sys.path:
-    sys.path.insert(0, ".")
-from factor_windows import WINDOWS, window_return_and_std
+if ".." not in sys.path:
+    sys.path.insert(0, "..")   # backend/ — the notebook's cwd is class_files/
+from utils.factor_windows import WINDOWS, window_return_and_std
 
 FACTOR_METRICS_DIR = f"{PARQUET_ROOT}/factor_metrics"
 
@@ -524,16 +536,14 @@ upload_factor_metrics_files()        # 8 parquets → S3
 
 Expected row counts track the constituent lists: `sp500` ≈ 503, `nas` ≈ 102, `tsx` ≈ 217, `tsx_small_cap` ≈ 222, `r2000` ≈ 1955, `rmicro` ≈ 988, `msci_eafe` ≈ 2606, `msci_sm` ≈ 3522. Read the skip tallies — a large `no daily price parquet` count means `create_stock_price_dataframe()` has not been run for that list.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Nothing to commit**
 
-```bash
-cd /home/franc/projects/ai_agents/ai_tooling/fintank
-git add backend/class_files/stock_data_getter_v2.ipynb
-git commit -m "feat: add factor metrics producer to stock_data_getter_v2
-
-One row per symbol per index list from locally staged parquets, no API
-calls. Writes stock_data/factor_metrics/{sub}_metrics_returns.parquet."
-```
+`/backend/class_files` is gitignored wholesale (`.gitignore:57`) — the notebook
+has never been tracked, and must not become tracked, because the directory also
+holds the staged data trees and has historically held credentials. Confirm with
+`git ls-files backend/class_files` that it prints nothing, and move on. The
+tested part of this task's logic lives in `backend/utils/factor_windows.py`,
+which *is* tracked (Task 2).
 
 ---
 
@@ -1222,13 +1232,10 @@ Under *Operational notes*, add:
   dropped off `/factor-performance` with the cutover.
 ```
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Nothing to commit**
 
-```bash
-cd /home/franc/projects/ai_agents/ai_tooling/fintank
-git add backend/class_files/DATA_UPLOAD.md
-git commit -m "docs: document the factor metrics pipeline stage"
-```
+`DATA_UPLOAD.md` lives under the gitignored `/backend/class_files` and has never
+been tracked. Save the edits and move on — do not `git add -f` it.
 
 ---
 
@@ -1239,8 +1246,7 @@ Run after Task 8:
 ```bash
 cd /home/franc/projects/ai_agents/ai_tooling/fintank/backend
 /home/franc/projects/ai_agents/ai_tooling/.venv/bin/python manage.py test analyzer      # 47 pass
-cd class_files
-/home/franc/projects/ai_agents/ai_tooling/.venv/bin/python -m pytest tests/ -v          # 8 pass
+/home/franc/projects/ai_agents/ai_tooling/.venv/bin/python -m pytest utils/test_factor_windows.py -v   # 8 pass
 cd /home/franc/projects/ai_agents/ai_tooling/fintank
 npm run lint                                                                             # clean
 grep -rn "Rankings\|int_cov" backend src --include=*.py --include=*.js | grep -v node_modules   # no output
