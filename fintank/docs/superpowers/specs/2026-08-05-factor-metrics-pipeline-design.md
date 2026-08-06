@@ -108,8 +108,10 @@ Sourced first-non-null, in order. Legacy names on the left are the contract.
 | `cfd` | `ratios_ttm.cash_flow_to_debt` | — |
 | `debt_equity` | `ratios_ttm.debt_to_equity_ratio` | `metrics_ttm.debt_to_equity` |
 | `fcf` | `ratios_ttm.free_cash_flow_per_share` | — |
-| `int_cov` | `ratios_ttm.interest_coverage` | `metrics_ttm.interest_coverage` |
 | `beta`, `sector`, `name` | `company_profiles` | — |
+
+Interest coverage is **dropped from the pipeline entirely** — see
+[Removed metric](#removed-metric-interest-coverage).
 
 Unit traps confirmed live 2026-08-05, encoded as comments at the mapping site:
 
@@ -129,7 +131,7 @@ One parquet per index list, one row per symbol. Legacy column names verbatim:
 symbol, name, sector, as_of,
 1M, 3M, 6M, ytd,                    # percent
 1MSTD, 3MSTD, 6MSTD, YTDSTD,        # daily stdev, decimal
-beta, div_yield, pe, pb, psales, pcf, roe, cfd, debt_equity, fcf, int_cov
+beta, div_yield, pe, pb, psales, pcf, roe, cfd, debt_equity, fcf
 ```
 
 `name` and `as_of` are new and additive — `Rankings.py` selects columns by name,
@@ -176,11 +178,17 @@ carried no `adjClose`.
 write. Pickle tolerated mixed-dtype object columns and a duplicated index;
 pyarrow does not.
 
-### Known data-quality issue (documented, not fixed)
+### Removed metric: interest coverage
 
-`interest_coverage` is `0` for many large caps including AAPL — an FMP artifact,
-not "no coverage". Ranking on it puts megacaps in the worst bucket. Carried
-through as-is for v1 parity; flagged as a follow-up.
+`interest_coverage` is `0` for a large share of the universe including AAPL — an
+FMP artifact, not "no coverage" — so ranking on it buries megacaps in the worst
+decile and the resulting chart is noise. The metric is **removed from every
+layer** rather than shipped with a caveat: no `int_cov` column in the parquet, no
+`int_cov` key in the response pack, no chart on the page. The legacy frame had
+it; the new one does not.
+
+This is the one intentional break in the column contract, so it must be applied
+in all three layers together (see each layer's section).
 
 ### API surface
 
@@ -235,7 +243,7 @@ frequency methods differing only in a string literal. The rewrite:
   lands in exactly one bucket. A column with fewer rows than the bucket count
   returns an empty pack rather than dividing by zero (the legacy
   `stocks_per_bucket == 0` → `ZeroDivisionError` path on sparse columns such as
-  `cfd` or `int_cov`).
+  `cfd`).
 - **Fixes the aggregation formula.** `prod(1 + wᵢrᵢ) - 1` is the operation for
   compounding one asset across time, not for aggregating many assets within one
   period; it introduces cross-terms. Becomes `(weight * frequency_column / 100).sum()`
@@ -248,9 +256,12 @@ frequency methods differing only in a string literal. The rewrite:
   `df[[...]].rename(...).to_dict("records")`, and `.copy()` on slices before
   mutation.
 
-**Response shape is unchanged** — the frontend reads
-`data.{pe,ps,pb,pcf,div,fcf,roe,de,cfd,int_cov,beta,stdevone,stdevthree,stdevsix,stdevytd,sectors}`,
-each `{buckets, values, bucket_holdings, bucket_keys}`.
+- **Drops interest coverage.** `get_intcov_metrics` and the `int_cov` entry in
+  the response pack go away with it.
+
+**Response shape is otherwise unchanged** — the frontend reads
+`data.{pe,ps,pb,pcf,div,fcf,roe,de,cfd,beta,stdevone,stdevthree,stdevsix,stdevytd,sectors}`
+(15 keys, formerly 16), each `{buckets, values, bucket_holdings, bucket_keys}`.
 
 ### View and URL
 
@@ -274,9 +285,16 @@ path('getstockquintiles/<str:frequency>/<str:universe>/',
   MSCI World). Used only by `factor-performance.js`, so the edit is contained.
 - `src/pages/factor-performance.js:272` → add the trailing slash, matching every
   other endpoint in `analyzer/urls.py`.
+- Remove the interest-coverage chart from the same file: the four `intCov*`
+  state hooks (lines 98–101), the `'int'` branch in `handlBucketData`
+  (lines 208–213), the `intcovCharter` block (lines 331–335), and the
+  `{intCovChart && …}` column (lines 619–629). `/rankings/[slug].js` is generic
+  and reads from the Redux bucket action, so the now-unreachable `int` slug
+  needs no change.
 
 **Visible behavior change**: the beta charts will show beta rather than PCF for
-the first time, and decile values shift slightly from the aggregation fix.
+the first time, the interest-coverage chart disappears, and decile values shift
+slightly from the aggregation fix.
 
 ---
 
@@ -293,8 +311,9 @@ The producer is a notebook, so verification is by inspection at each stage:
 3. Full run across all 8 lists — confirm row counts track the constituent
    counts (sp500 ≈ 503, nas ≈ 102, msci_sm ≈ 3,522) and read the skip tallies.
 4. Backend: `load_factor_metrics("sp500")` round-trips after upload;
-   `get_all_frequency_metrics("1M", "sp500")` returns all 16 keys; bucket
-   membership sums to the input row count (the tail-drop regression test).
+   `get_all_frequency_metrics("1M", "sp500")` returns all 15 keys and no
+   `int_cov`; bucket membership sums to the input row count (the tail-drop
+   regression test).
 5. `curl /api/getstockquintiles/1M/sp500/` and load `/factor-performance`.
 
 ## Rollout
@@ -307,7 +326,6 @@ can be deleted once the new path is verified.
 
 ## Follow-ups (out of scope)
 
-- `interest_coverage == 0` sentinel handling.
 - A `DATA_UPLOAD.md` entry for the new stage and S3 prefix.
 - Whether `msci_eafe` or a re-added URTH list is the right "world" proxy for
   this page.
