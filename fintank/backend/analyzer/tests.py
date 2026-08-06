@@ -489,3 +489,22 @@ class FactorRankTests(SimpleTestCase):
             factor_tools.get_factor_ranks('1M', 'sp500')
             factor_tools.get_factor_ranks('1M', 'sp500')
         self.assertEqual(loader.call_count, 1)
+
+    def test_every_metric_pack_ranks_on_its_own_column(self):
+        """A swapped entry in FACTOR_COLUMNS would leave every other test green."""
+        from analyzer.analyzer_utils import factor_tools
+        frame = self._frame()
+        payload = self._run(frame=frame)['data']
+        for key, column in factor_tools.FACTOR_COLUMNS.items():
+            if key == 'sectors':
+                continue
+            with self.subTest(metric=key):
+                top = [s['metric'] for s in payload[key]['bucket_holdings']['Q1']]
+                self.assertAlmostEqual(max(top), frame[column].max(), places=6)
+
+    def test_endpoint_routes_and_maps_unknown_universe_to_404(self):
+        from django.test import Client
+        from django.urls import reverse
+        self.assertEqual(reverse('stock_quintiles', args=['1M', 'sp500']),
+                         '/api/getstockquintiles/1M/sp500/')
+        self.assertEqual(Client().get('/api/getstockquintiles/1M/not_a_universe/').status_code, 404)

@@ -102,20 +102,22 @@ def _empty_pack():
     return {'buckets': [], 'values': [], 'bucket_holdings': {}, 'bucket_keys': []}
 
 
-def _metric_pack(df, frequency, metric_column):
+def _metric_pack(df, frequency, metric_column, count):
     """Rank on the metric descending, split into even buckets, and give each
-    bucket its equal-weighted return."""
+    bucket its equal-weighted return. `count` is decided once per universe
+    (from the full frame's row count), not from this column's dropna count,
+    so every chart on a page shares the same Q1..Qn scale."""
     ranked = (df[['symbol', frequency, metric_column]]
               .dropna()
               .sort_values(by=metric_column, ascending=False)
               .reset_index(drop=True))
 
-    count = _bucket_count(len(ranked))
     if len(ranked) < count:
         return _empty_pack()
 
     labels, values, holdings = [], [], {}
-    for i, bucket in enumerate(np.array_split(ranked, count), start=1):
+    for i, idx in enumerate(np.array_split(np.arange(len(ranked)), count), start=1):
+        bucket = ranked.iloc[idx]
         label = f'Q{i}'
         labels.append(label)
         values.append(round(_equal_weighted_return(bucket[frequency]) * 100, 2))
@@ -162,17 +164,19 @@ def get_factor_ranks(frequency, universe):
     if df.empty:
         raise KeyError(f"No factor metrics for '{universe}'.")
 
+    count = _bucket_count(len(df))
+
     packs = {}
     for key, column in FACTOR_COLUMNS.items():
         if key == 'sectors':
             packs[key] = _sector_pack(df, frequency)
         else:
-            packs[key] = _metric_pack(df, frequency, column)
+            packs[key] = _metric_pack(df, frequency, column, count)
 
     payload = {
         'universe': universe,
         'frequency': frequency,
-        'as_of': str(df['as_of'].iloc[0]) if 'as_of' in df.columns else None,
+        'as_of': str(df['as_of'].max()) if 'as_of' in df.columns else None,
         'constituent_count': int(len(df)),
         'data': packs,
         'last_updated': timezone.now().isoformat(),

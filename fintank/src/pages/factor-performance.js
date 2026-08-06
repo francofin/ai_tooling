@@ -236,6 +236,13 @@ const StockPerformances = (props) => {
       setLoading(false)
       !loading && window.open("/rankings/stdytd","_blank")
     }
+    else if(e.target.value === 'beta'){
+      bucketData = betaStocks;
+      bucketKeys = betaKeys;
+      props.bucketActionRun(bucketData, bucketKeys, 'Beta Rankings', indexLabel, 'Beta');
+      setLoading(false)
+      !loading && window.open("/rankings/beta","_blank")
+    }
     else if(e.target.value === 'sector'){
       bucketData = sectorStocks;
       bucketKeys = sectorKeys;
