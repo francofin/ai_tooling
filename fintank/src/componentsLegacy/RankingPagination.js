@@ -27,6 +27,26 @@ export async function getStaticProps() {
   }
 }
 
+// The four stdev bucket labels bucketActionRun() passes as `metric` in
+// src/pages/factor-performance.js.
+const STDEV_METRIC_LABELS = new Set([
+  'Standard Deviation One Month',
+  'Standard Deviation Three Month',
+  'Standard Deviation Six Month',
+  'Standard Deviation YTD',
+])
+
+// Stdev columns are stored as daily decimals (0.0245), kept that way for
+// parity with the v1 pipeline, so toFixed(2) alone renders them as a
+// meaningless "0.02" for every row. Only at display time, scale them to a
+// percentage; every other numeric metric keeps its plain toFixed(2), and
+// string metrics (the sector name) render verbatim.
+const formatRankingMetric = (value, metricLabel) => {
+  if (typeof value !== 'number') return value
+  if (STDEV_METRIC_LABELS.has(metricLabel)) return `${(value * 100).toFixed(2)}%`
+  return value.toFixed(2)
+}
+
 const RankingListPagination = ({dataProps, metric, bucket}) => {
   const [analysisLink, setAnalysisLink] = useState("/stock-data/[ticker]");
   const [linkAs, setLinkAs] = useState(`/stock-data/`)
@@ -62,7 +82,7 @@ const RankingListPagination = ({dataProps, metric, bucket}) => {
                   </Col>
                   <Col xs="6" md="4" lg="4" className="align-self-center mb-3 mb-lg-0">
                     <h6 className="label-heading">{metric}</h6>
-                    <p className="text-sm fw-bold">{typeof stock.metric === 'number' ? stock.metric.toFixed(2) : stock.metric}</p>
+                    <p className="text-sm fw-bold">{formatRankingMetric(stock.metric, metric)}</p>
                   </Col>
                   {/* <Col xs="6" md="4" lg="3" className="py-3 mb-3 mb-lg-0">
                     <h6 className="label-heading">Price</h6>
