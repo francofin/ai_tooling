@@ -23,6 +23,12 @@ This is the master roadmap. Each phase is a standalone unit of work:
 
 **Phase order is load-bearing.** Phase 2 (news engine) unlocks news on the Phase 1 stock detail page. Phase 4 (factor engine) is required before Phase 5 (backtesting) and Phase 7 (screener factor filters).
 
+> **Backtester status (2026-08-11).** The `backtester` app is now defined by
+> `docs/superpowers/specs/2026-08-11-portfolio-backtest-design.md` — portfolio construction,
+> optimization and simulation. **Phase 10 is superseded; Phase 5 is deferred and out of
+> scope.** The portfolio backtester sits outside the dependency chain above: it reads price
+> parquets only and needs neither Phase 4 nor Phase 5.
+
 ---
 
 ## Global Conventions
@@ -1188,6 +1194,25 @@ This is the master roadmap. Each phase is a standalone unit of work:
 
 ## Phase 5 — Backtesting Engine V1
 
+> ⚠️ **DEFERRED — DO NOT IMPLEMENT. Read this before touching anything below.**
+>
+> The `backtester` Django app is now defined by
+> **`docs/superpowers/specs/2026-08-11-portfolio-backtest-design.md`** (portfolio
+> construction, optimization and simulation), which is the canonical design for that app.
+>
+> Phase 5 here describes a *different* product — factor/quintile **signal** backtesting —
+> and is deferred indefinitely. It is **not** a prerequisite for the portfolio backtester
+> and must not be built, stubbed, or scaffolded alongside it.
+>
+> Much of what Phase 5 describes is in any case already delivered by
+> `/api/getstockquintiles/` and the `/factor-performance` page, so this phase should be
+> re-scoped from scratch before anyone revives it.
+>
+> **If revived, it must adapt to the portfolio backtester, not the reverse:**
+> - `BacktestJob` → rename to `SignalBacktestJob` (the portfolio app owns `BacktestRun`)
+> - views → `Signal…` prefixes (the portfolio app owns the unprefixed names)
+> - frontend → `/backtester` (the portfolio app owns `/backtest-portfolio`)
+
 **Produces:** `backtester` Django app with async signal backtesting. User submits job → Celery task → results to S3 → polling API → frontend results page.
 
 **Spec reference:** §8.7
@@ -1573,6 +1598,24 @@ This is the master roadmap. Each phase is a standalone unit of work:
 ---
 
 ## Phase 10 — Backtesting V2 (Strategy Simulation)
+
+> ⛔ **SUPERSEDED — DO NOT IMPLEMENT.**
+>
+> Replaced in full by
+> **`docs/superpowers/specs/2026-08-11-portfolio-backtest-design.md`**, which covers
+> everything below (position sizing, rebalancing, transaction costs, benchmark comparison,
+> equity curve) plus six optimizers, walk-forward re-optimization, staggered asset
+> inception, dollar-cost averaging, seven-sins diagnostics, saved portfolios and usage
+> metering.
+>
+> Two specific instructions from this phase are **wrong** under the new design and must not
+> be followed:
+> - Do **not** bolt `strategy_type` / `position_sizing` fields onto a job model — the new
+>   design uses first-class `Portfolio` + `PortfolioHolding` entities
+> - Do **not** treat Phase 5 as a prerequisite — the portfolio backtester has no dependency
+>   on signal backtesting or on the factor engine
+>
+> The tasks below are retained for historical context only.
 
 **Produces:** Full portfolio construction in `backtester` app: position sizing, rebalancing, transaction costs, benchmark comparison, full equity curve.
 
