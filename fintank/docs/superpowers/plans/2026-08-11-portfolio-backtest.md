@@ -38,8 +38,13 @@ These apply to **every** task. They are not repeated per task.
 | `backend/users/serializers.py` | mark both new fields `read_only` in `UserProfileSerializer.extra_kwargs` |
 | `backend/fintank_backend/settings.py` | `INSTALLED_APPS` += `backtester.apps.BacktesterConfig`; add `BACKTEST_MAX_WORKERS = 8` |
 | `backend/fintank_backend/urls.py` | one `path("api/", include("backtester.urls"))` |
-| `backend/class_files/backtester_portfolio.ipynb` | new prototype notebook (§16 step 1) |
-| `backend/class_files/portfolio_analyzer.ipynb` | delete after key rotation (§16 step 11) |
+| `backend/class_files/backtester_portfolio.ipynb` | new prototype notebook (§16 step 1) — **not committed**, see below |
+| `backend/class_files/portfolio_analyzer.ipynb` | delete after key rotation (§16 step 11) — **not tracked**, see below |
+
+**`backend/class_files/` is gitignored** (`.gitignore:58`) and has never been tracked — verified with `git log --all -- backend/class_files/`, which is empty. Two consequences the spec did not anticipate:
+
+1. The prototype notebook of §16 step 1 lives on disk but is **not** committed. Do not `git add -f` it: the directory is ignored deliberately, because it holds data dumps and notebooks with hardcoded credentials. Every other notebook there is untracked too.
+2. **The leaked FMP key in `portfolio_analyzer.ipynb` is not in git history.** It exists only in the working file. Rotation is still the right move — the key sat in plaintext on disk and may have been synced or backed up — but deleting the file genuinely removes it from the repository rather than merely hiding it, which is the opposite of the usual situation. Task 20 reflects this.
 
 **One thing about this repo's git state.** Most of the tree is currently **untracked** — `backend/users/`, `src/pages/backtest-portfolio.js`, `src/hooks/` and much else have never been committed. So `git add` on a file this plan says to "modify" will stage it as a brand-new file, and its whole contents land in that commit. That is expected; do not try to avoid it, and do not `git add -A` to tidy it up. Stage only the paths each task's commit step names. It also means the `git diff --name-only main` audit in Final Verification only sees files this work has committed — read it alongside `git status --short` rather than instead of it.
 
@@ -279,12 +284,16 @@ Read the printed CAGR, volatility and max drawdown. A 60/40 SPY/AGG portfolio ov
 
 Record the three numbers in a markdown cell at the bottom of the notebook titled `## Reference: 60/40 SPY/AGG`. Tasks 7 and 8 are checked against them.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Do not commit it**
+
+`backend/class_files/` is gitignored (`.gitignore:58`), so this notebook stays on disk and out of version control, like every other notebook in that directory. **Do not `git add -f`.** Instead, confirm it is where it should be and that git is correctly ignoring it:
 
 ```bash
-git add backend/class_files/backtester_portfolio.ipynb
-git commit -m "feat: prototype the portfolio backtest numerics in a notebook"
+ls -la backend/class_files/backtester_portfolio.ipynb
+git check-ignore -v backend/class_files/backtester_portfolio.ipynb
 ```
+
+Expected: the file exists, and `check-ignore` reports `.gitignore:58`. The reference numbers recorded in Step 5 are the durable output of this task — they are carried into Task 8's cross-check, which is committed.
 
 ---
 
@@ -9440,22 +9449,34 @@ Expected: no hits outside the spec and this plan. If anything else references it
 
 - [ ] **Step 4: Delete the notebook**
 
-```bash
-git rm backend/class_files/portfolio_analyzer.ipynb
-```
-
-- [ ] **Step 5: Note that the key remains in history**
-
-Rotation is what actually fixes this — deleting the file does not remove the key from earlier commits. Record in the commit message that the key was rotated, so the next person reading `git log` knows the exposed value is dead rather than merely hidden.
-
-- [ ] **Step 6: Commit**
+The file is untracked (`backend/class_files/` is gitignored and has never been committed), so this is a plain filesystem delete, not a `git rm`:
 
 ```bash
-git commit -m "chore: delete portfolio_analyzer notebook after rotating its FMP key
-
-The notebook is superseded by backend/backtester/. Its hardcoded FMP key has
-been revoked and replaced; the old value remains in git history but is dead."
+rm backend/class_files/portfolio_analyzer.ipynb
+git status --short backend/class_files/
 ```
+
+Expected: `git status` shows nothing — the directory is ignored, so there is no staged deletion to commit.
+
+- [ ] **Step 5: Confirm the key is gone from the repository entirely**
+
+Unlike the usual leaked-credential case, there is no history to purge:
+
+```bash
+git log --all -S "$(echo 'apikey')" --oneline -- backend/class_files/ | head -3
+grep -rn "apikey" backend/class_files/*.ipynb 2>/dev/null | grep -v homepage_data | head
+```
+
+Expected: both empty. Deleting the file removed the key from the repo outright.
+
+Two caveats to state when reporting this done:
+
+- **`homepage_data.ipynb` still has hardcoded FMP and AWS keys.** It is a separate, previously recorded finding, is out of this build's scope, and is *not* fixed by this task. Say so rather than implying the credential problem is closed.
+- Rotation is still necessary regardless of git history: the key sat in plaintext on a developer machine and may have been synced, backed up, or shared. Step 2 covers it.
+
+- [ ] **Step 6: Nothing to commit — report instead**
+
+There is no commit for this task: the deleted file was never tracked. Report to the repo owner that the notebook is gone, whether the key was rotated in Step 2, and that `homepage_data.ipynb` remains outstanding.
 
 ---
 
