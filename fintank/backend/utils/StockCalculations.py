@@ -133,11 +133,23 @@ class GetData:
         table = pq.read_table(path, filesystem=self.fs)
         return table.to_pandas()
 
-    def load_stock_prices(self, symbol: str) -> pd.DataFrame:
+    def load_stock_prices(self, symbol: str, columns=None) -> pd.DataFrame:
+        """stock_data/stock_prices/daily/{SYMBOL}_prices.parquet -- the per-symbol
+        price/metric files written by the v2 pipeline.
+
+        `columns` is pushed down to the parquet reader, mirroring
+        load_index_parquet: these files carry 52 columns and the backtester needs
+        two, so projecting at read time keeps a 30-symbol panel to 30 partial
+        reads instead of 30 full ones.
+
+        'date' must appear in `columns`. It is the parquet's index column, so
+        omitting it makes to_pandas() return a RangeIndex and the reset_index()
+        below produces no 'date' column at all.
+        """
         bucket = 'thetradingfloor'
         key = f'stock_data/stock_prices/daily/{symbol.upper()}_prices.parquet'
         path = f"s3://{bucket}/{key}"
-        table = pq.read_table(path, filesystem=self.fs)
+        table = pq.read_table(path, filesystem=self.fs, columns=columns)
         df = table.to_pandas()
         df = df.reset_index()  # date is the DatetimeIndex
         df['date'] = df['date'].astype(str)
