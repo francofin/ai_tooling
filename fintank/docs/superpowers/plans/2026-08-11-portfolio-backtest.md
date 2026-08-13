@@ -1110,24 +1110,44 @@ class LoadPricePanelTests(SimpleTestCase):
         self.assertFalse(panel.prices['B'].iloc[5:].isna().any())
 
     def test_forward_fill_bridges_a_gap_inside_a_symbols_own_span(self):
+        """A holiday one exchange keeps and another does not.
+
+        The gap has to come from the *union* of trading dates to be meaningful:
+        a date on which no requested symbol traded is not a trading date at all,
+        and is correctly absent from the panel rather than forward-filled.
+        """
         dates = _bdates(6)
         gappy = _series(dates, [10.0, np.nan, 12.0, np.nan, 14.0, 15.0])
+        complete = _series(dates, [50.0, 51.0, 52.0, 53.0, 54.0, 55.0])
         with patch.object(prices_module, '_fetch_symbol_series',
-                          side_effect=_fake_loader({'A': gappy})):
-            panel = prices_module.load_price_panel(['A'])
+                          side_effect=_fake_loader({'A': gappy, 'B': complete})):
+            panel = prices_module.load_price_panel(['A', 'B'])
 
+        self.assertEqual(len(panel.prices), 6)
         self.assertEqual(panel.prices['A'].tolist(), [10.0, 10.0, 12.0, 12.0, 14.0, 15.0])
 
+    def test_a_date_no_symbol_traded_on_is_absent_rather_than_filled(self):
+        dates = _bdates(4)
+        with patch.object(prices_module, '_fetch_symbol_series',
+                          side_effect=_fake_loader(
+                              {'A': _series(dates, [10.0, np.nan, 12.0, 13.0])})):
+            panel = prices_module.load_price_panel(['A'])
+
+        self.assertEqual(len(panel.prices), 3)
+        self.assertEqual(panel.prices['A'].tolist(), [10.0, 12.0, 13.0])
+
     def test_returns_are_simple_returns_on_adjclose(self):
+        """Returns keep the price index, so the loop can address returns and
+        dates by the same position. Row 0 is 0.0, not dropped."""
         dates = _bdates(3)
         with patch.object(prices_module, '_fetch_symbol_series',
                           side_effect=_fake_loader({'A': _series(dates, [100.0, 110.0, 99.0])})):
             panel = prices_module.load_price_panel(['A'])
 
         returns = panel.returns()
-        self.assertEqual(len(returns), 2)
-        self.assertAlmostEqual(returns['A'].iloc[0], 0.10)
-        self.assertAlmostEqual(returns['A'].iloc[1], -0.10)
+        self.assertEqual(len(returns), 3)
+        self.assertAlmostEqual(returns['A'].iloc[1], 0.10)
+        self.assertAlmostEqual(returns['A'].iloc[2], -0.10)
 
     def test_returns_are_zero_where_a_symbol_has_no_price_yet(self):
         """A pre-inception NaN must not become a NaN return that poisons the
