@@ -2960,28 +2960,46 @@ Expected: 3 tests PASS.
 
 - [ ] **Step 8: Prove the tests actually detect the bug**
 
-A guardrail that cannot fail is not a guardrail. Temporarily break the loop in `backtest.py` by moving step 2 (drift) above step 1 and computing the return from `drift`:
+A guardrail that cannot fail is not a guardrail. **Two sabotages are needed, because the two economic tests catch two different bugs** — one sabotage leaves the other test passing, which would wrongly suggest it works.
+
+Back the file up first (`cp backtester/engine/backtest.py /tmp/backtest.py.good`) so restoring never depends on what is or is not committed.
+
+**Variant A — drift computed before the return.** Replace step 1 and 2 with:
 
 ```python
         drift = weights * (1.0 + row_returns) / 1.0
         portfolio_return = float(drift @ row_returns)
+        growth = 1.0 + portfolio_return
 ```
 
-Run:
+Expected: `test_the_return_on_a_rebalance_date_uses_yesterdays_weights` FAILS (0.12 instead of 0.10). `test_a_strategy_that_would_profit_from_same_day_alignment_earns_nothing` still passes — correctly, because that test's pre-rebalance weight in the spiking asset is zero and drift keeps it zero.
+
+**Variant B — post-rebalance weights applied to the same day's return.** Restore, then insert immediately before `weights = targets`:
+
+```python
+            corrected = float(targets @ row_returns)
+            index_value = index_value / growth * (1.0 + corrected)
+```
+
+Expected: `test_a_strategy_that_would_profit_from_same_day_alignment_earns_nothing` FAILS at exactly **1.5** — the fictional +50%.
+
+Run after each variant:
 
 ```bash
 python manage.py test backtester.tests.test_backtest.LookAheadRegressionTests -v 2
 ```
 
-Expected: FAILURES — specifically `test_the_return_on_a_rebalance_date_uses_yesterdays_weights` and `test_a_strategy_that_would_profit_from_same_day_alignment_earns_nothing`. If either still passes, that test is not actually wired to the timing contract and needs rewriting before you move on.
-
-Then revert the sabotage. `backtest.py` was committed in Step 5, so this is clean:
+Then restore from the backup and re-run the whole suite to confirm PASS again, and check no sabotage survived:
 
 ```bash
-git checkout backend/backtester/engine/backtest.py
+cp /tmp/backtest.py.good backtester/engine/backtest.py
+grep -c "SABOTAGE" backtester/engine/backtest.py   # must be 0
+python manage.py test backtester -v 1
 ```
 
-Re-run to confirm PASS again. Do not skip this step: a guardrail that has never been observed failing is decoration, and this particular bug produces no crash, no exception and no downstream symptom — only inflated returns that read as good news.
+Do not skip this step. This bug produces no crash, no exception and no downstream symptom — only inflated returns that read as good news.
+
+**A note on how the stub strategy must be built.** `test_a_strategy_that_would_profit_from_same_day_alignment_earns_nothing` only isolates look-ahead if the strategy switches into the spiking asset *at* the spike rebalance. A stub that holds it from the first date captures the jump legitimately — it was simply long the asset — and the test fails against a *correct* loop. Similarly, the stub's weights must be reachable: the seed call happens at the first eligible date, so a counter-based stub needs to account for it.
 
 - [ ] **Step 9: Commit**
 

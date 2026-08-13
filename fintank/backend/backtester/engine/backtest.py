@@ -219,6 +219,15 @@ def run_backtest(panel, request: BacktestRequest) -> BacktestResult:
     weights = compute_targets(start_position, mask)
     held = mask & (weights > WEIGHT_EPSILON)
 
+    # `known` tracks which symbols have ever been eligible, and is deliberately
+    # separate from `held`. An optimizer assigning zero weight to an eligible
+    # asset has made a decision, not deferred one -- treating that as a pending
+    # entry made every zero-weight holding re-trigger a forced rebalance on every
+    # subsequent date. `ever_entered` likewise keeps the composition timeline to
+    # one entry per symbol rather than one per weight change.
+    known = mask.copy()
+    ever_entered = held.copy()
+
     nav_value = float(request.initial_amount)
     index_value = 1.0
     nav_series, index_series, return_series = [nav_value], [index_value], [0.0]
@@ -268,7 +277,7 @@ def run_backtest(panel, request: BacktestRequest) -> BacktestResult:
         # 6. rebalance triggers
         mask = eligible[position]
         exited = np.flatnonzero(held & ~mask)
-        newly_eligible = np.flatnonzero(mask & ~held)
+        newly_eligible = np.flatnonzero(mask & ~known)
 
         for symbol_position in newly_eligible:
             pending_entry.setdefault(symbols[symbol_position], today)
@@ -309,7 +318,7 @@ def run_backtest(panel, request: BacktestRequest) -> BacktestResult:
                                f"{panel.last_valid[symbols[symbol_position]].date()}; "
                                f"liquidated and redistributed pro-rata."),
                 })
-            entering = np.flatnonzero(mask & (targets > WEIGHT_EPSILON) & ~held)
+            entering = np.flatnonzero(mask & (targets > WEIGHT_EPSILON) & ~ever_entered)
             for symbol_position in entering:
                 symbol = symbols[symbol_position]
                 became = pending_entry.pop(symbol, today)
@@ -320,11 +329,13 @@ def run_backtest(panel, request: BacktestRequest) -> BacktestResult:
                     'reason': (f"Eligible from {became.date()}; entered at the "
                                f"{trigger} rebalance on {today.date()}."),
                 })
+            ever_entered = ever_entered | (targets > WEIGHT_EPSILON)
 
             weights = targets
         else:
             weights = drift
 
+        known = known | mask
         held = weights > WEIGHT_EPSILON
         nav_series.append(nav_value)
         index_series.append(index_value)

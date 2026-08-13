@@ -175,3 +175,111 @@ class ScheduleTests(TestCase):
     def test_quarterly_and_semiannual_fire_four_and_two_times_a_year(self):
         self.assertEqual(len(schedule_dates(self.index, 'quarterly')), 11)
         self.assertEqual(len(schedule_dates(self.index, 'semiannual')), 5)
+
+
+class LookAheadRegressionTests(TestCase):
+    """REQUIRED (§15). These must fail loudly if the loop is ever reordered.
+
+    Verified to fail against a deliberately reordered loop -- see the plan's
+    Task 7 Step 8. A guardrail nobody has watched fail is decoration.
+    """
+
+    def setUp(self):
+        self.dates = pd.bdate_range('2021-01-01', periods=40)
+
+    def test_the_optimizer_never_sees_data_at_or_after_the_rebalance_date(self):
+        """The window handed to a scheme ends at t - 1 - gap_days."""
+        from unittest.mock import patch
+
+        from backtester.engine import backtest as backtest_module
+
+        panel = _panel({'A': np.linspace(100, 140, 40),
+                        'B': np.linspace(100, 120, 40)}, self.dates)
+        request = _request(weighting_scheme='min_variance', min_history_days=5,
+                           lookback_days=5, gap_days=1,
+                           rebalance_frequency='monthly',
+                           backtest_mode='walk_forward')
+
+        real_optimize = backtest_module.optimize
+        seen = []
+
+        def spy(window, config, scheme):
+            seen.append(window.shape[0])
+            return real_optimize(window, config, scheme)
+
+        with patch.object(backtest_module, 'optimize', side_effect=spy):
+            run_backtest(panel, request)
+
+        self.assertTrue(seen)
+        self.assertTrue(all(0 < rows <= 5 for rows in seen), seen)
+
+    def test_a_strategy_that_would_profit_from_same_day_alignment_earns_nothing(self):
+        """Asset B's future is knowable: it jumps +50% on one known date.
+
+        The stub strategy sits in A and switches to 100% B at the rebalance that
+        lands exactly on the spike date. That switch is the only thing under test.
+
+        Under the correct w_{t-1}' r_t alignment the +50% is realized against the
+        *old* all-A weights, so the portfolio earns nothing and the new position
+        only takes effect the next day, when B is flat again. A loop that
+        multiplied w_t by r_t would bank the whole +50%.
+
+        The switch has to happen at the spike, not before it: a stub that holds B
+        from the start captures the jump legitimately - it was simply long B -
+        and the test would prove nothing. That was the first version of this
+        test, and it failed against a correct loop for exactly that reason.
+        """
+        from unittest.mock import patch
+
+        from backtester.engine import backtest as backtest_module
+        from backtester.engine.optimizers import OptimizerOutcome
+
+        prices_a = np.full(40, 100.0)
+        prices_b = np.full(40, 100.0)
+        prices_b[20:] = 150.0            # +50% on date index 20, flat after
+        panel = _panel({'A': prices_a, 'B': prices_b}, self.dates)
+        # Seed lands at index 4 (min_history_days=5), then these two rebalances.
+        rebalances = {self.dates[10], self.dates[20]}
+
+        request = _request(weighting_scheme='min_variance', min_history_days=5,
+                           lookback_days=5, gap_days=1,
+                           rebalance_frequency='monthly',
+                           backtest_mode='walk_forward',
+                           transaction_cost_bps=0.0)
+
+        calls = {'n': 0}
+
+        def switches_into_b_at_the_spike(window, config, scheme):
+            calls['n'] += 1
+            # Calls 1 and 2 are the seed and the index-10 rebalance; call 3 is
+            # the rebalance on the spike date itself.
+            weights = np.array([0.0, 1.0]) if calls['n'] >= 3 else np.array([1.0, 0.0])
+            return OptimizerOutcome(weights=weights)
+
+        with patch.object(backtest_module, 'optimize',
+                          side_effect=switches_into_b_at_the_spike), \
+             patch.object(backtest_module, 'schedule_dates',
+                          side_effect=lambda index, frequency: (
+                              set(rebalances) if frequency == 'monthly' else set())):
+            result = run_backtest(panel, request)
+
+        self.assertEqual(calls['n'], 3, 'stub was not called at both rebalances')
+        # Held 100% A through the spike, so the honest answer is exactly 1.0.
+        self.assertAlmostEqual(float(result.index[-1]), 1.0, places=9)
+        self.assertNotAlmostEqual(float(result.index[-1]), 1.5, places=3)
+
+    def test_the_return_on_a_rebalance_date_uses_yesterdays_weights(self):
+        """Exact arithmetic check of R_t = w_{t-1}' r_t at a rebalance."""
+        dates = pd.to_datetime(['2020-12-30', '2020-12-31', '2021-01-04'])
+        # On 2021-01-04 (the annual rebalance) A returns 0 and B returns +20%.
+        panel = _panel({'A': [100.0, 100.0, 100.0],
+                        'B': [100.0, 100.0, 120.0]}, dates)
+
+        result = run_backtest(panel, _request(rebalance_frequency='annual',
+                                             transaction_cost_bps=0.0))
+
+        # Weights entering 2021-01-04 are still 0.5/0.5, so R = 0.5 x 0.20 = 0.10.
+        # A loop that rebalanced first and then applied the new weights would
+        # produce a different number.
+        self.assertAlmostEqual(float(result.returns[-1]), 0.10, places=12)
+        self.assertAlmostEqual(float(result.index[-1]), 1.10, places=12)
