@@ -2973,7 +2973,15 @@ Run:
 python manage.py test backtester.tests.test_backtest.LookAheadRegressionTests -v 2
 ```
 
-Expected: FAILURES. Then **revert the sabotage** (`git checkout backend/backtester/engine/backtest.py` would also discard Step 3 — instead undo the two lines by hand) and re-run to confirm PASS again.
+Expected: FAILURES — specifically `test_the_return_on_a_rebalance_date_uses_yesterdays_weights` and `test_a_strategy_that_would_profit_from_same_day_alignment_earns_nothing`. If either still passes, that test is not actually wired to the timing contract and needs rewriting before you move on.
+
+Then revert the sabotage. `backtest.py` was committed in Step 5, so this is clean:
+
+```bash
+git checkout backend/backtester/engine/backtest.py
+```
+
+Re-run to confirm PASS again. Do not skip this step: a guardrail that has never been observed failing is decoration, and this particular bug produces no crash, no exception and no downstream symptom — only inflated returns that read as good news.
 
 - [ ] **Step 9: Commit**
 
