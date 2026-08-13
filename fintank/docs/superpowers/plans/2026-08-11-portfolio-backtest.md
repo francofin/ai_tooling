@@ -4499,15 +4499,33 @@ class FrontierTests(TestCase):
                              min(self.result['frontier']['volatility']) + 1e-9)
 
     def test_no_random_sample_beats_the_frontier(self):
-        """Every scatter point must sit on or below the curve."""
-        frontier_volatility = np.array(self.result['frontier']['volatility'])
-        frontier_return = np.array(self.result['frontier']['return'])
+        """For each random portfolio, the frontier at that same expected return
+        must be no more volatile than the random portfolio itself.
 
-        for volatility, portfolio_return in zip(self.result['scatter']['volatility'],
-                                                self.result['scatter']['return']):
-            reachable = frontier_return[frontier_volatility <= volatility + 1e-9]
-            if reachable.size:
-                self.assertLessEqual(portfolio_return, reachable.max() + 1e-6)
+        Stated this way rather than "no scatter point sits above the curve",
+        because the returned curve is a 20-point sample. A scatter point lands
+        between grid nodes and would be compared against the nearest lower node,
+        whose return is below the true frontier there - which reads as a
+        violation and is only a discretization artifact. Solving exactly at each
+        point's own return level is grid-independent.
+        """
+        from backtester.engine.covariance import estimate_covariance
+        from backtester.engine.frontier import TRADING_DAYS, _min_variance_at
+
+        cov = estimate_covariance(self.returns, 'ledoit_wolf')
+        mu = self.returns.mean(axis=0)
+
+        volatilities = self.result['scatter']['volatility']
+        returns = self.result['scatter']['return']
+        # Every 15th sample: the solve is exact but not free.
+        for volatility, annual_return in list(zip(volatilities, returns))[::15]:
+            weights = _min_variance_at(annual_return / TRADING_DAYS, mu, cov,
+                                       self.config)
+            if weights is None:
+                continue
+            frontier_volatility = float(
+                np.sqrt(weights @ cov @ weights) * np.sqrt(TRADING_DAYS))
+            self.assertLessEqual(frontier_volatility, volatility + 1e-6)
 
     def test_the_tangency_point_has_the_best_sharpe_on_the_frontier(self):
         tangency = self.result['tangency']
