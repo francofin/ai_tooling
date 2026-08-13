@@ -64,6 +64,7 @@ INSTALLED_APPS = [
     'news.apps.NewsConfig',
     'stockuploader.apps.StockuploaderConfig',
     'analyzer.apps.AnalyzerConfig',
+    'backtester.apps.BacktesterConfig',
     'pages',
 ]
 
@@ -296,4 +297,12 @@ CLOUDINARY_URL= os.getenv("CLOUDINARY_URL")
 
 GEOS_LIBRARY_PATH = os.getenv("GEOS_LIBRARY_PATH")
 GDAL_LIBRARY_PATH = os.getenv("GDAL_LIBRARY_PATH")
+
+# Concurrency for the backtester's per-symbol price loads. These are I/O bound
+# (S3 or FMP), so the worker count is about hiding latency, not CPU.
+BACKTEST_MAX_WORKERS = int(os.environ.get("BACKTEST_MAX_WORKERS", 8))
+
+# Free-tier backtest allowance. Overridable per account via
+# UserProfile.backtest_quota_override.
+FREE_TIER_BACKTEST_LIMIT = int(os.environ.get("FREE_TIER_BACKTEST_LIMIT", 10))
 
