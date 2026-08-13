@@ -1932,13 +1932,37 @@ class RiskParityTests(TestCase):
         contributions = relative_risk_contribution(weights, cov)
         self.assertLess(contributions.max() - contributions.min(), 1e-4)
 
-    def test_risk_parity_sits_between_equal_and_inverse_vol_in_dispersion(self):
-        returns = _returns(N=5, seed=29)
+    def test_risk_parity_and_inverse_vol_coincide_for_two_assets(self):
+        """Not a coincidence: with N=2 the equal-risk-contribution portfolio *is*
+        the inverse-volatility portfolio, whatever the correlation. Confirmed
+        against live SPY/AGG data in class_files/backtester_portfolio.ipynb."""
+        returns = _returns(N=2, seed=29)
 
         rp = optimize(returns, _config(), 'risk_parity').weights
         iv = optimize(returns, _config(), 'inverse_vol').weights
-        # Both tilt toward low-vol assets, so they agree on the ordering.
-        self.assertEqual(list(np.argsort(rp)), list(np.argsort(iv)))
+        np.testing.assert_allclose(rp, iv, atol=1e-6)
+
+    def test_risk_parity_sits_between_equal_weight_and_min_variance(self):
+        """Maillard, Roncalli & Teiletche (2010): the ERC portfolio's
+        concentration falls between 1/N and minimum variance.
+
+        Note what is *not* asserted: that the lowest-variance asset gets the
+        largest weight. With three or more assets ERC depends on correlations as
+        well as variances, so a low-variance asset that moves with everything
+        else can legitimately be underweighted. Do not add that assertion — it
+        fails on ordinary correlated data.
+        """
+        returns = _returns(N=6, seed=29)
+
+        def effective_n(w):
+            return 1.0 / float(np.sum(np.asarray(w) ** 2))
+
+        equal = effective_n(np.full(6, 1 / 6))
+        parity = effective_n(optimize(returns, _config(), 'risk_parity').weights)
+        minimum = effective_n(optimize(returns, _config(), 'min_variance').weights)
+
+        self.assertLessEqual(parity, equal + 1e-9)
+        self.assertGreaterEqual(parity, minimum - 1e-9)
 
 
 class MaxSharpeTests(TestCase):
