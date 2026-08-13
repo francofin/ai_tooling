@@ -3853,7 +3853,23 @@ print(m['cagr'], m['annualized_volatility'], m['max_drawdown'])
 "
 ```
 
-Expected: the three numbers match the notebook's `## Reference: 60/40 SPY/AGG` cell to within ~0.5% relative (small differences are the transaction-cost model). If they do not, the discrepancy is a bug in the loop or the metrics — resolve it before continuing.
+**`inception_policy='common_start'` is essential here, and the plan originally omitted it.** The notebook used `panel.dropna()`, i.e. intersection. The engine's default is phase-in, which for SPY/AGG starts in 1999 with SPY alone and admits AGG when it lists in 2003 — a genuinely different question, and it reports CAGR 6.36%, volatility 13.54%, max drawdown −47.5% (the dot-com crash, held 100% SPY). Comparing that against the notebook looks like a catastrophic bug and is not one. Add `'inception_policy': 'common_start'` to the request before comparing.
+
+Expected with `common_start`:
+
+| | Engine | Notebook | |
+|---|---|---|---|
+| Max drawdown | −0.339949 | −0.339949 | exact |
+| CAGR | 0.082008 | 0.082203 | 0.24% relative |
+| Volatility | 0.108972 | 0.113358 | 3.9% relative — see below |
+
+Max drawdown matching to six decimals is the signal to trust; so are the drawdown dates, which come out 2007-10-09 → 2009-03-09 recovering 2010-11-04, the correct S&P 500 GFC peak, trough and recovery.
+
+**The volatility gap is expected, not an error.** The notebook computes `returns.dot(targets).std()` — the volatility of a portfolio held at *fixed* 60/40 weights forever, with no drift and no rebalancing. The engine computes the volatility of the actual drifted-and-rebalanced portfolio's realized returns. These are different quantities and the engine's is the one that answers the user's question. Do not "fix" the engine to match.
+
+If max drawdown does **not** match to several decimals, that is a real discrepancy in the loop or the metrics — resolve it before continuing.
+
+**Worth noticing what the phase-in run demonstrates.** A user asking for "as much history as possible" on a 60/40 gets a −47.5% drawdown that is really a single-asset dot-com drawdown, because the bond half did not exist yet. That is precisely what the `composition_coverage` and `single_asset_period` diagnostics of Task 9 exist to say out loud.
 
 - [ ] **Step 6: Commit**
 
