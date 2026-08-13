@@ -2292,6 +2292,8 @@ The timing contract of §8 is the single most important thing in this build, and
   - `schedule_dates(index: pd.DatetimeIndex, frequency: str) -> set[pd.Timestamp]` — shared by rebalance and contribution scheduling.
   - `drawdown_series(index_values: np.ndarray) -> np.ndarray`
 
+> ⚠️ **`weights_over_time` is indexed from `effective_start`, not from the panel's first date.** Whenever `min_history_days` or `common_start` moves the start, positional indexing (`.iloc[:29]`) into the result against a *panel* position is off by the offset and silently tests the wrong rows. Index by date (`.loc[:dates[28], 'C']`) in every assertion that refers to a panel position. The same applies to `nav`, `index`, `drawdown` and `effective_asset_count` — use `result.dates.index(iso_date)` to convert.
+
 - [ ] **Step 1: Write the failing golden-numbers test**
 
 Create `backend/backtester/tests/test_backtest.py`:
@@ -3106,8 +3108,11 @@ class StaggeredInceptionTests(TestCase):
             weighting_scheme='min_variance', min_history_days=10,
             lookback_days=10, backtest_mode='walk_forward'))
 
-        # C is available from index 20 but not eligible until index 29.
-        self.assertTrue((result.weights_over_time['C'].iloc[:29] == 0.0).all())
+        # C is available from index 20 but not eligible until its 10th own
+        # trading day, index 29. Indexed by date, because the result starts at
+        # the effective start rather than at the panel's first date.
+        before = result.weights_over_time.loc[:self.dates[28], 'C']
+        self.assertTrue((before == 0.0).all())
 
     def test_common_start_reproduces_plain_intersection_behaviour(self):
         result = run_backtest(self.panel, self._request(

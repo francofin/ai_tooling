@@ -283,3 +283,235 @@ class LookAheadRegressionTests(TestCase):
         # produce a different number.
         self.assertAlmostEqual(float(result.returns[-1]), 0.10, places=12)
         self.assertAlmostEqual(float(result.index[-1]), 1.10, places=12)
+
+
+class StaggeredInceptionTests(TestCase):
+    """§5 -- the default phase_in behaviour."""
+
+    def setUp(self):
+        self.dates = pd.bdate_range('2020-01-01', periods=60)
+        prices = {
+            'A': np.linspace(100, 160, 60),
+            'B': np.linspace(100, 130, 60),
+            # C lists on date index 20.
+            'C': np.concatenate([np.full(20, np.nan), np.linspace(50, 70, 40)]),
+        }
+        self.panel = _panel(prices, self.dates)
+
+    def _request(self, **overrides):
+        payload = {'holdings': [{'symbol': 'A'}, {'symbol': 'B'}, {'symbol': 'C'}],
+                   'min_history_days': 1, 'rebalance_frequency': 'monthly',
+                   'transaction_cost_bps': 0.0}
+        payload.update(overrides)
+        return validate_request(payload)
+
+    def test_weights_sum_to_one_on_every_date_including_the_phase_in_span(self):
+        result = run_backtest(self.panel, self._request())
+
+        np.testing.assert_allclose(result.weights_over_time.sum(axis=1),
+                                   np.ones(len(result.dates)), atol=1e-12)
+
+    def test_c_holds_no_weight_before_it_lists(self):
+        result = run_backtest(self.panel, self._request())
+
+        before = result.weights_over_time.loc[:self.dates[19], 'C']
+        self.assertTrue((before == 0.0).all())
+
+    def test_equal_weight_renormalizes_over_the_available_set(self):
+        result = run_backtest(self.panel, self._request())
+
+        first_row = result.weights_over_time.iloc[0]
+        self.assertAlmostEqual(first_row['A'], 0.5, places=12)
+        self.assertAlmostEqual(first_row['B'], 0.5, places=12)
+        self.assertAlmostEqual(first_row['C'], 0.0, places=12)
+
+    def test_custom_targets_keep_their_relative_proportions(self):
+        """40/40/20 missing its 20% asset becomes 50/50 (§5)."""
+        request = validate_request({
+            'holdings': [{'symbol': 'A', 'target_weight': 0.4},
+                         {'symbol': 'B', 'target_weight': 0.4},
+                         {'symbol': 'C', 'target_weight': 0.2}],
+            'weighting_scheme': 'custom', 'min_history_days': 1,
+            'rebalance_frequency': 'monthly', 'transaction_cost_bps': 0.0,
+        })
+        result = run_backtest(self.panel, request)
+
+        first_row = result.weights_over_time.iloc[0]
+        self.assertAlmostEqual(first_row['A'], 0.5, places=12)
+        self.assertAlmostEqual(first_row['B'], 0.5, places=12)
+
+    def test_c_enters_at_the_first_scheduled_rebalance_on_or_after_eligibility(self):
+        result = run_backtest(self.panel, self._request())
+
+        scheduled = sorted(schedule_dates(self.dates, 'monthly'))
+        eligibility_date = self.dates[20]
+        expected = next(d for d in scheduled if d >= eligibility_date)
+        entry = next(e for e in result.composition_events
+                     if e['symbol'] == 'C' and e['action'] == 'entered')
+
+        self.assertEqual(entry['date'], expected.strftime('%Y-%m-%d'))
+        self.assertIn(str(eligibility_date.date()), entry['reason'])
+
+    def test_enter_immediately_enters_on_the_eligibility_date(self):
+        result = run_backtest(self.panel, self._request(enter_immediately=True))
+
+        entry = next(e for e in result.composition_events
+                     if e['symbol'] == 'C' and e['action'] == 'entered')
+        self.assertEqual(entry['date'], self.dates[20].strftime('%Y-%m-%d'))
+
+    def test_c_gets_exactly_its_target_weight_at_entry(self):
+        result = run_backtest(self.panel, self._request(enter_immediately=True))
+
+        row = result.weights_over_time.loc[self.dates[20]]
+        self.assertAlmostEqual(row['C'], 1 / 3, places=12)
+
+    def test_effective_asset_count_matches_the_composition_event_log(self):
+        result = run_backtest(self.panel, self._request())
+
+        entry = next(e for e in result.composition_events
+                     if e['symbol'] == 'C' and e['action'] == 'entered')
+        entry_position = result.dates.index(entry['date'])
+        self.assertEqual(int(result.effective_asset_count[entry_position - 1]), 2)
+        self.assertEqual(int(result.effective_asset_count[entry_position]), 3)
+
+    def test_min_history_days_delays_optimizer_eligibility_beyond_availability(self):
+        result = run_backtest(self.panel, self._request(
+            weighting_scheme='min_variance', min_history_days=10,
+            lookback_days=10, backtest_mode='walk_forward'))
+
+        # C is available from index 20 but not eligible until its 10th own
+        # trading day, index 29. Indexed by date, because the result starts at
+        # the effective start rather than at the panel's first date.
+        before = result.weights_over_time.loc[:self.dates[28], 'C']
+        self.assertTrue((before == 0.0).all())
+
+    def test_common_start_reproduces_plain_intersection_behaviour(self):
+        result = run_backtest(self.panel, self._request(
+            inception_policy='common_start'))
+
+        self.assertEqual(result.effective_start,
+                         self.dates[20].strftime('%Y-%m-%d'))
+        self.assertEqual(len(result.dates), 40)
+        self.assertTrue((result.weights_over_time['C'] > 0).all())
+
+    def test_no_eligible_asset_ever_is_a_hard_error(self):
+        short = _panel({'A': [100.0, 101.0], 'B': [100.0, 99.0]},
+                       pd.bdate_range('2020-01-01', periods=2))
+
+        with self.assertRaises(NoEligibleAssets):
+            run_backtest(short, validate_request({
+                'holdings': [{'symbol': 'A'}, {'symbol': 'B'}],
+                'weighting_scheme': 'min_variance', 'min_history_days': 252,
+            }))
+
+    def test_truncation_cause_is_reported_when_the_start_moves(self):
+        result = run_backtest(self.panel, self._request(
+            weighting_scheme='min_variance', min_history_days=10,
+            lookback_days=10))
+
+        self.assertIsNotNone(result.truncation_cause)
+        self.assertIn('trading days of history', result.truncation_cause)
+
+
+class DelistingTests(TestCase):
+    """§5 -- exit on the delist date, at a real transaction cost."""
+
+    def setUp(self):
+        self.dates = pd.bdate_range('2020-01-01', periods=40)
+        prices = {
+            'A': np.linspace(100, 140, 40),
+            # B's series ends at index 24.
+            'B': np.concatenate([np.linspace(100, 124, 25), np.full(15, np.nan)]),
+        }
+        self.panel = _panel(prices, self.dates)
+
+    def test_the_delisted_asset_is_liquidated_on_the_delist_date(self):
+        result = run_backtest(self.panel, _request(
+            holdings=[{'symbol': 'A'}, {'symbol': 'B'}],
+            rebalance_frequency='monthly', min_history_days=1))
+
+        exit_event = next(e for e in result.composition_events
+                          if e['action'] == 'exited')
+        self.assertEqual(exit_event['symbol'], 'B')
+        self.assertEqual(exit_event['date'], self.dates[25].strftime('%Y-%m-%d'))
+        self.assertEqual(result.weights_over_time.loc[self.dates[25], 'B'], 0.0)
+
+    def test_the_forced_liquidation_incurs_a_transaction_cost(self):
+        result = run_backtest(self.panel, _request(
+            holdings=[{'symbol': 'A'}, {'symbol': 'B'}],
+            rebalance_frequency='none', min_history_days=1,
+            transaction_cost_bps=10.0))
+
+        forced = [e for e in result.rebalance_events if e['trigger'] == 'exit']
+        self.assertEqual(len(forced), 1)
+        self.assertGreater(forced[0]['cost'], 0.0)
+
+    def test_the_surviving_asset_absorbs_the_whole_portfolio(self):
+        result = run_backtest(self.panel, _request(
+            holdings=[{'symbol': 'A'}, {'symbol': 'B'}],
+            rebalance_frequency='none', min_history_days=1))
+
+        self.assertAlmostEqual(result.weights_over_time['A'].iloc[-1], 1.0, places=9)
+
+
+class ContributionTests(TestCase):
+    """§8 -- two wealth series, and why conflating them produces wrong numbers."""
+
+    def setUp(self):
+        self.dates = pd.bdate_range('2020-01-01', periods=300)
+        rng = np.random.default_rng(7)
+        path = 100 * np.cumprod(1 + rng.normal(0.0004, 0.01, 300))
+        self.panel = _panel({'A': path, 'B': path * 0.5}, self.dates)
+
+    def _run(self, contribution):
+        return run_backtest(self.panel, _request(
+            rebalance_frequency='quarterly', transaction_cost_bps=0.0,
+            periodic_contribution=contribution,
+            contribution_frequency='monthly' if contribution else 'none'))
+
+    def test_the_index_is_unaffected_by_the_deposit_schedule(self):
+        """CAGR must measure investment skill, not deposit timing."""
+        without = self._run(0.0)
+        with_deposits = self._run(500.0)
+
+        np.testing.assert_allclose(without.index, with_deposits.index, rtol=1e-12)
+
+    def test_nav_grows_by_at_least_the_contributed_amount(self):
+        with_deposits = self._run(500.0)
+        without = self._run(0.0)
+
+        self.assertGreater(float(with_deposits.nav[-1]), float(without.nav[-1]))
+
+    def test_drawdown_from_the_index_is_not_masked_by_contributions(self):
+        without = self._run(0.0)
+        with_deposits = self._run(5_000.0)
+
+        np.testing.assert_allclose(without.drawdown, with_deposits.drawdown, rtol=1e-12)
+        self.assertLess(with_deposits.drawdown.min(), 0.0)
+
+    def test_contributions_do_not_change_composition(self):
+        with_deposits = self._run(500.0)
+        without = self._run(0.0)
+
+        pd.testing.assert_frame_equal(with_deposits.weights_over_time,
+                                      without.weights_over_time)
+
+    def test_the_contribution_cost_hits_nav_only(self):
+        free = run_backtest(self.panel, _request(
+            rebalance_frequency='none', transaction_cost_bps=0.0,
+            periodic_contribution=500.0, contribution_frequency='monthly'))
+        charged = run_backtest(self.panel, _request(
+            rebalance_frequency='none', transaction_cost_bps=50.0,
+            periodic_contribution=500.0, contribution_frequency='monthly'))
+
+        np.testing.assert_allclose(free.index, charged.index, rtol=1e-12)
+        self.assertLess(float(charged.nav[-1]), float(free.nav[-1]))
+
+    def test_cash_flows_record_every_deposit_and_the_terminal_value(self):
+        result = self._run(500.0)
+
+        deposits = [amount for _, amount in result.cash_flows if amount < 0]
+        self.assertAlmostEqual(deposits[0], -10_000.0)
+        self.assertTrue(all(amount == -500.0 for amount in deposits[1:]))
+        self.assertAlmostEqual(result.cash_flows[-1][1], float(result.nav[-1]))
+        self.assertEqual(result.cash_flows[-1][0], result.effective_end)
