@@ -11,6 +11,9 @@ import GrowthChart from '@componentsLegacy/Backtest/GrowthChart'
 import DrawdownChart from '@componentsLegacy/Backtest/DrawdownChart'
 import AllocationOverTime from '@componentsLegacy/Backtest/AllocationOverTime'
 import StatsTable from '@componentsLegacy/Backtest/StatsTable'
+import RealityCheck from '@componentsLegacy/Backtest/RealityCheck'
+import EfficientFrontier from '@componentsLegacy/Backtest/EfficientFrontier'
+import SavedPortfolios from '@componentsLegacy/Backtest/SavedPortfolios'
 import { DEFAULT_SETTINGS, buildRequestPayload } from '@componentsLegacy/Backtest/backtestDefaults'
 import useBacktestRun from '@hooks/useBacktestRun'
 import useBacktestQuota from '@hooks/useBacktestQuota'
@@ -44,6 +47,11 @@ const BacktestPortfolio = () => {
 
   const updateSettings = (patch) => setSettings((current) => ({ ...current, ...patch }))
 
+  const loadPortfolio = ({ holdings: loadedHoldings, settings: loadedSettings }) => {
+    setHoldings(loadedHoldings)
+    setSettings((current) => ({ ...current, ...loadedSettings }))
+  }
+
   const canRun = holdings.length >= 1 && status !== 'running' && status !== 'submitting'
   const busy = status === 'running' || status === 'submitting'
 
@@ -70,6 +78,7 @@ const BacktestPortfolio = () => {
             onHoldingsChange={setHoldings}
             onSettingsChange={updateSettings}
           />
+          <SavedPortfolios holdings={holdings} settings={settings} onLoad={loadPortfolio} />
           <BacktestSettings settings={settings} onChange={updateSettings} />
           <AdvancedSettings settings={settings} onChange={updateSettings} />
 
@@ -96,11 +105,14 @@ const BacktestPortfolio = () => {
 
           {result && (
             <>
+              <RealityCheck result={result} severities={['critical']} showTimeline={false} />
               <ResultsHeadline result={result} />
               <GrowthChart result={result} />
               <AllocationOverTime result={result} />
               <DrawdownChart result={result} />
               <StatsTable result={result} />
+              <EfficientFrontier result={result} />
+              <RealityCheck result={result} severities={['warning', 'info']} />
             </>
           )}
         </Col>
