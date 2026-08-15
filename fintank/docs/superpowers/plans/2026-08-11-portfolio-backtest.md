@@ -54,7 +54,17 @@ These apply to **every** task. They are not repeated per task.
 - S3 durable results: `s3://thetradingfloor/backtest_results/{user_id}/{task_id}.json`.
 - Annualization uses **252** trading days everywhere.
 - Route prefix: every Django app mounts at `path("api/", include(...))`, so `backtester/urls.py` carries the `backtester/` segment on each of its own routes, producing `/api/backtester/…`.
-- Tests run with Django's runner from `backend/`: `python manage.py test backtester`. There is no pytest config in this repo. The runner creates a test database even for `SimpleTestCase`, so Postgres + PostGIS must be running.
+- **Interpreter.** There is no `python` on PATH and no `backend/.venv`. Use the monorepo shared venv, from `backend/`:
+
+  ```bash
+  cd backend
+  PY=/home/franc/projects/ai_agents/ai_tooling/.venv/bin/python
+  $PY manage.py test backtester -v 1
+  ```
+
+  A relative `../../.venv/bin/python` works but breaks the moment the shell's cwd drifts — use the absolute path. Every `python manage.py …` in this plan means that interpreter.
+- Tests run with Django's runner; there is no pytest config in this repo. Django 5.2 **skips** database setup when no test needs it (`Skipping setup of unused database(s)`), so Tasks 2–10's engine tests run with Postgres down. Tasks 11+ use `django.test.TestCase` and do need Postgres + PostGIS up.
+- `manage.py check` reports one pre-existing warning, `account.W001 ACCOUNT_LOGIN_METHODS conflicts with ACCOUNT_SIGNUP_FIELDS`. It predates this work — a clean run means that warning and nothing else.
 - Engine tests subclass `unittest.TestCase`; anything touching cache or settings subclasses `django.test.SimpleTestCase`; anything touching models subclasses `django.test.TestCase`. This mirrors `backend/analyzer/tests.py`.
 - Frontend: the JWT lives in an **httpOnly** `access` cookie set by `src/pages/api/auth/login.js`. Client JS **cannot** read it. Every authenticated backend call therefore goes through a Next API route proxy — see Task 16. Never write `Authorization: Bearer` in a hook.
 - Frontend files are `.js`, not `.tsx` — this page belongs to the legacy Pages Router tree.
@@ -114,6 +124,14 @@ These apply to **every** task. They are not repeated per task.
 | `src/componentsLegacy/Backtest/*.js` | the twelve components of §14 |
 
 **Modified:** the eight allowlist entries above, plus `src/pages/backtest-portfolio.js` and `src/componentsLegacy/Profile/ProfileSideNav.js`.
+
+---
+
+## Progress
+
+**Tasks 1–10 are complete** — the whole `engine/` package, 190 tests passing, on branch `feat/portfolio-backtest`. Tasks 11–20 remain: models and the privilege-escalation guard, metering, the async API, then the frontend.
+
+Corrections made while executing 1–10 are folded into the task text below, each explained where it applies. The substantive ones: risk parity uses the relative risk-contribution form; the Task 8 cross-check needs `common_start`; the look-ahead guardrail needs two sabotage variants; IRR day count is actual/365; `weights_over_time` is indexed from `effective_start`; and `backend/class_files/` is gitignored so neither notebook can be committed.
 
 ---
 
