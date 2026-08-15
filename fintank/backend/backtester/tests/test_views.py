@@ -5,7 +5,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
-from backtester.models import Portfolio, PortfolioHolding
+from backtester.models import BacktestRun, Portfolio, PortfolioHolding
 
 User = get_user_model()
 
@@ -45,7 +45,7 @@ class AuthenticationTests(TestCase):
             ('post', '/api/backtester/portfolios/1/duplicate/'),
             ('get', '/api/backtester/quota/'),
             ('get', '/api/backtester/search-symbols/?q=aa'),
-            # '/api/backtester/history/' is added by Task 14, which owns the route.
+            ('get', '/api/backtester/history/'),
         ]:
             with self.subTest(path=path):
                 response = getattr(client, method)(path)
@@ -246,3 +246,196 @@ class SymbolSearchTests(TestCase):
             response = self.client.get('/api/backtester/search-symbols/?q=aa')
 
         self.assertLessEqual(len(response.data['results']), 25)
+
+
+@override_settings(FREE_TIER_BACKTEST_LIMIT=2, CACHES=LOCMEM_CACHE)
+class SubmitRunTests(TestCase):
+
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+        self.user = _user()
+        self.client = _client(self.user)
+        self.payload = {'holdings': [{'symbol': 'AAPL'}, {'symbol': 'VTI'}],
+                        'rebalance_frequency': 'annual'}
+
+    def _submit(self, payload=None):
+        with patch('backtester.views.run_portfolio_backtest.delay') as enqueue:
+            response = self.client.post('/api/backtester/run/',
+                                        payload or self.payload, format='json')
+        return response, enqueue
+
+    def test_a_valid_request_is_queued_and_returns_a_task_id(self):
+        response, enqueue = self._submit()
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.data['status'], 'queued')
+        self.assertTrue(response.data['task_id'])
+        self.assertFalse(response.data['cached'])
+        enqueue.assert_called_once()
+
+    def test_the_engine_never_runs_in_the_request_thread(self):
+        with patch('backtester.views.run_portfolio_backtest.delay') as enqueue, \
+             patch('backtester.tasks.run_portfolio_backtest') as executed:
+            self.client.post('/api/backtester/run/', self.payload, format='json')
+
+        enqueue.assert_called_once()
+        executed.assert_not_called()
+
+    def test_bad_input_is_a_422_with_a_readable_message(self):
+        response, enqueue = self._submit({'holdings': []})
+
+        self.assertEqual(response.status_code, 422)
+        self.assertIn('holding', response.data['detail'])
+        enqueue.assert_not_called()
+
+    def test_an_infeasible_constraint_is_rejected_before_enqueue(self):
+        response, enqueue = self._submit(dict(self.payload, max_weight=0.1))
+
+        self.assertEqual(response.status_code, 422)
+        enqueue.assert_not_called()
+
+    def test_a_repeat_request_hash_serves_the_cached_run_without_spending_quota(self):
+        """§13 rule 1."""
+        response, _ = self._submit()
+        run = BacktestRun.objects.get(task_id=response.data['task_id'])
+        run.status = BacktestRun.STATUS_COMPLETE
+        run.save(update_fields=['status'])
+
+        repeat, enqueue = self._submit()
+
+        self.assertEqual(repeat.status_code, 200)
+        self.assertTrue(repeat.data['cached'])
+        self.assertEqual(repeat.data['task_id'], response.data['task_id'])
+        enqueue.assert_not_called()
+        self.assertEqual(BacktestRun.objects.count(), 1)
+
+    def test_the_hash_ignores_irrelevant_key_order_and_casing(self):
+        first, _ = self._submit({'holdings': [{'symbol': 'aapl'}, {'symbol': 'vti'}],
+                                 'rebalance_frequency': 'annual'})
+        run = BacktestRun.objects.get(task_id=first.data['task_id'])
+        run.status = BacktestRun.STATUS_COMPLETE
+        run.save(update_fields=['status'])
+
+        repeat, _ = self._submit({'rebalance_frequency': 'annual',
+                                  'holdings': [{'symbol': 'AAPL'}, {'symbol': 'VTI'}]})
+        self.assertTrue(repeat.data['cached'])
+
+    def test_an_exhausted_quota_is_a_402_with_upgrade_metadata(self):
+        for i in range(2):
+            BacktestRun.objects.create(user=self.user, task_id=f"t{i}",
+                                       request_hash=f"h{i}", request={})
+
+        response, enqueue = self._submit()
+
+        self.assertEqual(response.status_code, 402)
+        self.assertTrue(response.data['upgrade_required'])
+        self.assertEqual(response.data['limit'], 2)
+        enqueue.assert_not_called()
+
+    def test_a_portfolio_id_is_attached_only_when_it_is_mine(self):
+        mine = Portfolio.objects.create(user=self.user, name='Mine')
+        theirs = Portfolio.objects.create(user=_user('other@example.com'), name='T')
+
+        response, _ = self._submit(dict(self.payload, portfolio_id=mine.pk))
+        self.assertEqual(BacktestRun.objects.get(
+            task_id=response.data['task_id']).portfolio, mine)
+
+        BacktestRun.objects.all().delete()
+        response, _ = self._submit(dict(self.payload, portfolio_id=theirs.pk,
+                                        benchmark_symbol='QQQ'))
+        self.assertIsNone(BacktestRun.objects.get(
+            task_id=response.data['task_id']).portfolio)
+
+
+@override_settings(CACHES=LOCMEM_CACHE)
+class StatusAndResultsTests(TestCase):
+
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+        self.user = _user()
+        self.client = _client(self.user)
+        self.run = BacktestRun.objects.create(user=self.user, task_id='abc',
+                                              request_hash='h', request={},
+                                              progress='simulating')
+
+    def test_status_reports_progress(self):
+        response = self.client.get('/api/backtester/status/abc/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['progress'], 'simulating')
+
+    def test_a_user_cannot_read_another_users_status(self):
+        client = _client(_user('other@example.com'))
+
+        self.assertEqual(client.get('/api/backtester/status/abc/').status_code, 404)
+
+    def test_a_user_cannot_read_another_users_results(self):
+        client = _client(_user('other@example.com'))
+
+        self.assertEqual(client.get('/api/backtester/results/abc/').status_code, 404)
+
+    def test_results_of_a_running_job_are_a_202(self):
+        self.assertEqual(self.client.get('/api/backtester/results/abc/').status_code, 202)
+
+    def test_results_of_a_failed_job_are_a_422_carrying_the_error(self):
+        self.run.status = BacktestRun.STATUS_FAILED
+        self.run.error = 'No requested asset has enough price history.'
+        self.run.save(update_fields=['status', 'error'])
+
+        response = self.client.get('/api/backtester/results/abc/')
+        self.assertEqual(response.status_code, 422)
+        self.assertIn('price history', response.data['detail'])
+
+    def test_a_complete_job_returns_the_stored_payload(self):
+        from backtester import results
+
+        self.run.status = BacktestRun.STATUS_COMPLETE
+        self.run.save(update_fields=['status'])
+        with patch.object(results, '_write_to_s3'):
+            results.store_payload(self.user.pk, 'abc', {'dates': ['2020-01-01']})
+
+        response = self.client.get('/api/backtester/results/abc/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['dates'], ['2020-01-01'])
+
+    def test_an_expired_payload_is_a_410_telling_the_user_to_re_run(self):
+        self.run.status = BacktestRun.STATUS_COMPLETE
+        self.run.save(update_fields=['status'])
+
+        response = self.client.get('/api/backtester/results/abc/')
+        self.assertEqual(response.status_code, 410)
+        self.assertIn('Re-run', response.data['detail'])
+
+
+class HistoryTests(TestCase):
+
+    def setUp(self):
+        self.user = _user()
+        self.client = _client(self.user)
+        for i in range(25):
+            BacktestRun.objects.create(user=self.user, task_id=f"t{i}",
+                                       request_hash=f"h{i}", request={})
+        BacktestRun.objects.create(user=_user('other@example.com'), task_id='x',
+                                   request_hash='x', request={})
+
+    def test_history_is_paginated_and_scoped_to_me(self):
+        response = self.client.get('/api/backtester/history/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['count'], 25)
+        self.assertEqual(len(response.data['results']), 20)
+
+    def test_page_two_holds_the_remainder(self):
+        response = self.client.get('/api/backtester/history/?page=2')
+
+        self.assertEqual(len(response.data['results']), 5)
+
+    def test_history_carries_summaries_not_full_results(self):
+        response = self.client.get('/api/backtester/history/')
+
+        self.assertNotIn('nav', response.data['results'][0])
+        self.assertIn('summary', response.data['results'][0])

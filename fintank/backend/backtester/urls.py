@@ -17,4 +17,8 @@ urlpatterns = [
     path('backtester/search-symbols/', views.search_symbols,
          name='backtest_search_symbols'),
     path('backtester/quota/', views.quota_view, name='backtest_quota'),
+    path('backtester/run/', views.submit_run, name='backtest_run'),
+    path('backtester/status/<str:task_id>/', views.run_status, name='backtest_status'),
+    path('backtester/results/<str:task_id>/', views.run_results, name='backtest_results'),
+    path('backtester/history/', views.run_history, name='backtest_history'),
 ]

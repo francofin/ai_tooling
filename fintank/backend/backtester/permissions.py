@@ -5,7 +5,7 @@ route uses plain IsAuthenticated -- portfolio management is free (§13 rule 2).
 """
 from rest_framework.permissions import BasePermission
 
-from .quota import get_quota
+from .quota import QuotaExceeded, get_quota
 
 
 class HasBacktestQuota(BasePermission):
@@ -16,6 +16,13 @@ class HasBacktestQuota(BasePermission):
             return False
         if request.method != 'POST':
             return True
-        # The view still calls check_and_consume so the 402 body carries used and
-        # limit; this class exists so the permission is visible on the view.
-        return not get_quota(request.user).exhausted
+
+        quota = get_quota(request.user)
+        if quota.exhausted:
+            # Raise rather than return False. A False here makes DRF answer 403
+            # with a bare message *before* the view runs, so the view's own
+            # check_and_consume never fires and the client loses the used/limit/
+            # upgrade_required body the quota banner reads. QuotaExceeded is an
+            # APIException, so the handler renders it as the intended 402.
+            raise QuotaExceeded(used=quota.used, limit=quota.limit)
+        return True

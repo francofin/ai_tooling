@@ -5477,7 +5477,7 @@ route uses plain IsAuthenticated -- portfolio management is free (§13 rule 2).
 """
 from rest_framework.permissions import BasePermission
 
-from .quota import get_quota
+from .quota import QuotaExceeded, get_quota
 
 
 class HasBacktestQuota(BasePermission):
@@ -5488,10 +5488,19 @@ class HasBacktestQuota(BasePermission):
             return False
         if request.method != 'POST':
             return True
-        # The view still calls check_and_consume so the 402 body carries used and
-        # limit; this class exists so the permission is visible on the view.
-        return not get_quota(request.user).exhausted
+
+        quota = get_quota(request.user)
+        if quota.exhausted:
+            # Raise rather than return False. A False here makes DRF answer 403
+            # with a bare message *before* the view runs, so the view's own
+            # check_and_consume never fires and the client loses the used/limit/
+            # upgrade_required body the quota banner reads. QuotaExceeded is an
+            # APIException, so the handler renders it as the intended 402.
+            raise QuotaExceeded(used=quota.used, limit=quota.limit)
+        return True
 ```
+
+> The raise-don't-return form above is the corrected version; see Task 14's correction 1 for how the original was caught.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -6176,6 +6185,14 @@ git commit -m "feat: add portfolio CRUD, symbol search and quota endpoints"
 ### Task 14: Run submission, the Celery task, and result polling
 
 Per platform spec §2, backtests never run in the request thread. `POST /run/` enqueues and returns a `task_id`; the frontend polls.
+
+**Three corrections applied during execution.**
+
+1. **`HasBacktestQuota` must raise, not return `False`.** Returning `False` makes DRF answer **403** from `check_permissions` *before* the view body runs, so `submit_run`'s `check_and_consume` never fires and the response loses the `used` / `limit` / `upgrade_required` body that Task 16's quota banner reads. `test_an_exhausted_quota_is_a_402_with_upgrade_metadata` caught it (`403 != 402`). `has_permission` now raises `QuotaExceeded`, which is an `APIException` and renders as the intended 402. The view's own `check_and_consume` stays as defence in depth.
+2. **`StoreAndLoadTests.setUp` needs `cache.clear()`.** `LocMemCache` is process-global and survives between test methods, so `test_loading_falls_back_to_s3_when_the_cache_has_expired` found the payload the *previous* test had stored and never exercised the fallback (`{'ok': True} != {'ok': 'from-s3'}`). Every other cache-touching class in this plan already clears; this one was missed.
+3. **`test_a_no_eligible_assets_error_is_reported_plainly` must drop `min_history_days`.** It builds its request from `self.request_payload`, which carries an explicit `min_history_days: 1` — so on the five-row panel every asset is eligible on day one and the run *completes* (`'complete' != 'failed'`). The scenario needs the key absent, which makes `validate_request` default it to `lookback_days` for an optimizer scheme; five rows cannot clear that, and `NoEligibleAssets` fires as intended.
+
+**Step 9 smoke test, run against live data.** SPY/AGG 60/40, custom weights, annual rebalance: `complete`, 1999-01-04 → 2026-07-31 over 6,936 rows, CAGR 6.36%, max drawdown −47.5%, diagnostics `['single_asset_period', 'survivorship_bias', 'short_sample', 'concentration']`. The drawdown looks too deep for a 60/40 until you read the first diagnostic: AGG's history starts after SPY's, so the early years run as 100% SPY through 2008. The diagnostic is doing exactly its job. The smoke `BacktestRun`, its Redis key and its S3 object were all removed afterwards.
 
 **Files:**
 - Create: `backend/backtester/tasks.py`, `backend/backtester/results.py`
