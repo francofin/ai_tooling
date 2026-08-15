@@ -7200,6 +7200,21 @@ git commit -m "feat: add async backtest execution and result polling"
 
 There is no frontend test runner configured in this repo (`jest` is present but there is no `test` script and `.babelrc.disabled-test` is parked), so verification here is `npm run lint`, `npm run format:check`, `npm run build`, and a browser check.
 
+**`npm run build` cannot complete on this development machine — established during execution, applies to Tasks 15–19.**
+
+`next build` is OOM-killed (SIGKILL, exit 137) during "Creating an optimized production build". Three attempts: default heap, `--max-old-space-size=5120`, and `2560`. A *higher* limit makes it worse, because V8 grows past physical RAM into swap until the OS kills it. The box has 7.9 GB RAM with ~3.5 GB of its 4 GB swap already committed at rest, and `.next/BUILD_ID` has never existed — no production build has ever succeeded here.
+
+**This is not caused by this work.** Verified by a controlled baseline: `src/componentsLegacy/Backtest/`, `src/pages/api/backtester/`, the four hooks and the rewritten page were all moved out of the tree, the original `ComingSoon` page restored, and `npm run build` re-run — it died identically with exit 137. The files were restored automatically by the script's `trap`.
+
+Two consequences for anyone executing the remaining tasks:
+
+1. **Substitute `npx prettier --check <files>` + `npm run lint` for the build gate**, and record that the build is unverified. ESLint's Next parser fully parses every new file, so syntax and import-shape errors are still caught; what goes unverified is bundling and SSR/prerender.
+2. **`npm run build 2>&1 | tail -30` reports the exit status of `tail`, not the build.** An OOM kill therefore shows as exit 0 with plausible-looking output — a green-looking failure. Redirect to a file and check `$?` directly, as the corrected commands below do.
+
+`npm run ci` in Final Verification is blocked for the same reason and must be run on a machine with more memory (or with a swap increase) before merging.
+
+**`npm run format` is `prettier --write .` — repo-wide.** At the time of execution the working tree carried unrelated uncommitted edits (`src/pages/index.js`, `markets.js`, several `componentsLegacy/Homepage/*`, `useIndexHeatMap.js`), and rewriting those would have mixed formatting churn into someone else's work in progress. Format only the files the task creates: `npx prettier --write <paths>`.
+
 **Files:**
 - Create: `src/pages/api/backtester/[...path].js`, `src/hooks/usePortfolios.js`, `src/hooks/useBacktestRun.js`, `src/hooks/useSymbolSearch.js`, `src/hooks/useBacktestQuota.js`
 
