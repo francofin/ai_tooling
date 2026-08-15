@@ -5175,6 +5175,8 @@ git commit -m "feat: add backtester models and read-only subscription tier"
 
 Scaffolding ships now; pricing is deliberately undefined (§13). Three rules matter more than the number: only novel runs count, portfolio management is always free, and failed runs are refunded.
 
+**Correction applied during execution.** As first drafted, `QuotaExceeded.__init__` passed its payload dict straight to `APIException.__init__`, and `test_it_raises_once_the_allowance_is_gone` failed with `ErrorDetail(string='2') != 2`. DRF's `_get_error_details` walks a dict detail and rewrites **every** leaf as an `ErrorDetail` string, so the 402 body would have carried `used` and `limit` as strings and `upgrade_required` as `"True"` — and the Task 15 quota banner does arithmetic on those numbers. The test was right and the implementation was wrong; `self.detail` is now reassigned to the raw payload after `super().__init__`. (`upgrade_required` passed only by accident: a non-empty `"True"` string is truthy.)
+
 **Files:**
 - Create: `backend/backtester/quota.py`, `backend/backtester/permissions.py`
 - Test: `backend/backtester/tests/test_quota.py`
@@ -5390,13 +5392,21 @@ class QuotaExceeded(APIException):
     status_code = status.HTTP_402_PAYMENT_REQUIRED
 
     def __init__(self, used, limit):
-        super().__init__({
+        payload = {
             'detail': (f"You have used all {limit} of your free backtests. "
                        f"Saving and editing portfolios stays free."),
             'used': used,
             'limit': limit,
             'upgrade_required': True,
-        })
+        }
+        super().__init__(payload)
+        # DRF's _get_error_details walks the dict and rewrites every leaf as an
+        # ErrorDetail *string*, so `used` would reach the client as "2" and
+        # `upgrade_required` as "True". The quota banner does arithmetic on those
+        # numbers, so put the native types back. DRF's exception handler passes a
+        # dict detail through to the Response untouched, so this renders as JSON
+        # numbers and a JSON boolean.
+        self.detail = payload
 
 
 @dataclass(frozen=True)
