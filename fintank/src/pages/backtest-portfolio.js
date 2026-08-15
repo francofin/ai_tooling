@@ -6,6 +6,11 @@ import PortfolioBuilder from '@componentsLegacy/Backtest/PortfolioBuilder'
 import BacktestSettings from '@componentsLegacy/Backtest/BacktestSettings'
 import AdvancedSettings from '@componentsLegacy/Backtest/AdvancedSettings'
 import QuotaBanner from '@componentsLegacy/Backtest/QuotaBanner'
+import ResultsHeadline from '@componentsLegacy/Backtest/ResultsHeadline'
+import GrowthChart from '@componentsLegacy/Backtest/GrowthChart'
+import DrawdownChart from '@componentsLegacy/Backtest/DrawdownChart'
+import AllocationOverTime from '@componentsLegacy/Backtest/AllocationOverTime'
+import StatsTable from '@componentsLegacy/Backtest/StatsTable'
 import { DEFAULT_SETTINGS, buildRequestPayload } from '@componentsLegacy/Backtest/backtestDefaults'
 import useBacktestRun from '@hooks/useBacktestRun'
 import useBacktestQuota from '@hooks/useBacktestQuota'
@@ -90,9 +95,13 @@ const BacktestPortfolio = () => {
           )}
 
           {result && (
-            <Alert variant="success">
-              Simulated {result.effective_start} to {result.effective_end}. Results rendering lands in the next step.
-            </Alert>
+            <>
+              <ResultsHeadline result={result} />
+              <GrowthChart result={result} />
+              <AllocationOverTime result={result} />
+              <DrawdownChart result={result} />
+              <StatsTable result={result} />
+            </>
           )}
         </Col>
       </Row>
