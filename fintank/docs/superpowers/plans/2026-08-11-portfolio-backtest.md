@@ -131,7 +131,7 @@ These apply to **every** task. They are not repeated per task.
 
 **Tasks 1–19 are complete.** The `engine/` package, the models and privilege-escalation guard, metering, the async API and the whole frontend are committed on `feat/portfolio-backtest`. The backend suite is **322 tests passing** across `backtester`, `users` and `analyzer`.
 
-**Task 20 is blocked on the repo owner** and is the only outstanding item — it needs the exposed FMP key rotated at Financial Modeling Prep before the superseded notebook can be deleted. See that task for its exact state.
+**Task 20 is deferred to pre-deploy** and is the only outstanding item. The owner assessed the exposed FMP key as never having left the machine and kept it for local testing; rotation and the notebook deletion move to a pre-deploy checklist. It is **not** done — see that task for the sequence and for why the rotation order matters (the notebook's key is the live one in `backend/.env`).
 
 **Two verification gaps, both environmental, both recorded where they apply:**
 
@@ -9610,9 +9610,16 @@ git commit -m "feat: mark backtest portfolio as built in the profile nav"
 
 `backend/class_files/portfolio_analyzer.ipynb` cell 3 contains a hardcoded live FMP API key (§ Context). The engine now supersedes that notebook entirely, so the key gets rotated and the file goes.
 
-**Status: blocked on the repo owner, deliberately.** Steps 1 and 3 are done — the file is present (72 KB, dated 4 Aug) and the key is there, beginning `ae1d54`. Step 3's reference check found exactly one mention outside the spec and this plan, `docs/BACKEND_BREAKDOWN.md:467`, and it is the row that *documents this deletion*, not a code dependency — so it does not block, but that row should be updated to past tense once the file is gone.
+**Status: deferred to pre-deploy by the repo owner's decision (2026-08-15).** Steps 1 and 3 are done — the file is present (72 KB, dated 4 Aug) and the key is there, beginning `ae1d54`. Step 3's reference check found exactly one mention outside the spec and this plan, `docs/BACKEND_BREAKDOWN.md:467`, and it is the row that *documents this deletion*, not a code dependency — so it does not block, but that row should be updated to past tense once the file is gone.
 
-Steps 2 and 4 are **not** done. Rotation happens at Financial Modeling Prep and only the repo owner can do it, and deleting before rotating would leave a live key that was exposed on disk. Do not delete the notebook until rotation is confirmed.
+**A fact this task did not originally record: the notebook's key is byte-for-byte the key in `backend/.env`.** It is not a stale copy — it is the live credential the app authenticates with. So rotation is not a cleanup of a dead string; it breaks Django and Celery until `.env` is updated and both are restarted. Sequence it: regenerate at FMP → update `FMP_API` in `backend/.env` → restart the dev server and any Celery worker → verify a 200 → then delete the notebook.
+
+**Steps 2 and 4 are not done, deliberately.** The owner assessed that the file never left the machine and elected to keep the current key for local testing, replacing it before deploy. That is defensible on the evidence: `backend/class_files/` is gitignored, `git log --all` on it is empty, so the key was never committed or pushed, and the usual scrape path (public repo history) never existed. The residual exposure is backups, sync and file sharing, not the internet.
+
+Two consequences for whoever picks this up:
+
+- **Do not report Task 20 as done, and do not imply the key was rotated.** It was not. The notebook is still on disk with a live key in it.
+- **The pre-deploy checklist is: rotate, update `.env`, restart, verify, delete the notebook, update the `BACKEND_BREAKDOWN.md` row.** Deleting the notebook is safe to do at any point before that — it is superseded by `backtester/` and nothing imports it — but it is untracked and gitignored, so deletion is irreversible with no `git restore` to fall back on.
 
 One correction to Step 5's framing: the second `grep` there excludes `homepage_data`, which hides the fact that **`homepage_data.ipynb` still holds hardcoded FMP *and* AWS keys**. That is a separate outstanding finding, is not in this build's scope, and is not closed by this task. Report it alongside, never as part of, the portfolio_analyzer result.
 
