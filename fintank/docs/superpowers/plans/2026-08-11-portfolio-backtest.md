@@ -5515,6 +5515,11 @@ git commit -m "feat: add backtest usage metering"
 
 The free half of the API surface (§12). Querysets are filtered by `request.user` at the manager level, never by a URL parameter.
 
+**Two corrections applied during execution.**
+
+1. **`search` must order within its own buckets.** As drafted, `search` appended rows in whatever order `get_symbol_index()` yielded them, so ranking silently inherited an invariant maintained in `build_symbol_index` (which happens to return rows sorted by symbol). `test_a_symbol_prefix_match_ranks_first` patches `build_symbol_index` with an *unsorted* fixture and expects `AAL` ahead of `AAPL` for query `aa` — both are prefix matches, so the assertion is really about intra-bucket order — and it failed with `'AAPL' != 'AAL'`. The fix is in `search`, not the fixture: `prefix` and `contains` are now each sorted by symbol before concatenation, so a cached index built by an older version or a test double cannot reorder the typeahead. `exact` is left unsorted — it holds at most one row.
+2. **The `/api/backtester/history/` entry in `AuthenticationTests` is deferred to Task 14**, which owns that route. It is commented out here with a pointer, so Task 13's commit is green, and Task 14 restores it. This is the first of the two options Step 6 offers.
+
 **Files:**
 - Create: `backend/backtester/serializers.py`, `backend/backtester/views.py`, `backend/backtester/urls.py`, `backend/backtester/symbol_index.py`
 - Modify: `backend/fintank_backend/urls.py:23-31`
@@ -5912,7 +5917,14 @@ def search(query: str, limit: int = 25) -> list:
         if len(exact) + len(prefix) + len(contains) >= limit * 4:
             break
 
-    return (exact + prefix + contains)[:limit]
+    # Sort within each bucket rather than inheriting the index's own order.
+    # build_symbol_index() happens to return rows sorted by symbol, but ranking
+    # must not depend on an invariant maintained in a different function -- a
+    # cached index built by an older version, or a test double, would otherwise
+    # silently reorder the typeahead.
+    by_symbol = lambda row: row['symbol']
+    return (exact + sorted(prefix, key=by_symbol)
+            + sorted(contains, key=by_symbol))[:limit]
 ```
 
 - [ ] **Step 4: Write `serializers.py`**
