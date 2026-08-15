@@ -142,6 +142,15 @@ Corrections made while executing 1–10 are folded into the task text below, eac
 
 Corrections made while executing 11–19, each explained at its task: the `QuotaExceeded` ErrorDetail stringification; `HasBacktestQuota` raising rather than returning `False`; `symbol_index.search` sorting its own buckets; a missing `cache.clear()`; a self-defeating `min_history_days` in a task test; and the Final Verification allowlist audit's missing `fintank/` path prefix.
 
+### Remaining work, in order
+
+1. **Run `npm run build` on a machine with more memory** (or add swap). This is the only gate that has never passed. If it fails there for a *real* reason, the likely suspects are the sixteen new frontend files — start with the four `react-apexcharts` components, which are dynamically imported with `{ ssr: false }` but have never been bundled.
+2. **Browser-check the page** — Tasks 16 step 8, 17 step 9, 18 step 6, 19 step 2 list what to confirm. Needs Redis, Postgres, **a Celery worker**, Django, and `npm run dev` (port 8020). Without the worker the page polls `queued` forever, because `POST /run/` only enqueues.
+3. **Task 20 at pre-deploy** — rotate, update `.env`, restart, verify, delete the notebook, update `docs/BACKEND_BREAKDOWN.md:467`.
+4. **Then** `superpowers:finishing-a-development-branch` for the merge decision.
+
+Not part of this plan, but adjacent and worth raising once: `backend/class_files/homepage_data.ipynb` still holds hardcoded FMP **and AWS** keys. The AWS pair reaches the `thetradingfloor` bucket, which is a larger exposure than the FMP key this plan deals with.
+
 ---
 
 ## Task Sequence
