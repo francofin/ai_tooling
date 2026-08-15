@@ -69,6 +69,8 @@ These apply to **every** task. They are not repeated per task.
 | `results.py` | Result assembly + Redis/S3 storage. Both `tasks.py` and `views.py` need `load_payload`, so putting it in `tasks.py` would make the view layer import the task module |
 | `symbol_index.py` | The typeahead index, mirroring `analyzer_utils/universe_lookup.py`. In `views.py` it would double that file's length for something the views only call |
 
+**A presentation trap, verified on live data.** A risk-parity run over AAPL/MSFT/VTI/AGG/GLD from 2010 produced final weights `AAPL 0.128, MSFT 0.118, VTI 0.178, AGG 0.461, GLD 0.115` and full-period risk shares `AAPL 0.304, MSFT 0.303, VTI 0.261, AGG 0.074, GLD 0.058`. Both are correct: the optimizer equalizes risk on the **trailing lookback window at each rebalance**, while §9's contribution-to-risk reports the **full-period** covariance against the **final** weights. A user who selected "every holding contributes the same share of risk" and then reads 30% vs 6% will reasonably conclude the optimizer is broken. Task 17's `StatsTable` carries a note explaining it — do not "fix" either computation to make them agree.
+
 **Two documented reconciliations of the spec** (apply these, they are deliberate):
 
 1. **Risk parity objective.** §7's table writes `RCᵢ = wᵢ(Σw)ᵢ / √(wᵀΣw)`, which sums to `σ_p`, not 1 — minimizing `Σ(RCᵢ − 1/N)²` against that would trade risk-equality off against scaling `σ_p` toward 1 and would fail §15's "risk contributions equal within 1e-4" property test. Use the **relative** risk contribution, which is exactly the definition §9 gives for contribution-to-risk: `RCᵢ = wᵢ(Σw)ᵢ / (wᵀΣw)`, summing to 1, target `1/N`. One shared helper serves both §7 and §9.
@@ -8975,6 +8977,15 @@ const StatsTable = ({ result }) => {
               Every return and risk figure above is measured on the strategy itself, with
               deposits stripped out, so the deposit schedule cannot flatter it.
             </p>
+            {result.request?.weighting_scheme === "risk_parity" && (
+              <p className="text-muted fs-13px mb-0 mt-2">
+                <strong>Why these risk shares are not equal.</strong> Risk parity equalized
+                risk using the {result.request.lookback_days} trading days before each
+                rebalance. The shares above are measured across the whole period against your
+                final weights, which is the portfolio you actually held — so the two
+                legitimately differ, often by a lot. Neither number is wrong.
+              </p>
+            )}
           </div>
         </Collapse>
       </Card.Body>
