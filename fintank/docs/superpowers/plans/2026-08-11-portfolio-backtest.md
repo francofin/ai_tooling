@@ -129,9 +129,18 @@ These apply to **every** task. They are not repeated per task.
 
 ## Progress
 
-**Tasks 1–10 are complete** — the whole `engine/` package, 190 tests passing, on branch `feat/portfolio-backtest`. Tasks 11–20 remain: models and the privilege-escalation guard, metering, the async API, then the frontend.
+**Tasks 1–19 are complete.** The `engine/` package, the models and privilege-escalation guard, metering, the async API and the whole frontend are committed on `feat/portfolio-backtest`. The backend suite is **322 tests passing** across `backtester`, `users` and `analyzer`.
+
+**Task 20 is blocked on the repo owner** and is the only outstanding item — it needs the exposed FMP key rotated at Financial Modeling Prep before the superseded notebook can be deleted. See that task for its exact state.
+
+**Two verification gaps, both environmental, both recorded where they apply:**
+
+- `npm run build` and therefore `npm run ci` are OOM-killed on the development machine and could not be run — proven pre-existing by a controlled baseline with all of this work's frontend files removed. See Task 15's note. Bundling and SSR for the sixteen new frontend files are unverified; lint and Prettier are clean.
+- The browser checks in Tasks 16 step 8, 17 step 9, 18 step 6 and 19 step 2 were not performed, for the same reason.
 
 Corrections made while executing 1–10 are folded into the task text below, each explained where it applies. The substantive ones: risk parity uses the relative risk-contribution form; the Task 8 cross-check needs `common_start`; the look-ahead guardrail needs two sabotage variants; IRR day count is actual/365; `weights_over_time` is indexed from `effective_start`; and `backend/class_files/` is gitignored so neither notebook can be committed.
+
+Corrections made while executing 11–19, each explained at its task: the `QuotaExceeded` ErrorDetail stringification; `HasBacktestQuota` raising rather than returning `False`; `symbol_index.search` sorting its own buckets; a missing `cache.clear()`; a self-defeating `min_history_days` in a task test; and the Final Verification allowlist audit's missing `fintank/` path prefix.
 
 ---
 
@@ -9601,6 +9610,12 @@ git commit -m "feat: mark backtest portfolio as built in the profile nav"
 
 `backend/class_files/portfolio_analyzer.ipynb` cell 3 contains a hardcoded live FMP API key (§ Context). The engine now supersedes that notebook entirely, so the key gets rotated and the file goes.
 
+**Status: blocked on the repo owner, deliberately.** Steps 1 and 3 are done — the file is present (72 KB, dated 4 Aug) and the key is there, beginning `ae1d54`. Step 3's reference check found exactly one mention outside the spec and this plan, `docs/BACKEND_BREAKDOWN.md:467`, and it is the row that *documents this deletion*, not a code dependency — so it does not block, but that row should be updated to past tense once the file is gone.
+
+Steps 2 and 4 are **not** done. Rotation happens at Financial Modeling Prep and only the repo owner can do it, and deleting before rotating would leave a live key that was exposed on disk. Do not delete the notebook until rotation is confirmed.
+
+One correction to Step 5's framing: the second `grep` there excludes `homepage_data`, which hides the fact that **`homepage_data.ipynb` still holds hardcoded FMP *and* AWS keys**. That is a separate outstanding finding, is not in this build's scope, and is not closed by this task. Report it alongside, never as part of, the portfolio_analyzer result.
+
 **Files:**
 - Delete: `backend/class_files/portfolio_analyzer.ipynb`
 
@@ -9705,7 +9720,12 @@ Expected: both paths absent, no grep hits, and the master plan shows no diff bey
 - [ ] **Allowlist audit**
 
 ```bash
-git diff --name-only main | grep -v "^backend/backtester/\|^src/" | sort
+# NOTE: git's root is the ai_tooling monorepo, not fintank/, so every path is
+# prefixed `fintank/` and the patterns must carry it -- without the prefix the
+# grep filters nothing and the audit "fails" by listing the entire branch.
+# Use main..HEAD (committed) rather than `main` (working tree), or the repo's
+# unrelated uncommitted edits show up as if this work had made them.
+git diff --name-only main HEAD | grep -v "^fintank/backend/backtester/\|^fintank/src/" | sort
 ```
 
 Expected exactly: `backend/class_files/backtester_portfolio.ipynb`, `backend/class_files/portfolio_analyzer.ipynb` (deleted), `backend/fintank_backend/settings.py`, `backend/fintank_backend/urls.py`, `backend/users/migrations/0002_*.py`, `backend/users/models.py`, `backend/users/serializers.py`, `backend/utils/StockCalculations.py`, plus the plan and spec docs. Anything else is out of scope — revert it.
