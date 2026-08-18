@@ -61,6 +61,10 @@ test-ledger
 
 # Claude Code local state
 .claude/
+# Holds the FMP MCP server URL with the API key embedded in the query string.
+.mcp.json
+# Screenshots and accessibility snapshots from the Playwright MCP server.
+.playwright-mcp/
 
 # Python wheel binaries
 *.whl
