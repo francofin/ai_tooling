@@ -508,3 +508,79 @@ class FactorRankTests(SimpleTestCase):
         self.assertEqual(reverse('stock_quintiles', args=['1M', 'sp500']),
                          '/api/getstockquintiles/1M/sp500/')
         self.assertEqual(Client().get('/api/getstockquintiles/1M/not_a_universe/').status_code, 404)
+
+
+@override_settings(CACHES=LOCMEM_CACHE)
+class JsonSafeFloatTests(SimpleTestCase):
+    """DRF's JSON renderer rejects NaN *and* ±inf. The guards only caught NaN.
+
+    `v != v` is true for NaN only -- inf compares equal to itself, so it slid
+    past every normaliser and blew up in the renderer, after the view had
+    already returned 200. RQP.TO (a target-maturity bond ETF) carries an inf in
+    its return-to-risk series, which is what made that one symbol 500.
+    """
+
+    def test_series_to_json_nulls_out_infinities_as_well_as_nan(self):
+        from analyzer.analyzer_utils.CorePerformanceTools import _series_to_json
+        column = pd.Series([1.0, float('nan'), float('inf'), float('-inf'), 2.5])
+        self.assertEqual(_series_to_json(column), [1.0, None, None, None, 2.5])
+
+    def test_series_to_json_output_survives_the_drf_renderer(self):
+        from rest_framework.renderers import JSONRenderer
+        from analyzer.analyzer_utils.CorePerformanceTools import _series_to_json
+        payload = _series_to_json(pd.Series([float('inf'), 1.0]))
+        JSONRenderer().render({'series': payload})
+
+    def test_json_safe_recurses_through_nested_containers(self):
+        from analyzer.analyzer_utils.CorePerformanceTools import json_safe
+        payload = {'a': float('inf'), 'b': [float('nan'), {'c': float('-inf')}]}
+        self.assertEqual(json_safe(payload), {'a': None, 'b': [None, {'c': None}]})
+
+    def test_json_safe_leaves_finite_values_and_non_numbers_alone(self):
+        from analyzer.analyzer_utils.CorePerformanceTools import json_safe
+        payload = {'sym': 'SPY', 'beta': 1.0, 'n': 3, 'flag': True, 'gone': None}
+        self.assertEqual(json_safe(payload), payload)
+
+
+@override_settings(CACHES=LOCMEM_CACHE)
+class CompanyProfileRenderTests(SimpleTestCase):
+    """ETF records carry NaN in equity-only fields, so every ETF 500'd here."""
+
+    def _fetch(self, record):
+        from django.test import Client
+        from analyzer import views
+        with patch('analyzer.views.cache.get', return_value=b'ignored'), \
+             patch.object(views.data_getter, 'file_decompressor', return_value=record):
+            return Client().get('/api/company-profiles/SPY/')
+
+    def test_profile_with_nan_and_inf_fields_still_renders(self):
+        import json as _json
+        response = self._fetch({'SPY': {
+            'symbol': 'SPY', 'ceo': float('nan'), 'no_of_employees': float('nan'),
+            'beta': 1.0, 'ratio': float('inf'),
+        }})
+        self.assertEqual(response.status_code, 200)
+        body = _json.loads(response.content)
+        self.assertIsNone(body['ceo'])
+        self.assertIsNone(body['no_of_employees'])
+        self.assertIsNone(body['ratio'])
+        self.assertEqual(body['beta'], 1.0)
+        self.assertEqual(body['symbol'], 'SPY')
+
+    def test_cached_blob_written_before_the_fix_heals_on_read(self):
+        """json.dumps writes Infinity happily; json.loads reads it back.
+
+        So a payload cached by the old code stays poisoned for its whole 24h
+        TTL. Reading has to re-normalise or the endpoint keeps 500ing long
+        after the code is correct.
+        """
+        import gzip as _gzip, json as _json
+        from analyzer.analyzer_utils.CorePerformanceTools import _load_cached_json
+        poisoned = _gzip.compress(
+            _json.dumps({'series': {'up_down_days_30': [1.0, float('inf')]}}).encode()
+        )
+        self.assertIn(b'Infinity', _gzip.decompress(poisoned))
+        self.assertEqual(
+            _load_cached_json(poisoned),
+            {'series': {'up_down_days_30': [1.0, None]}},
+        )

@@ -6,7 +6,7 @@ import boto3
 import gzip
 import json
 from django.conf import settings
-from .analyzer_utils.CorePerformanceTools import home_crypto_cache, home_etf_cache, economic_data_cache
+from .analyzer_utils.CorePerformanceTools import home_crypto_cache, home_etf_cache, economic_data_cache, json_safe
 from utils.StockCalculations import GetData
 from django.core.cache import cache
 from datetime import date
@@ -282,8 +282,11 @@ def get_company_profile(request, symbol):
         if compressed:
             records = data_getter.file_decompressor(compressed)
 
-            # Find matching symbol
-            return Response(records[symbol.upper()], status=status.HTTP_200_OK)
+            # Find matching symbol. ETF records carry NaN in the equity-only
+            # fields (ceo, no_of_employees), which the DRF renderer rejects
+            # after this view returns -- so every ETF 500'd here until the
+            # payload was normalised.
+            return Response(json_safe(records[symbol.upper()]), status=status.HTTP_200_OK)
 
     except Exception:
         pass
@@ -293,7 +296,7 @@ def get_company_profile(request, symbol):
         from .analyzer_utils.CorePerformanceTools import get_company_profiles
         data = get_company_profiles()
         decompressed_profiles = data_getter.file_decompressor(data)
-        return Response(decompressed_profiles[symbol.upper()], status=status.HTTP_200_OK)
+        return Response(json_safe(decompressed_profiles[symbol.upper()]), status=status.HTTP_200_OK)
     except KeyError:
         return Response({"detail": f"Symbol '{symbol}' not found"}, status=status.HTTP_404_NOT_FOUND)
     except Exception:
