@@ -86,7 +86,9 @@ pattern. **Nothing new needs to be ingested, and no FMP call is needed.**
   `test` script, no `jest.config`, and a `.babelrc.disabled-test` in the working tree —
   JS testing was started and shelved. Standing it up is a separate decision, not a
   dependency of this feature.
-- **`useNewCandleStick`.** Shared with `src/pages/factor-performance.js`. Left untouched.
+- **Fixing the codebase-wide `isLoading` bug.** Four other call sites destructure an SWR
+  2.0 API that does not exist in the installed 1.3.0, leaving permanently-dead skeleton
+  branches. Noted in *Frontend implementation*; fixing them is a separate change.
 
 ---
 
@@ -295,7 +297,8 @@ Four contract decisions:
 | Wrong arity (e.g. `macd:12`) | 400 | detail names the token and expected arity |
 | `macd` with `fast >= slow` | 400 | detail explains the constraint |
 | More than 12 indicators | 400 | `{"detail": "at most 12 indicators per request"}` |
-| Empty or missing `indicators` | 400 | detail lists valid names |
+| **Missing `indicators` entirely** | **200** | Candle-only payload: `candle`/`volume`/`average_volume`, `indicators: {}`. Required so a freshly added ticker renders its price chart before anything is toggled — see *The data hook*. |
+| Present but malformed `indicators` (e.g. `?indicators=`) | 400 | detail lists valid names |
 | No parquet for symbol — `FileNotFoundError`, `OSError`, or `KeyError` from the loader | 404 | `{"detail": "No price history for 'XYZ'"}` |
 | Parquet exists but is empty, or `close` is entirely NaN | 404 | Same as above — indistinguishable to the user from a missing symbol |
 | Parquet has one row (diff-based indicators need ≥2) | 200 | All indicators except `adl` warn-and-skip |
@@ -463,14 +466,33 @@ path('technicals/<str:symbol>/', views.get_technicals, name='technicals'),
 recorded on the `watchlistperformance` route.
 
 ---
-
 ## Frontend implementation
+
+### Library constraints that shape everything below
+
+Two installed-version facts drive several decisions in this section. Both were verified
+against `node_modules`, not assumed.
+
+**SWR is 1.3.0.** `isLoading` and `keepPreviousData` are SWR 2.0 APIs and do not exist
+here — `isLoading` appears nowhere in `node_modules/swr/dist/*.d.ts`. Loading state must
+be derived as `!data && !error`.
+
+> This is already a latent bug elsewhere in the codebase: `useIndexQuotes.js:13`,
+> `useFinancialStatements.js:10`, `WatchlistPerformance.js:166` and
+> `PeerComparisonSection.js:120` all destructure `isLoading` and receive `undefined`, so
+> their skeletons never render and every `!isLoading` guard is permanently true. Copying
+> that pattern would inherit a dead branch. Fixing those sites is **out of scope here**
+> but worth a follow-up.
+
+**ApexCharts is 4.7.0**, and its chart-group mechanics are stricter than the earlier draft
+of this spec assumed. See *Panel layout*.
 
 ### The rail becomes data
 
-Roughly 900 of the current 2,079 lines are eleven hand-written education modals; a further
-~450 are eleven near-identical `submitXHandler` functions and collapse blocks. All of it
-collapses into one data file plus one component.
+Roughly 1,000 of the current 2,078 lines are the eleven indicators' UI: `Modal.Body` prose
+plus the surrounding `Collapse`/`Form` control markup. A further ~450 are eleven
+near-identical `submitXHandler` functions. All of it collapses into one data file plus one
+component.
 
 ```jsonc
 // src/data/indicatorMeta.json
@@ -479,109 +501,264 @@ collapses into one data file plus one component.
     "label": "Relative Strength Index",
     "kind": "oscillator",
     "params": [{ "key": "period", "label": "Period", "default": 14, "min": 2, "max": 500 }],
-    "bands": [30, 70],
+    "plots":  [{ "key": "rsi", "type": "line", "color": "#4e66f8" }],
+    "bands":  [30, 70],
     "description": "...",      // prose migrated verbatim from the old modals
     "bullets": ["Calculation: ...", "..."]
   },
-  "macd": { "params": [fast, slow, signal], ... },
-  "adl":  { "params": [], ... }
+  "macd": {
+    "params": [
+      { "key": "fast",   "default": 12 },
+      { "key": "slow",   "default": 26 },
+      { "key": "signal", "default": 9  }
+    ],
+    "constraints": [
+      { "op": "lt", "left": "fast", "right": "slow",
+        "message": "Fast period must be below slow" }
+    ],
+    "plots": [
+      { "key": "macd",   "type": "line",   "color": "#4e66f8" },
+      { "key": "signal", "type": "line",   "color": "#f5a623" },
+      { "key": "hist",   "type": "column", "color": "#8e9aaf" }
+    ]
+  },
+  "adl": { "params": [], "plots": [{ "key": "adl", "type": "line" }], "autoscale": true }
 }
 ```
 
-`indicatorMeta` drives both the control rail and the info modals. No indicator-specific
-code remains in the page — which is also what makes the current crop of bugs
-*inexpressible* rather than merely fixed.
+Three fields exist for reasons worth stating, since an implementer would otherwise drop
+them:
+
+- **`plots`** is what keeps contract decision 3 ("`kind` drives rendering; the frontend
+  never hardcodes which indicator is which") actually true. Without it, MACD's three
+  series against RSI's one forces `OscillatorChart` to special-case MACD by name — the
+  exact indicator-specific branching this rebuild exists to eliminate. RSI is simply a
+  one-entry `plots`.
+- **`constraints`** makes the inline-400 interface state implementable. MACD requires
+  `fast < slow`; without a machine-readable rule the frontend cannot map a `{"detail":
+  "..."}` prose string back to the offending input. The rail validates against
+  `constraints` *before* serializing, so the 400 is normally unreachable.
+- **`color` per plot, keyed by indicator token, never by series index.** ApexCharts
+  assigns default palette colors positionally. Because an indicator can be dropped from a
+  panel via `warnings` (insufficient history), a short-history symbol shifts every
+  subsequent series a palette slot — the same indicator renders a different color in
+  different columns. In a comparison tool that is a correctness bug, not a cosmetic one.
+
+**Serialization rules** (the two places `serializeSpec` will otherwise be got wrong):
+
+1. The meta key **is** the API token. Note the rename: the old page used
+   `standardDeviation` (`build-comparison.js:696`); the contract uses `stddev`.
+2. A zero-param indicator emits a bare `adl` — no trailing colon.
+3. `params` order is positional, so `macd` serializes as `macd:<fast>:<slow>:<signal>`.
+
+`kind` appears in both meta and the response. **Meta is authoritative for control
+placement; the response is authoritative for rendering.**
 
 ### Component tree
 
 ```
 src/pages/build-comparison.js                        ~130 lines, layout only
+                                                     KEEPS its getStaticProps (see below)
 src/componentsLegacy/Comparison/
-  TickerPicker.js          autocomplete + chips; enforces the 5-symbol cap
+  TickerPicker.js          autocomplete + chips; enforces the 5-symbol cap AND uniqueness
                            uses the public `useStockNames` — NOT `useSymbolSearch`,
                            whose endpoint is IsAuthenticated (see below)
-  IndicatorRail.js         maps indicatorMeta → controls
+  IndicatorRail.js         maps indicatorMeta → controls; validates `constraints`
   IndicatorControl.js      one toggle + N period inputs + info button
   IndicatorInfoModal.js    generic; reads description/bullets from meta
-  PanelGrid.js             responsive wrapping grid
-  SymbolPanel.js           one ticker column; owns its own data hook
-  PriceChart.js            candlestick + volume + MA overlays
-  OscillatorChart.js       one oscillator sub-panel
+  PanelGrid.js             layout container
+  SymbolPanel.js           one ticker's charts; owns its own data hook; error boundary
+  PriceChart.js            candlestick + volume-on-second-axis + MA overlays
+  OscillatorChart.js       one oscillator; renders from `plots`
 src/hooks/useTechnicals.js
+src/hooks/useDebounce.js
 ```
+
+**`getStaticProps` must survive the rewrite.** `build-comparison.js:57` returns
+`{ nav: { light, classes, color }, title: "Charting Area" }`, and `Layout.js:30` renders
+`<title>{pageProps.title} - Portfolio Manager</title>` while forwarding `nav` to `Header`.
+Dropping it silently costs the page its title and header treatment. Update `title` to
+match the new page name and keep the rest.
+
+**Each `SymbolPanel` is wrapped in an error boundary.** Five sibling panels render from
+independent responses; without one, a single panel throwing during render blanks the whole
+page.
 
 ### State model
 
 ```js
-const [symbols, setSymbols]       = useState([])   // max 5
-const [indicators, setIndicators] = useState({})   // { rsi: { on: true, params: { period: 14 } } }
+const [symbols, setSymbols]       = useState([])   // max 5, unique
+const [indicators, setIndicators] = useState([])   // ordered instances — see below
 
-const spec = useDebounce(serializeSpec(indicators), 400)
+const debounced = useDebounce(indicators, 400)
+const spec      = serializeSpec(debounced)
+```
+
+**Indicator state is a list of instances, not a map keyed by name.** The current page
+carries `periodOne` *and* `periodTwo` for every moving average and oscillator
+(`build-comparison.js:83-133`) — plotting SMA(50) against SMA(200) is the main point of
+that control. A `{ rsi: {...} }` map holds exactly one instance per indicator and would
+silently drop that capability, contradicting this spec's own "no feature loss" claim. The
+API contract already supports it: `sma:50,sma:200` are simply two of the twelve tokens.
+
+```js
+[{ id: 'sma#1', name: 'sma', params: { period: 50  } },
+ { id: 'sma#2', name: 'sma', params: { period: 200 } },
+ { id: 'rsi#1', name: 'rsi', params: { period: 14  } }]
 ```
 
 Indicator settings are **shared across all panels** — RSI(14) means RSI(14) in every
 column. Per-panel settings would make the columns non-comparable, defeating the page.
 
-Each `<SymbolPanel>` calls `useTechnicals(symbol, spec)` itself, giving exactly one
-`useSWR` per component instance and avoiding hooks-in-a-loop. SWR keys on the URL, so
-identical symbol+spec pairs dedupe automatically.
+**Debounce the state object, not the serialized string.** Debouncing the string leaves
+`symbols` undebounced, so adding a ticker mid-flight mounts a panel that fetches with the
+*stale* spec and then refetches 400ms later — two requests and a visible rebuild for that
+panel alone. Debouncing the source state and deriving `spec` from it keeps every panel on
+one spec generation. `useDebounce` must return its initial value **synchronously on first
+render**, or the whole page idles 400ms on load for nothing.
 
-**The 400ms debounce is load-bearing, not cosmetic.** Period inputs fire per keystroke;
-typing `200` without it issues requests for `2`, `20`, and `200` across 5 symbols —
-15 requests to render one change.
+Removing a ticker mid-flight is safe — the panel unmounts and SWR abandons the key.
+
+### The data hook
 
 ```js
 export const useTechnicals = (symbol, spec) =>
-  useSWR(
-    symbol && spec
-      ? `${process.env.NEXT_PUBLIC_FINTANK_API_URL}/technicals/${encodeURIComponent(symbol)}/?indicators=${spec}`
+  useSWRImmutable(
+    symbol
+      ? `${process.env.NEXT_PUBLIC_FINTANK_API_URL}/technicals/${encodeURIComponent(symbol)}/` +
+        (spec ? `?indicators=${spec}` : '')
       : null,
-    fetcher,
-    { revalidateOnFocus: true, refreshInterval: 0 }   // daily data — nothing to poll
+    fetcher
   )
 ```
 
-A null key when either input is empty suspends the request, matching the convention
-documented in `useWatchlistPerformance`.
+Three deliberate choices:
 
-`useDebounce` does not exist yet — it is a small new hook in `src/hooks/`. The nearest
-precedent, `useSymbolSearch`, debounces inline with `setTimeout` in a `useEffect`; this
-extracts the same pattern as a reusable value-debouncer.
+- **`spec` is not part of the key guard.** With `symbol && spec`, a freshly added ticker
+  with nothing toggled yields an empty spec, a null key, and therefore *no request ever* —
+  the panel stays blank forever and the candlestick, which needs no indicators at all, is
+  unreachable. **The backend must accept a missing `indicators` parameter** and return
+  `candle`/`volume`/`average_volume` alone; this is nearly free given the OHLCV cache
+  layer already exists. *(This amends the Error handling table's "empty or missing
+  `indicators` → 400" row: missing is now valid; malformed is still 400.)*
+- **`useSWRImmutable`, not `revalidateOnFocus: true`.** Five panels revalidating on every
+  tab focus is five requests for data the server pins to a 24h TTL.
+  `useWatchlistPerformance` revalidates because watchlists are user-mutable; this is not.
+  `useIndexRisk.js:12` is the closer precedent.
+- **Loading is `!data && !error`**, per the SWR 1.3.0 constraint above.
 
-**The picker stays on `useStockNames`.** `useSymbolSearch` looks like the better typeahead,
-but it calls `/api/backtester/search-symbols`, which is
-`@permission_classes([IsAuthenticated])` — unusable from a page this spec makes public.
-`useStockNames` fetches `/all-stock-names/` once through SWR and filters client-side,
-exactly as the current page does.
+**Stale-while-changing.** Without `keepPreviousData`, every debounced spec change mints a
+new key, `data` goes `undefined` in all five panels simultaneously, and ~30 chart
+instances unmount and remount. `SymbolPanel` therefore holds last-good data in a ref and
+renders it dimmed while the new payload is in flight, keeping charts mounted.
 
 ### Panel layout
 
-Responsive wrapping grid (`Col xs=12 lg=6 xxl=4`): 1-up mobile, 2-up laptop, 3-up wide.
-Five tickers land as 3+2 rather than five ~240px slivers, which is what five true
-side-by-side columns would produce on a 1440px screen.
+> **Layout shape is a pending decision** — see the Open Questions section at the end of
+> this spec. The ApexCharts mechanics below apply to any of the candidate layouts.
 
-Within a panel, **ApexCharts throughout**, with `chart.group: symbol` set on the
-candlestick and every oscillator beneath it. This is ApexCharts' synchronized-chart
-feature: hovering the candlestick moves the crosshair on RSI and MACD together, and
-zooming one zooms all. A Chart.js oscillator under an ApexCharts candlestick cannot
-participate in that group — which is the functional reason to drop Chart.js here, not
-mere consistency.
+#### `chart.id` is mandatory, and the earlier draft omitted it
 
-Overlays (`kind: "overlay"`) render as additional line series *on* the candlestick.
-Oscillators get stacked sub-charts with reference bands from `meta.bands`.
+`apexcharts.js:59` gates registration on it:
+
+```js
+if (this.w.config.chart.id) {
+  Apex._chartInstances.push({ id: ..., group: this.w.config.chart.group, chart: this })
+}
+```
+
+A chart without an `id` is never registered, so `getGroupedCharts()` cannot find it and
+**`chart.group` becomes a silent no-op.** The earlier draft specified only `chart.group`,
+which would have failed Build sequence step 7 outright.
+
+IDs must be unique **page-wide**, not per panel — `_chartInstances` is one flat global
+array, and `destroy()` splices the first entry matching an `id`, so a duplicate means
+unmounting one chart deregisters another still on screen. Use
+`` chart.id = `${symbol}:${slot}` ``, and note `Utils.escapeString` (`Utils.js:315`)
+rewrites `.` to `x`, so `RQP.TO` is stored as `RQPxTO` — deterministic, but the id you set
+is not the id stored.
+
+#### Group lookup is O(all grouped charts on the page)
+
+```js
+getGroupedCharts() {
+  return Apex._chartInstances
+    .filter((ch) => { if (ch.group) { return true } })                      // ANY group
+    .map((ch) => (this.w.config.chart.group === ch.group ? ch.chart : this))
+}
+```
+
+The `.filter` is not group-scoped; foreign-group charts survive it and are then replaced
+by `this` in the `.map`. **Isolation holds** — no cross-panel sync leakage — but the
+returned array is as long as every grouped chart on the page, with `this` duplicated once
+per foreign chart.
+
+`Tooltip.js:398` iterates that array on every mousemove, and `updateOptions` defaults
+`updateSyncedCharts = true`, so one panel's data change runs the update pipeline once per
+entry. This is the strongest argument for keeping the total grouped-chart count low, and
+it is why the layout decision below is not purely aesthetic.
+
+#### Required chart configuration
+
+| Setting | Value | Why |
+|---|---|---|
+| `chart.id` | `` `${symbol}:${slot}` `` | Mandatory for group sync; unique page-wide |
+| `chart.group` | one per sync set | See Open Questions for the grouping axis |
+| `chart.toolbar.show` | `false` | `toggleZoomSelection`/`togglePanning` flip a flag **per array entry**; with unequal group sizes — which `warnings`-driven degradation produces — the parity can land even and the button goes dead. Drive range from one explicit control instead. |
+| `yaxis.labels.minWidth` | identical across a sync set | Crosshairs sync by **pixel offset in the plot area**. RSI (0–100), MACD (±3) and ADL (1e8) produce different label widths, so plot grids start at different x offsets and the "synchronized" crosshair lands on a different date per sub-panel. Pin `grid.padding.left/right` to match, and give ADL a compact formatter. |
+| `xaxis.type` | `datetime` (epoch ms) | Group sync and zoom are built around a numeric axis. The hook being replaced used `type: 'category'` (`useNewCandleSticks.js:53`), which is not safe to combine with grouping across mixed candlestick/column charts. |
+| `chart.animations.enabled` | `false` | At this instance count, animation cost compounds through the sync fan-out |
+| `dataLabels.enabled` | `false` | Same |
+
+**Volume renders as a second y-axis on the candlestick, not its own chart.** The old hook
+used a separate brush-linked chart (`useNewCandleSticks.js:78`); brush-target *plus* group
+membership is an untested combination, since the brush drives `updateOptions` on its
+target which then fans out over `getSyncedCharts()`. Folding volume into the price chart
+also cuts the grouped-chart count by a third.
+
+Off-screen panels lazy-render behind an `IntersectionObserver`.
+
+**ADL's sub-panel must autoscale and must never anchor its y-axis at zero** — see *History
+window*, where full-history cumulation gives ADL a large constant offset. Anchoring at
+zero collapses a year of movement into a flat line. This is what `"autoscale": true` in
+its meta entry drives.
 
 ### Interface states
 
 | State | Rendered |
 |---|---|
 | No symbols selected | Centered prompt in place of the grid |
-| Symbol loading | Skeleton block at the panel's chart heights |
-| 404 from backend | Panel shows "No price history for {sym}" plus a remove button |
-| 400 bad spec | Offending control highlighted inline in the rail |
-| `warnings[]` non-empty | Caption beneath the affected chart |
+| Symbol loading (`!data && !error`) | Skeleton at the panel's fixed chart heights |
+| Spec changing, previous data held | Last-good charts, dimmed; charts stay mounted |
+| 404 from backend | "No price history for {sym}" plus a remove button |
+| Invalid spec (caught by `constraints`) | Offending input highlighted inline in the rail |
+| `warnings[]` non-empty | Caption beneath the affected chart, and in the a11y text |
+| Panel throws | Error boundary renders a per-panel message; siblings survive |
 
 Inline validation replaces `swal`. The current page raises a modal alert per failed
 validation, which across five panels would stack up to five popups from one bad period.
+
+### Accessibility
+
+Absent from the earlier draft entirely.
+
+- `TickerPicker` is a combobox: `role="combobox"`, `aria-expanded`, `aria-controls`,
+  `aria-activedescendant`, Escape/Home/End handling, and accessible remove buttons on the
+  chips.
+- ApexCharts emits bare SVG with no accessible name. Wrap each chart in `role="img"` with
+  an `aria-label` naming the symbol and indicator.
+- `warnings` are exposed as text, not only as a visual caption.
+
+### URL state
+
+`?symbols=AAPL,MSFT&indicators=rsi:14,macd:12:26:9` — the obvious shareable artifact for a
+comparison tool, and it gives back/forward navigation for free. The canonical spec
+serialization already exists and is reused verbatim.
+
+No shallow-routing query-state precedent exists in this codebase (`router.query` appears
+only in the pagination components), so this establishes one: seed state from
+`router.query` behind `router.isReady`, write back with
+`router.replace(..., { shallow: true })`.
 
 ### Deletions and edits
 
@@ -590,21 +767,37 @@ validation, which across five panels would stack up to five popups from one bad 
 | `src/utils/plotTechnicalChart.js` | **Delete** — imported only by this page |
 | `src/utils/macdCharter.js` | **Delete** — imported only by this page |
 | `src/utils/adlCharter.js` | **Delete** — imported only by this page |
+| `src/hooks/useNewCandleSticks.js` | **Delete** — see below |
+| `src/pages/factor-performance.js:16` | **Delete the dead import** of `useNewCandleStick` |
 | `src/data/menu.json` | Relabel "Stock Charter" → "Chart Comparison"; route unchanged |
-| `src/hooks/useNewCandleSticks.js` | **Untouched** — shared with `factor-performance.js` |
+| `src/utils/plotFactorChart.js` | **Untouched** — genuinely used by `factor-performance.js:24` |
+
+**Correction to the earlier draft.** It claimed `useNewCandleStick` is "shared with
+`factor-performance.js`" and must be left alone. That is false. `grep -rn` returns three
+hits: the definition, `build-comparison.js:15`/`:210`, and `factor-performance.js:16` —
+**an import that is never called.** That file charts through `factorCharter`
+(`plotFactorChart.js`). Once this page is rewritten the hook has zero call sites.
+
+It is also not worth salvaging: it writes state from inside its own effect while listing
+that same state in the dependency array (`:15-156`), so it re-runs on every render it
+causes; and it indexes `data[len - 30]` at `:22` and `:86`, which throws for any symbol
+with fewer than 30 rows — a case the new backend explicitly permits ("a symbol with fewer
+than 250 rows returns all of them without padding or error"). `PriceChart` builds its own
+config. The justification is "the hook is broken", not "the hook is shared".
 
 ### Defects retired by construction
 
 | Current defect | Why it cannot recur |
 |---|---|
-| `selectedEquities[0]` yields the first *character* (`"AAPL"` → `"A"`) | `symbols` is an array; no string is indexed |
-| Williams %R and ADX period-2 fetch period-1 (`:582`, `:662`) | One generic control; no per-indicator fetch code |
-| `finalData` nesting differs between one- and two-period paths, silently rendering nothing | One typed payload shape from the backend |
-| A/D Line gated on `emaPeriodOne > 0`, an unrelated field | Arity comes from the registry; `adl` has none |
-| MACD shares `emaPeriodOne/Two` state with the EMA indicator | Parameters are namespaced per indicator key |
-| `useNewCandleStick` indexes `data[len - 30]` unguarded | New `PriceChart` guards; the shared hook is left alone |
-
----
+| `selectedEquities[0]` yields the first *character* (`"AAPL"` → `"A"`) — at **12 call sites**: `:339, :360, :401, :441, :481, :522, :563, :603, :643, :683, :723, :752` | `symbols` is an array of strings; no string is indexed |
+| Williams %R `:582` and ADX `:662` issue the period-two request with period **one**; `:594` and `:674` also pass periodOne twice as the chart *label* | One generic control; no per-indicator fetch or label code |
+| TEMA's period-two input calls `setTemaPeriodOne` (`:1433`) — typing in the second box overwrites the first | Inputs are generated from `params`; no hand-wired setters |
+| Enter stores the whole suggestion **object** (`:250`) while click stores `item['symbol']` (`:276`) — keyboard and mouse produce different types | One selection path in `TickerPicker`, one stored type |
+| `finalData` nesting differs between one- and two-period paths (`:586-590`), silently rendering nothing — identical in all nine handlers | One typed payload shape from the backend |
+| A/D Line gated on `emaPeriodOne > 0` (`:762`), an unrelated field | Arity comes from `params`; `adl` has none |
+| MACD reads `emaPeriodOne/Two/Signal` (`:733`) — the same state the EMA control writes at `:1141`/`:1159` | Parameters are namespaced per indicator *instance* |
+| `useNewCandleStick` indexes `data[len - 30]` unguarded | Hook deleted; `PriceChart` guards |
+| Full universe re-filtered on every keystroke with no memo or cap (`:231-234`) | `TickerPicker` memoizes and caps the result list |
 
 ## Testing
 
@@ -674,10 +867,23 @@ Loader mocked; no S3 contact.
 
 Franc starts Django and `npm run dev` himself. Verification is then:
 
-1. Playwright walkthrough — select 5 tickers, toggle indicators across both kinds, adjust
-   periods, remove a ticker
-2. Network panel shows **5** requests per render, not ~85
-3. `npm run ci` (build + lint + format:check) clean
+1. Playwright walkthrough — add a ticker with **no** indicators toggled (candle-only path),
+   then toggle indicators across both kinds, add a second instance of one indicator
+   (SMA 50 + SMA 200), adjust periods, add a ticker mid-debounce, remove a ticker
+2. Network panel shows **5 `/technicals/` requests** per render, not ~85. (Total requests
+   are 6 — `/all-stock-names/` is still one of them.)
+3. Crosshair sync verified visually: hovering one chart moves the crosshair on its
+   sync-set peers, and the highlighted date matches across them — the y-axis
+   `minWidth` check from *Panel layout*
+4. A short-history symbol renders with `warnings` and its remaining indicators keep their
+   assigned colors — the palette-shift check
+5. `npm run lint && npm run format:check` clean
+
+> **Do not run `npm run ci` while the dev server is up.** `package.json` defines it as
+> `next build && next lint && prettier --check`, and `next build` writes to the same
+> `.next/` that `next dev -p 8020` is serving from — it deletes `routes-manifest.json`
+> partway through and takes the dev server down. Run `next build` only after the dev
+> server is stopped; use lint + format:check as the standing check.
 
 ---
 
@@ -691,12 +897,40 @@ state.
 |---|---|---|
 | 1 | `technical_indicators.py` — 11 functions + registry | `test_technical_indicators.py` passes; no Django imported |
 | 2 | `technicals.py` — spec parsing, S3 load, two-layer cache, compute-then-trim | Cache, parsing, and trim tests pass with the loader mocked |
-| 3 | View + URL + `test_technicals_view.py` | `curl '/api/technicals/AAPL/?indicators=rsi:14'` returns real numbers |
+| 3 | View + URL + `test_technicals_view.py` | `curl '/api/technicals/AAPL/?indicators=rsi:14'` returns real numbers, **and `curl '/api/technicals/AAPL/'` returns a candle-only payload** |
 | 4 | Delete `backend/utils/Technicals.py` | `grep -rn "Technicals\|FintankCharter" backend/` returns nothing |
-| 5 | `indicatorMeta.json` — 11 entries, prose migrated verbatim | Data file complete; page untouched |
-| 6 | `useTechnicals.js`, `TickerPicker`, `IndicatorRail`, `IndicatorControl` | Rail renders from meta; spec string correct in the SWR key |
-| 7 | `PanelGrid`, `SymbolPanel`, `PriceChart`, `OscillatorChart` | 5 panels render with synchronized crosshairs |
-| 8 | Rewrite `build-comparison.js` as layout; delete the 3 chart utils; relabel nav | `npm run ci` clean; Playwright walkthrough passes |
+| 5 | `indicatorMeta.json` — 11 entries, prose migrated verbatim, `plots`/`constraints`/`color` populated | Data file complete; page untouched |
+| 6 | `useDebounce.js`, `useTechnicals.js`, `TickerPicker`, `IndicatorRail`, `IndicatorControl` | Rail renders from meta; duplicate instances (SMA 50 + SMA 200) serialize correctly; `constraints` block an invalid MACD before any request |
+| 7 | `PanelGrid`, `SymbolPanel`, `PriceChart`, `OscillatorChart` | Panels render with **working** crosshair sync — `chart.id` set and unique page-wide, toolbar disabled, y-axis `minWidth` matched |
+| 8 | Rewrite `build-comparison.js` as layout (**keeping `getStaticProps`**); delete the 3 chart utils **and `useNewCandleSticks.js`**; remove the dead import at `factor-performance.js:16`; relabel nav; URL state | `grep -rn "useNewCandleStick\|technicalCharter\|plotMacdChart\|plotAdlChart" src/` returns nothing; page title still renders; lint + format:check clean; Playwright walkthrough passes |
+
+---
+
+## Open questions
+
+**One decision remains open: the panel layout.** The rest of this spec is settled and can
+be implemented as written — phases 1–6 are entirely unaffected by the outcome.
+
+The approved scope decision was "side-by-side panel per ticker, up to 5". This spec's
+first draft rendered that as a wrapping grid (`Col xs=12 lg=6 xxl=4`), and design review
+raised a fair objection: at 4–5 tickers the grid wraps, so **nothing is side by side at
+exactly the ticker count the 5-cap exists to serve**, and once wrapped, AAPL's RSI is no
+longer horizontally adjacent to MSFT's RSI — which is precisely the adjacency the
+shared-indicator-config decision exists to make meaningful.
+
+| Candidate | Shape | Grouped charts | Trade-off |
+|---|---|---|---|
+| **A. Wrapping grid** (current draft) | Panel per ticker, 3-up then 2-up | ~30 | Preserves the per-ticker panel literally; loses adjacency at 4–5 tickers |
+| **B. Small multiples by indicator** | One **row** per chart type: a row of 5 candlesticks, a row of 5 RSIs. `chart.group` per row. | ~30 | Like sits beside like; makes shared config pay off; rows align naturally. Reads less like "a panel per ticker" |
+| **C. Horizontal-scroll rail** | Panels side by side on one axis, `overflow-x: auto`, `scroll-snap` | ~30 | Honours "side by side" most literally; requires panning to see all five |
+| **D. Overlay mode toggle** | One chart per indicator, 5 series | ~6 | Dissolves the `getGroupedCharts()` cost entirely; cannot do candlesticks |
+
+If A stays, two fixes are mandatory: pin every panel and sub-chart to identical fixed
+heights so rows align (also required by the y-axis `minWidth` rule), and add a
+compact/expanded toggle where compact is candle + one oscillator.
+
+D is worth having as a *mode* alongside whichever primary layout is chosen, not as a
+replacement — it is the only option that meaningfully reduces the synchronized-chart count.
 
 Phases 1–4 are backend review territory (`python-code-reviewer`); phases 5–8 frontend
 (`nextjs-fullstack-dev`).
