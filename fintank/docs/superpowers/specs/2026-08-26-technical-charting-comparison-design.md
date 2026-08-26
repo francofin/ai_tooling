@@ -123,12 +123,27 @@ Both keys follow the existing `stock:*:v1` convention in `CorePerformanceTools`.
 
 | Key | Contents | TTL | Purpose |
 |---|---|---|---|
-| `stock:ohlcv:{SYM}:v1` | Gzipped OHLCV frame from S3 | 86400 | Shared by *all* indicator requests for the symbol. Adding an indicator or changing a period never re-reads S3. |
-| `stock:technicals:{SYM}:{spec_hash}:v1` | Gzipped computed payload | 86400 | An identical indicator set skips the pandas work entirely. |
+| `stock:ohlcv:{SYM}:{market_date}:v1` | Gzipped adjusted OHLCV frame from S3 | 86400 | Shared by *all* indicator requests for the symbol. Adding an indicator or changing a period never re-reads S3. |
+| `stock:technicals:{SYM}:{market_date}:{spec_hash}:v1` | Gzipped computed payload | 86400 | An identical indicator set skips the pandas work entirely. |
 
 `spec_hash` is a SHA-256 (first 16 hex chars) of the **canonicalized** spec — indicators
-sorted, parameters normalized to `int` — so `rsi:14,sma:50` and `sma:50,rsi:14` hit the
-same entry.
+sorted and deduplicated, parameters normalized to `int` — so `rsi:14,sma:50` and
+`sma:50,rsi:14` hit the same entry. Sixty-four bits is ample for a small, non-adversarial
+parameter space.
+
+**Both keys carry `market_date`, and that is load-bearing.** A flat 24h TTL with no date
+component has two failure modes here. First, an entry filled shortly before the daily
+pipeline's parquet write stays stale for up to 24h *past* that write. Second — and worse —
+the two TTLs are not synchronized to a shared epoch, so a warm payload entry keeps serving
+yesterday's 250-day window even after some other request for a different `spec_hash` has
+already refreshed the underlying OHLCV entry. The user sees a chart missing today's bar,
+with no way to force a refresh.
+
+Date-keying resolves both: a new trading day yields new keys for every layer at once, and
+stale entries simply age out unreferenced. This is exactly why
+`watchlist:perf:{SYM}:{market_date}:v1` (`analyzer/views.py:513`) is shaped the way it is;
+`market_date` comes from the same `get_effective_market_date()` helper, with the same
+`date.today()` fallback.
 
 ### Running cost
 
@@ -150,21 +165,61 @@ GET /api/technicals/<symbol>/?indicators=<spec>
 
 `indicators` — comma-separated `name:param[:param...]`, **maximum 12 entries**:
 
-| Token | Arity | `kind` | Notes |
-|---|---|---|---|
-| `sma:<n>` | 1 | overlay | |
-| `ema:<n>` | 1 | overlay | `ewm(span=n, adjust=False)` |
-| `wma:<n>` | 1 | overlay | Linearly weighted |
-| `dema:<n>` | 1 | overlay | `2·EMA − EMA(EMA)` |
-| `tema:<n>` | 1 | overlay | `3·EMA − 3·EMA(EMA) + EMA(EMA(EMA))` |
-| `rsi:<n>` | 1 | oscillator | Wilder's smoothing; bands 30/70 |
-| `adx:<n>` | 1 | oscillator | Wilder's smoothing; band 25 |
-| `williams:<n>` | 1 | oscillator | Bands −20/−80 |
-| `stddev:<n>` | 1 | oscillator | Rolling sample stddev of close |
-| `macd:<f>:<s>:<sig>` | 3 | oscillator | Returns `macd`, `signal`, `hist` |
-| `adl` | 0 | oscillator | Cumulative; no parameters |
+| Token | Arity | `kind` | Min rows | Notes |
+|---|---|---|---|---|
+| `sma:<n>` | 1 | overlay | n | Rolling mean |
+| `ema:<n>` | 1 | overlay | n | `ewm(span=n, adjust=False)` |
+| `wma:<n>` | 1 | overlay | n | Weights `1..n`, normalized by `n(n+1)/2` |
+| `dema:<n>` | 1 | overlay | 2n | `2·EMA − EMA(EMA)` |
+| `tema:<n>` | 1 | overlay | 3n | `3·EMA − 3·EMA(EMA) + EMA(EMA(EMA))` |
+| `rsi:<n>` | 1 | oscillator | n+1 | Wilder; bands 30/70. Needs `n+1` — it is diff-based |
+| `adx:<n>` | 1 | oscillator | 2n+1 | Wilder ×2 passes; band 25. See below |
+| `williams:<n>` | 1 | oscillator | n | Bands −20/−80 |
+| `stddev:<n>` | 1 | oscillator | n | Rolling sample stddev (`ddof=1`) |
+| `macd:<f>:<s>:<sig>` | 3 | oscillator | s+sig | Returns `macd`, `signal`, `hist` |
+| `adl` | 0 | oscillator | 1 | Cumulative; no parameters |
 
-Period bounds: `2 ≤ n ≤ 500`. For `macd`, `fast < slow` is required.
+Period bounds: `2 ≤ n ≤ 500`. For `macd`, `fast < slow` is required. Duplicate tokens are
+deduplicated *after* canonicalization and *before* the 12-entry cap is applied, so
+`sma:50,sma:50` counts once.
+
+### Price basis: fully back-adjusted OHLC
+
+**All indicators are computed on split/dividend-adjusted prices, and the candlesticks are
+drawn on adjusted OHLC too.**
+
+The parquet carries raw `open`/`high`/`low`/`close` plus a separately adjusted `adjClose`.
+Naively computing indicators on raw `close` puts a split-sized discontinuity into every
+series. That is worse than it sounds under this spec's compute-then-trim rule: the
+recursive indicators (EMA, MACD, DEMA, TEMA, and the Wilder-smoothed RSI and ADX) have a
+half-life of roughly `n·ln2` bars, so a split shock does not just corrupt the split day —
+it decays slowly forward and remains visible inside the trimmed 250-day window for weeks
+after a recent split. This is a larger source of TradingView disagreement than any of the
+seeding subtleties below.
+
+Computing on `adjClose` alone fixes the indicators but breaks the picture: an adjusted
+overlay drawn over raw candle bodies visibly floats off the bars around a split.
+
+So the loader derives a ratio and applies it to all four price columns:
+
+```python
+ratio = df['adjClose'] / df['close']
+for col in ('open', 'high', 'low'):
+    df[col] = df[col] * ratio
+df['close'] = df['adjClose']
+```
+
+This is what mainstream charting platforms do by default, and it makes overlays and
+candles consistent by construction. `volume` is left unadjusted — ADL uses it as a raw
+magnitude, and the `average_volume` reference line should reflect actual shares traded.
+
+`adjClose` must therefore be added to the column pushdown:
+`[date, open, high, low, close, adjClose, volume]`.
+
+> **Flippable decision.** If raw, unadjusted candles are preferred for display, the
+> alternative is to keep raw OHLC for `candle` and compute indicators on `adjClose`,
+> accepting the visual drift of overlays near splits. The spec picks full adjustment;
+> changing it touches only the loader and one test.
 
 ### History window — compute on full history, then trim
 
@@ -173,9 +228,25 @@ parquet history would otherwise be ~2,500 rows each.
 
 **Indicators are computed over the full series and trimmed afterwards, never the reverse.**
 Computing `sma:200` on a 250-row slice would yield 199 leading `null`s and 51 usable
-points; computing it on full history and then trimming yields 250 usable points. The same
-applies to every Wilder-smoothed indicator, whose values depend on the entire preceding
-series rather than a fixed window.
+points; computing it on full history and then trimming yields 250 usable points.
+
+The reason differs by indicator family, and the distinction matters:
+
+- **Window indicators** (SMA, WMA, stddev, Williams %R) are *exact* given any `n-1` rows of
+  extra lookback. Full history is convenient, not required.
+- **Recursive indicators** (EMA, MACD, DEMA, TEMA, and the Wilder-smoothed RSI and ADX)
+  depend on the entire preceding series and need genuine burn-in for the recursion to
+  converge before the displayed values.
+
+**A/D Line is the exception and needs its own note.** It is a plain cumulative sum with no
+warm-up — every row has a defined multiplier from day one. Full-history computation
+therefore does not fix a padding problem; it changes the *absolute level*, because
+`cumsum(full)[-250:]` differs from a cumsum restarted at the trim boundary by the constant
+sum of everything before the window. For a name with years of volume history that offset
+dwarfs the 250-day swing. The **shape** — day-over-day deltas, the only thing ADL is ever
+read for — is identical either way. Consequence for the frontend: **the ADL sub-panel must
+autoscale to its data range and must never anchor its y-axis at zero**, or the entire
+year's movement collapses into a flat line at the top of the chart.
 
 The window is fixed, not a request parameter. Making it user-selectable would multiply the
 payload-cache keyspace for a control the page does not currently offer; if a range
@@ -225,8 +296,11 @@ Four contract decisions:
 | `macd` with `fast >= slow` | 400 | detail explains the constraint |
 | More than 12 indicators | 400 | `{"detail": "at most 12 indicators per request"}` |
 | Empty or missing `indicators` | 400 | detail lists valid names |
-| No parquet for symbol (`FileNotFoundError`) | 404 | `{"detail": "No price history for 'XYZ'"}` |
-| Indicator window exceeds history | 200 | omitted from `indicators`, named in `warnings` |
+| No parquet for symbol — `FileNotFoundError`, `OSError`, or `KeyError` from the loader | 404 | `{"detail": "No price history for 'XYZ'"}` |
+| Parquet exists but is empty, or `close` is entirely NaN | 404 | Same as above — indistinguishable to the user from a missing symbol |
+| Parquet has one row (diff-based indicators need ≥2) | 200 | All indicators except `adl` warn-and-skip |
+| Indicator's minimum row count exceeds history | 200 | Omitted from `indicators`, named in `warnings` |
+| All-NaN `volume` column (breaks ADL) | 200 | `adl` warns-and-skips; other indicators unaffected |
 | S3 or Redis failure | 500 | `{"detail": str(e)}`, matching existing analyzer views |
 
 ---
@@ -252,18 +326,84 @@ INDICATORS = {
 The registry is the single source of truth for valid names, arity, and `kind`. Validation
 reads from it, so adding an indicator is one entry plus one function.
 
-**Correctness requirements** (each is a fix to a defect in `Technicals.py`):
+**Correctness requirements:**
 
 - **EMA** uses `series.ewm(span=n, adjust=False).mean()`. The old loop-based version
   zero-padded then SMA-seeded, producing values that drift from every standard platform.
-- **RSI and ADX** use **Wilder's smoothing** (`ewm(alpha=1/n, adjust=False)`), not a plain
-  rolling mean. This is what makes values agree with TradingView and StockCharts.
+- **RSI** uses **Wilder's smoothing** (`ewm(alpha=1/n, adjust=False)`) over gains and
+  losses, not a plain rolling mean. Degenerate case: a perfectly flat stretch gives
+  `avg_gain == avg_loss == 0` and `RS = 0/0 = NaN`. The all-gain case (`avg_loss == 0`)
+  resolves to 100 naturally through float division, but the flat case must be handled
+  explicitly — emit **50** (the neutral reading, and what reference implementations show).
 - **MACD signal** is `ewm` over the MACD line itself — one series, not two mixed.
   `hist == macd - signal` must hold at every index.
 - **ADL** guards the `(high - low)` divisor: where `high == low`, the money-flow multiplier
   is `0`, not `inf`.
-- **Warm-up** is left-padded with `None` to full length. `sma:50` over 60 rows yields
-  exactly 49 leading `None`s.
+- **Williams %R** has the *same* undefended-divisor shape and needs the same guard:
+  `(highest_high(n) - close) / (highest_high(n) - lowest_low(n))` is `0/0` whenever
+  `highest_high == lowest_low` (a halted or perfectly flat window). Emit **−50**, the
+  midpoint of the −100..0 range.
+
+#### ADX — the one indicator that needs full specification
+
+The token table gives it one line; the arithmetic is four stages and is where an
+implementer is most likely to go wrong.
+
+1. **True range:** `TR = max(high − low, |high − prev_close|, |low − prev_close|)`
+2. **Directional movement**, with the *exclusivity rule* — this is the single most
+   commonly botched step:
+   ```
+   up_move   = high − prev_high
+   down_move = prev_low − low
+   +DM = up_move   if (up_move > down_move and up_move > 0)   else 0
+   −DM = down_move if (down_move > up_move and down_move > 0) else 0
+   ```
+   Only the **larger** of the two counts, and only when positive. A bar with both moves
+   positive must zero out the smaller one — not merely cap or clip it.
+3. **Smooth `TR`, `+DM`, `−DM`** with `ewm(alpha=1/n, adjust=False)`, then
+   `+DI = 100·(smoothed +DM / smoothed TR)`, likewise `−DI`. Using `ewm` here is
+   mathematically equivalent to Wilder's classic running-sum formulation for the DI
+   *ratio*, because the `n` scaling cancels — so this substitution is safe.
+4. **`DX = 100·|+DI − −DI| / (+DI + −DI)`**, then **a third, independent Wilder pass**
+   over `DX` to produce ADX.
+
+`DX` carries its own zero-divisor: `+DI + −DI == 0` on a fully non-directional bar.
+Structurally identical to the ADL and Williams %R guards — emit `0`.
+
+#### Warm-up suppression is explicit, not inherited from pandas
+
+The earlier draft of this spec claimed warm-up is "left-padded with `None`" as a natural
+consequence of the pandas operation. **That is false for six of the eleven indicators.**
+Verified empirically on pandas 2.3.3:
+
+```
+pd.Series([1..10]).rolling(5).mean()              → [nan, nan, nan, nan, 3.0, ...]
+pd.Series([1..10]).ewm(span=5, adjust=False).mean() → [1.0, 1.333, 1.889, 2.593, ...]
+```
+
+`ewm` defaults to `min_periods=0` and emits a numeric value from row 0 onward. It never
+NaNs out for insufficient history. So `ema`, `rsi`, `adx`, `dema`, `tema`, and `macd`
+would silently return confident-looking garbage computed from two data points rather than
+being suppressed.
+
+Therefore `technicals.py` **independently checks `len(df)` against the per-indicator
+"Min rows" column** in the token table above, and drops the indicator into `warnings`
+before computing it. This check is the *only* mechanism enforcing the "insufficient
+history degrades, never 500s" contract — the pandas warm-up cannot be relied on for it.
+
+Note the minimums are not uniformly `n`: RSI is diff-based and needs `n+1`; DEMA and TEMA
+chain two and three EMAs and need `2n` and `3n`; ADX needs `2n+1` for its two smoothing
+passes over a diff-based input; ADL needs only 1.
+
+#### Non-finite scrubbing before serialization
+
+Every payload passes through `json_safe` from `CorePerformanceTools` before being cached
+or returned. This is not defensive boilerplate — that helper documents a live incident
+where `/api/stock-prices/RQP.TO/` returned 500 because `inf` reached the DRF renderer
+*after* the view had already returned 200, and `_load_cached_json` exists specifically
+because a blob cached before the fix stayed poisoned for its full 24h TTL. Given the
+zero-divisor and NaN cases enumerated above, this spec would reproduce that bug class
+exactly without the same scrubbing on both write and read.
 
 ### `analyzer/analyzer_utils/technicals.py` — new, impure
 
@@ -276,9 +416,19 @@ def canonical_key(specs) -> str                     # sorted, normalized → SHA
 def get_technicals(symbol: str, raw_spec: str) -> dict
 ```
 
-`get_technicals` checks the payload cache, then the OHLCV cache, then S3; computes every
-requested indicator **over the full history**; trims all series to the trailing 250 rows;
-assembles `candle`/`volume`/`average_volume` alongside `indicators`; caches and returns.
+`get_technicals` checks the payload cache, then the OHLCV cache, then S3; applies the
+back-adjustment ratio; checks each indicator's minimum row count and warns-and-skips those
+that fail; computes the rest **over the full history**; trims all series to the trailing
+250 rows; assembles `candle`/`volume`/`average_volume` alongside `indicators`; passes the
+result through `json_safe`; caches and returns.
+
+**Loader hygiene — sort and deduplicate on read.** `GetData.load_stock_prices`
+(`StockCalculations.py:136`) neither sorts nor deduplicates; it just `reset_index()`es a
+DatetimeIndex. Every rolling and `ewm` operation is *positional*, not date-aware, so an
+out-of-order or duplicated row silently corrupts every indicator without raising anything.
+The codebase already defends against this on the same loader — `prices.py:_series_from_frame`
+does `.sort_index()` then `series[~series.index.duplicated(keep='last')]`. This module
+mirrors that, on the full frame rather than one column.
 
 Trimming happens here, not in the pure module. `technical_indicators.py` always receives
 and returns full-length series, which keeps its functions free of window semantics and
@@ -286,8 +436,22 @@ makes their outputs directly comparable to hand-computed reference values in tes
 
 ### `analyzer/views.py` — one thin view
 
-Mirrors `get_stock_price_data`'s existing shape: deferred import, `try`/`except`, map
-`ValueError → 400`, `FileNotFoundError → 404`, everything else → 500.
+**Copy `get_index_page_series` (`analyzer/views.py:375`), not `get_stock_price_data`.**
+An earlier draft of this spec named the wrong precedent: `get_stock_price_data:312` is a
+blanket `except Exception → 500` and implements none of the status split described here.
+`get_index_page_series` is the view that actually does it, and it keys 404 on **`KeyError`**:
+
+```python
+except KeyError as e:          return 404
+except (ValueError, TypeError) as e:  return 400
+except Exception as e:         return 500
+```
+
+**A missing symbol does not reliably raise `FileNotFoundError`.** `prices.py:113` catches
+`(FileNotFoundError, OSError, KeyError)` around this exact `load_stock_prices` call —
+direct evidence that pyarrow + s3fs surfaces a missing key inconsistently in this stack.
+`technicals.py` therefore catches all three at the loader seam and re-raises a single
+`KeyError` carrying the symbol, so the view's 404 branch is the one that fires.
 
 ### `analyzer/urls.py` — one route
 
@@ -455,11 +619,28 @@ Django, no S3, no Redis, numbers checkable on paper.
 
 - SMA, WMA, StdDev against hand-computed windows on a 10-row frame
 - EMA seeding — assert `ewm(span=n, adjust=False)` semantics on a known series
-- RSI and ADX against a published Wilder reference series
+- RSI against a published Wilder reference series
+- **RSI flat-market degenerate case**: all-zero deltas yield `50`, not `NaN`
+- **ADX gets its own multi-assertion test**, not a shared bullet with RSI:
+  - True range across all three `max()` branches
+  - **The +DM/−DM exclusivity rule** — a bar with *both* up-move and down-move positive
+    must zero the smaller one, not cap it. Most likely single point of failure.
+  - `DX` zero-divisor (`+DI + −DI == 0`) yields `0`, not `inf`
+  - Final ADX against a published reference table, confirming the third smoothing pass
 - MACD: `hist == macd - signal` at every index
 - ADL zero-divisor: a bar with `high == low` yields a finite value, never `inf`
+- **Williams %R zero-divisor**: `highest_high == lowest_low` yields `−50`, never `inf`
+- **`ewm` NaN-propagation**: a mid-series NaN's effect on recursive state is asserted
+  empirically, not assumed from the recursion formula
 - Warm-up padding: `sma:50` over 60 rows yields exactly 49 leading `None`s
-- Insufficient history: `sma:200` over 14 rows returns nothing and warns, never raises
+- **Per-family insufficient-history**, not just the window family:
+  - `sma:200` over 14 rows → skipped with a warning
+  - `rsi:200` over 14 rows → **also** skipped, despite `ewm` happily returning numbers.
+    This is the real regression case; the `sma` version passes even if the min-rows check
+    is missing entirely.
+  - `dema:20`/`tema:20` over 30 rows → skipped (need `2n`/`3n`)
+- **Split-boundary test**: a frame with a 2:1 split has no discontinuity in any indicator
+  once back-adjustment is applied; overlays and candle bodies stay aligned across it
 
 ### `analyzer/tests/test_technicals_view.py` — new
 
@@ -470,12 +651,24 @@ Loader mocked; no S3 contact.
 - 400 on unknown name, non-integer period, wrong arity, out-of-bounds period,
   `macd` with `fast >= slow`, >12 indicators, empty spec
 - 404 when the loader raises `FileNotFoundError`
+- Duplicate tokens: `sma:50,sma:50` dedupes to one entry and does not consume two of the 12
 - Cache behaviour: an identical second call invokes the loader zero times; changing only
   the RSI period reuses the OHLCV cache but not the payload cache
+- **Cache freshness across a date rollover**: advancing `market_date` yields new keys at
+  *both* layers, so a warm payload cannot outlive a parquet update. Asserting call counts
+  alone does not prove this — the test must assert the returned data actually changes.
 - **Compute-then-trim**: `sma:200` over a 600-row frame returns 250 points with **zero**
   leading `null`s — the regression that trimming before computing would introduce
+- **ADL trim semantics**: per-bar *deltas* match between full-history-then-trim and
+  windowed-from-scratch, while absolute *levels* differ by a constant offset
+- **Non-monotonic and duplicated dates** in the loaded frame are sorted and deduplicated
+  before any indicator runs, mirroring `backtester/tests/test_prices.py`'s coverage of the
+  same loader
+- **`json_safe` applied on both write and read**: a payload containing `inf` is stored as
+  `null` and a pre-existing poisoned cache entry heals on read
 - `average_volume` equals the mean of the returned 250 volumes, not of full history
 - A symbol with fewer than 250 rows returns all of them without padding or error
+- A one-row symbol and an all-NaN `volume` column both return 200 with warnings
 
 ### Frontend verification — manual
 
