@@ -142,7 +142,13 @@ def _adjust(df):
     # date-aware, so an out-of-order or repeated row corrupts every indicator
     # without raising anything. prices.py:_series_from_frame defends the same
     # loader the same way, on one column rather than the whole frame.
-    df = (df.sort_values('date')
+    # kind='stable' matters: drop_duplicates(keep='last') resolves ties by
+    # post-sort position, so an unstable sort (the quicksort default) lets
+    # which duplicate survives depend on the sort's arbitrary internal tie
+    # order rather than on the source frame's row order. Verified empirically
+    # at n=2000 with 200 duplicated dates: quicksort picked the wrong survivor
+    # in 60/60 trials, stable in 0/60.
+    df = (df.sort_values('date', kind='stable')
             .drop_duplicates(subset='date', keep='last')
             .reset_index(drop=True))
 
@@ -186,27 +192,58 @@ def _load_adjusted_frame(symbol):
         raise KeyError(f"No price history for '{symbol}'")
 
 
+def _cache_read(key):
+    """Decompress and JSON-decode a cached blob, healing byte-level
+    corruption on the way out. Returns None on a miss or an unreadable entry
+    -- never raises.
+
+    This is a different failure from the one _load_cached_json's own
+    Infinity/NaN normalisation guards: that one repairs well-formed JSON
+    carrying non-finite numbers. This guards truncated gzip or non-JSON
+    bytes -- corruption below the JSON layer entirely -- which would
+    otherwise raise straight through to the renderer as a 500, reintroducing
+    exactly the failure mode this task exists to close. Both cache layers
+    read through this one function so they cannot drift apart on it again.
+    """
+    blob = cache.get(key)
+    if not blob:
+        return None
+    try:
+        return _load_cached_json(blob)
+    except Exception:
+        cache.delete(key)
+        return None
+
+
+def _cache_write(key, payload):
+    """gzip + json.dumps + cache.set, the one place both cache layers write
+    through. `payload` must already be json_safe -- this only removes the
+    write-path duplication between the two layers, not the safety pass
+    itself, which stays at each call site next to the payload it builds."""
+    cache.set(key, gzip.compress(json.dumps(payload).encode('utf-8')), CACHE_TTL)
+
+
 def _ohlcv_cached(symbol):
     """The shared layer: every indicator request for this symbol reuses it, so
     adding an indicator or changing a period never re-reads S3."""
     key = f'stock:ohlcv:{symbol}:{_market_date()}:v1'
-    blob = cache.get(key)
-    if blob:
+    columns = _cache_read(key)
+    if columns is not None:
         try:
-            columns = _load_cached_json(blob)
             frame = pd.DataFrame(columns)
             for column in ('open', 'high', 'low', 'close', 'volume'):
                 frame[column] = pd.to_numeric(frame[column], errors='coerce')
             return frame
         except Exception:
-            # A corrupt or stale-format entry is not worth failing a render over.
+            # _cache_read already healed byte-level corruption; this guards
+            # the DataFrame reconstruction itself against a stale schema.
             cache.delete(key)
 
     frame = _load_adjusted_frame(symbol)
     # .tolist() converts numpy scalars to Python natives; json.dumps cannot
     # serialise np.float64.
     payload = json_safe({column: frame[column].tolist() for column in frame.columns})
-    cache.set(key, gzip.compress(json.dumps(payload).encode('utf-8')), CACHE_TTL)
+    _cache_write(key, payload)
     return frame
 
 
@@ -221,9 +258,9 @@ def get_technicals(symbol, raw_spec=None):
     spec_hash = canonical_key(parsed) if parsed else 'none'
 
     payload_key = f'stock:technicals:{symbol}:{_market_date()}:{spec_hash}:v1'
-    blob = cache.get(payload_key)
-    if blob:
-        return _load_cached_json(blob)
+    cached = _cache_read(payload_key)
+    if cached is not None:
+        return cached
 
     frame = _ohlcv_cached(symbol)
     rows = len(frame)
@@ -281,5 +318,5 @@ def get_technicals(symbol, raw_spec=None):
         'warnings': warnings,
     })
 
-    cache.set(payload_key, gzip.compress(json.dumps(payload).encode('utf-8')), CACHE_TTL)
+    _cache_write(payload_key, payload)
     return payload

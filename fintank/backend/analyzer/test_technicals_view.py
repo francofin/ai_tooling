@@ -4,7 +4,8 @@ The loader is mocked everywhere -- nothing here touches S3. The configured
 cache points at Redis db 15, so these run against locmem and clear between
 tests, exactly as analyzer/tests.py does.
 """
-from unittest.mock import patch
+import dataclasses
+from unittest.mock import Mock, patch
 
 import numpy as np
 import pandas as pd
@@ -12,6 +13,7 @@ from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
 
 from analyzer.analyzer_utils import technicals
+from analyzer.analyzer_utils import technical_indicators as ti
 
 LOCMEM_CACHE = {
     'default': {
@@ -164,6 +166,46 @@ class LoaderHygieneTests(SimpleTestCase):
         loaded = self._load(pd.concat([frame, duplicate], ignore_index=True))
         self.assertEqual(len(loaded), 5)
         self.assertAlmostEqual(loaded['close'].iloc[-1], 999.0)
+
+    def test_a_stable_sort_keeps_the_correct_survivor_at_scale(self):
+        """drop_duplicates(keep='last') resolves ties by post-sort position,
+        so an unstable sort_values lets which duplicate survives depend on
+        the sort's arbitrary internal tie order rather than on the source
+        frame's row order. The fixture above is too small and too near-sorted
+        to expose this -- it passes with a quicksort bug in place too. This
+        one is deliberately large (2000 rows, 200 duplicated dates, fully
+        shuffled) and deterministic: a fixed seed and a fixed permutation, no
+        flakiness."""
+        rng = np.random.default_rng(20260827)
+        n = 2000
+        base = price_frame(n)
+        dup_positions = rng.choice(n, size=200, replace=False)
+        duplicates = base.iloc[dup_positions].copy().reset_index(drop=True)
+        marker = 500_000.0 + np.arange(len(duplicates))
+        duplicates['close'] = marker
+        duplicates['adjClose'] = marker            # ratio 1.0 -- survives untouched
+
+        combined = pd.concat([base, duplicates], ignore_index=True)
+        perm = rng.permutation(len(combined))
+        shuffled = combined.iloc[perm].reset_index(drop=True)
+
+        # For each duplicated date, whichever of its two candidate rows lands
+        # later in `shuffled` is the one a stable sort must preserve.
+        position_in_shuffle = np.empty(len(combined), dtype=int)
+        position_in_shuffle[perm] = np.arange(len(combined))
+        expected = {}
+        for k, base_index in enumerate(dup_positions):
+            dup_index = n + k
+            later_index = (base_index
+                           if position_in_shuffle[base_index] > position_in_shuffle[dup_index]
+                           else dup_index)
+            expected[combined['date'].iloc[base_index]] = combined['close'].iloc[later_index]
+
+        loaded = self._load(shuffled)
+        survivors = loaded.set_index('date')['close']
+        for target_date, expected_close in expected.items():
+            with self.subTest(date=target_date):
+                self.assertAlmostEqual(survivors.loc[target_date], expected_close)
 
     def test_all_four_price_columns_are_back_adjusted_by_the_same_ratio(self):
         """An adjusted overlay drawn over raw candle bodies floats off the bars
@@ -398,17 +440,33 @@ class CacheTests(SimpleTestCase):
         return patch.object(technicals, '_load_adjusted_frame',
                             return_value=technicals._adjust(price_frame(n)))
 
+    def _wrapped_rsi(self):
+        """A Spec whose fn is a call-counting wrapper around the real rsi(),
+        so a test can tell a payload-cache hit apart from a recompute served
+        from an already-warm OHLCV cache -- the loader call count alone
+        cannot: the loader is untouched either way."""
+        original = ti.INDICATORS['rsi']
+        return dataclasses.replace(original, fn=Mock(wraps=original.fn))
+
     def test_an_identical_second_call_does_not_touch_the_loader(self):
-        with self._loader() as loader:
+        wrapped = self._wrapped_rsi()
+        with self._loader() as loader, patch.dict(ti.INDICATORS, {'rsi': wrapped}):
             technicals.get_technicals('AAPL', 'rsi:14')
             technicals.get_technicals('AAPL', 'rsi:14')
         self.assertEqual(loader.call_count, 1)
+        # Deleting the payload cache's write/lookup entirely would still pass
+        # a loader-only assertion, since the indicator would simply be
+        # recomputed from the warm OHLCV cache. This is what actually proves
+        # the second call was a payload-cache hit, not a recompute.
+        self.assertEqual(wrapped.fn.call_count, 1)
 
     def test_reordering_the_spec_still_hits_the_payload_cache(self):
-        with self._loader() as loader:
+        wrapped = self._wrapped_rsi()
+        with self._loader() as loader, patch.dict(ti.INDICATORS, {'rsi': wrapped}):
             technicals.get_technicals('AAPL', 'rsi:14,sma:50')
             technicals.get_technicals('AAPL', 'sma:50,rsi:14')
         self.assertEqual(loader.call_count, 1)
+        self.assertEqual(wrapped.fn.call_count, 1)
 
     def test_changing_a_period_reuses_the_ohlcv_layer_but_not_the_payload(self):
         """The whole point of the two layers: a period change costs pandas,
@@ -453,11 +511,38 @@ class CacheTests(SimpleTestCase):
         self.assertIsNone(payload['average_volume'])
         JSONRenderer().render(payload)
 
+    def test_both_cache_layers_heal_from_byte_level_corruption(self):
+        """A different failure from the poisoned-entry case above: that one is
+        well-formed JSON carrying Infinity; this is truncated gzip / non-JSON
+        bytes, corruption below the JSON layer entirely. Neither cache layer
+        guarded this before -- _ohlcv_cached's self-heal and get_technicals'
+        payload-cache read now go through the same _cache_read helper, so
+        both must recover rather than raising."""
+        ohlcv_key = f"stock:ohlcv:AAPL:{technicals._market_date()}:v1"
+        payload_key = f"stock:technicals:AAPL:{technicals._market_date()}:none:v1"
+        cache.set(ohlcv_key, b'not even gzip')
+        cache.set(payload_key, b'not even gzip')
+        with self._loader() as loader:
+            payload = technicals.get_technicals('AAPL', None)
+        self.assertEqual(loader.call_count, 1)
+        self.assertEqual(payload['symbol'], 'AAPL')
+        self.assertEqual(payload['indicators'], {})
+
     def test_an_infinite_value_is_stored_as_null_not_as_infinity(self):
+        """price_frame's own columns are always finite, and sma's NaN warm-up
+        never reaches this cache layer anyway -- it stores the raw OHLCV
+        frame, not indicator series -- so this test previously could not fail
+        even with json_safe removed from the write path. Inject a genuine inf
+        into the raw frame directly, inside the trailing window, so the write
+        path actually has something non-finite to normalise."""
         import gzip as _gzip
-        with self._loader():
-            technicals.get_technicals('AAPL', 'sma:50')
+        frame = technicals._adjust(price_frame(300))
+        frame.loc[frame.index[-1], 'volume'] = float('inf')
+        with patch.object(technicals, '_load_adjusted_frame', return_value=frame):
+            payload = technicals.get_technicals('AAPL', 'sma:50')
         stored = cache.get(
             f"stock:ohlcv:AAPL:{technicals._market_date()}:v1")
-        self.assertNotIn(b'Infinity', _gzip.decompress(stored))
-        self.assertNotIn(b'NaN', _gzip.decompress(stored))
+        raw = _gzip.decompress(stored)
+        self.assertNotIn(b'Infinity', raw)
+        self.assertNotIn(b'NaN', raw)
+        self.assertIsNone(payload['volume'][-1]['y'])
