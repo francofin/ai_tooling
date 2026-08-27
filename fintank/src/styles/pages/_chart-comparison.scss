@@ -1,0 +1,109 @@
+// Horizontal scroll-snap rail for /build-comparison. Only the rail scrolls --
+// the indicator controls stay fixed in the left column, since a scroller that
+// carried them along would put the settings off-screen while comparing.
+
+.panel-rail-wrap {
+  position: relative;
+
+  // Edge affordance: the scroller is invisible until discovered, and it is the
+  // primary navigation for this page.
+  &.has-left::before,
+  &.has-right::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 32px;
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  &.has-left::before {
+    left: 0;
+    background: linear-gradient(to right, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0));
+  }
+
+  &.has-right::after {
+    right: 0;
+    background: linear-gradient(to left, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0));
+  }
+}
+
+.panel-rail {
+  display: flex;
+  gap: 1rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  overscroll-behavior-x: contain; // don't trigger the browser's back-swipe
+  padding-bottom: 0.5rem;
+
+  &:focus-visible {
+    outline: 2px solid #4e66f8;
+    outline-offset: 2px;
+  }
+
+  // Always visible, not hover-revealed: macOS hides it entirely by default.
+  scrollbar-width: thin;
+  scrollbar-color: #b9bfcc transparent;
+
+  &::-webkit-scrollbar {
+    height: 10px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: #b9bfcc;
+    border-radius: 5px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: #f1f2f6;
+  }
+}
+
+.symbol-panel {
+  flex: 0 0 auto;
+  // Candlestick floor. 320 is too tight once a y-axis is drawn.
+  min-width: 340px;
+  width: 340px;
+  scroll-snap-align: start;
+  background: #fff;
+  border: 1px solid #e6e8ee;
+  border-radius: 0.5rem;
+
+  // On mobile one panel fills the viewport and snapping turns the rail into a
+  // swipeable carousel -- no separate breakpoint logic needed.
+  @media (max-width: 576px) {
+    min-width: calc(100vw - 3rem);
+    width: calc(100vw - 3rem);
+  }
+
+  &__header {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 0.75rem;
+    background: #fff;
+    border-bottom: 1px solid #e6e8ee;
+    border-radius: 0.5rem 0.5rem 0 0;
+  }
+
+  &__charts {
+    padding: 0.5rem;
+    transition: opacity 120ms linear;
+
+    // Last-good data held while a new spec is in flight, so charts stay
+    // mounted instead of remounting ~30 instances on every period change.
+    &.is-stale {
+      opacity: 0.45;
+    }
+  }
+
+  &__warnings {
+    margin: 0.5rem 0 0;
+    padding-left: 1rem;
+  }
+}
