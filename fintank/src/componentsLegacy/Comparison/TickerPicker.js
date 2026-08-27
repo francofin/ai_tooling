@@ -17,6 +17,11 @@ const MAX_SUGGESTIONS = 8
  * pressed Enter and `item['symbol']` when they clicked, so keyboard and mouse
  * produced different types; and it re-filtered the entire universe on every
  * keystroke with no memo and no cap. One selection path and a memo fix both.
+ *
+ * `onChange` is invoked with React's functional-update form (a function of
+ * the previous symbols, not the next array) so the cap and dedup checks
+ * always run against current state -- wire it directly to a `useState`
+ * setter, never to a wrapper that assumes it always receives an array.
  */
 const TickerPicker = ({ symbols, onChange }) => {
   // /all-stock-names/ returns { stocks: [...] }, not a bare array -- reading
@@ -43,13 +48,13 @@ const TickerPicker = ({ symbols, onChange }) => {
 
   const add = (item) => {
     const symbol = (item?.symbol ?? '').toUpperCase()
-    if (!symbol || full || symbols.includes(symbol)) return
-    onChange([...symbols, symbol])
+    if (!symbol) return
+    onChange((prev) => (prev.length >= MAX_SYMBOLS || prev.includes(symbol) ? prev : [...prev, symbol]))
     setQuery('')
     setActive(0)
   }
 
-  const remove = (symbol) => onChange(symbols.filter((s) => s !== symbol))
+  const remove = (symbol) => onChange((prev) => prev.filter((s) => s !== symbol))
 
   const onKeyDown = (event) => {
     if (!suggestions.length) return

@@ -12,6 +12,11 @@ import { indicatorMeta, MAX_INDICATORS } from '@utils/technicalSpec'
  * Settings are shared across all panels -- RSI(14) means RSI(14) in every
  * column. Per-panel settings would make the columns non-comparable, which is
  * the whole point of the page.
+ *
+ * `onChange` (forwarded to `IndicatorControl`) is invoked with React's
+ * functional-update form, not a plain array -- wire it directly to a
+ * `useState` setter, never to a wrapper that assumes it always receives an
+ * array, or the rail will silently stop updating.
  */
 const IndicatorRail = ({ instances, onChange }) => {
   const names = Object.keys(indicatorMeta)
