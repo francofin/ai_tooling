@@ -259,6 +259,17 @@ class LoaderHygieneTests(SimpleTestCase):
         with self.assertRaises(KeyError):
             self._load(frame)
 
+    def test_an_all_nan_adj_close_with_a_populated_close_is_a_key_error(self):
+        """A populated 'close' alone must not satisfy the emptiness guard --
+        the ratio below divides adjClose by close, so an all-NaN adjClose
+        still turns every back-adjusted column, including the final 'close',
+        to NaN. Without this the view would return a 200 of all-null candles
+        and cache it for the full 24h TTL."""
+        frame = price_frame(10)
+        frame['adjClose'] = np.nan
+        with self.assertRaises(KeyError):
+            self._load(frame)
+
 
 @override_settings(CACHES=LOCMEM_CACHE)
 class GetTechnicalsTests(SimpleTestCase):

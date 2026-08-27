@@ -155,7 +155,13 @@ def _adjust(df):
     for column in ('open', 'high', 'low', 'close', 'adjClose', 'volume'):
         df[column] = pd.to_numeric(df[column], errors='coerce')
 
-    if int(df['close'].notna().sum()) == 0:
+    # Checked against both source columns, not just 'close': a frame can carry
+    # a fully populated raw 'close' alongside an all-NaN 'adjClose'. That
+    # passes a close-only guard, and the ratio below then turns every
+    # adjusted column -- including the final 'close' -- to NaN, which used to
+    # sail through as a 200 of all-null candles that both cache layers then
+    # held for the full 24h TTL.
+    if int(df['close'].notna().sum()) == 0 or int(df['adjClose'].notna().sum()) == 0:
         raise KeyError('no usable close prices')
 
     # Full back-adjustment. Computing on raw close puts a split-sized
