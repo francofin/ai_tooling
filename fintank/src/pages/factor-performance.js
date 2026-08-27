@@ -13,7 +13,6 @@ import Nouislider from "nouislider-react"
 import data from "@data/chartsettings.json"
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome"
 import { faArrowRight, faSearch } from "@fortawesome/free-solid-svg-icons"
-import { useNewCandleStick } from "@hooks/useNewCandleSticks";
 import { useStockNames } from "@hooks/useStockNames"
 import { useRouter } from "next/router"
 import Icon from "@componentsLegacy/Icon"
@@ -24,7 +23,7 @@ import { Line, Chart } from 'react-chartjs-2';
 import { factorCharter } from "@utils/plotFactorChart"
 import dynamic from 'next/dynamic'
 import {connect} from 'react-redux';
-import bucketAction from '../src/actions/bucketAction'
+import bucketAction from '@/actions/bucketAction'
 import { bindActionCreators } from "redux"
 const ReactApexChart = dynamic(() => import('react-apexcharts'), { ssr: false });
 

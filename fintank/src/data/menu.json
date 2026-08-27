@@ -1,0 +1,297 @@
+[
+  {
+    "title": "Home",
+    "link":"/"
+  },
+  {
+    "title":"Market Performance",
+    "dropdown": [
+      {
+        "title": "Index Performance",
+        "link": "/markets"
+      },
+      {
+        "title": "S&P 500",
+        "link": "/indexes/sp500"
+      },
+      {
+        "title": "Nasdaq",
+        "link": "/indexes/nasdaq"
+      },
+      {
+        "title": "Russell 2000",
+        "link": "/indexes/r2000"
+      },
+      {
+        "title": "TSX Composite",
+        "link": "/indexes/tsx"
+      },
+      {
+        "title": "Russell Micro Cap",
+        "link": "/indexes/rmicro"
+      },
+      {
+        "title": "TSX Small Cap",
+        "link": "/indexes/tsx_small_cap"
+      },
+      {
+        "title": "MSCI EAFE",
+        "link": "/indexes/msci_eafe"
+      }
+    ]
+  },
+  {
+    "title": "Market and Factor Research",
+    "dropdown": [
+      {
+      "title": "Capital Markets Charts",
+      "link": "/capital-markets"
+    },
+    {
+      "title": "Factor Performance",
+      "link": "/factor-performance"
+    }
+  ]
+  },
+  {
+      "title": "Research Articles",
+      "link": "/research-posts"
+  },
+  {
+    "title": "News",
+    "position": "static",
+    "megamenu": [
+      [
+        {
+          "title": "Now Happening",
+          "links": [
+            {
+              "title": "World News",
+              "link": "/newsarticles/global_news",
+              "parent": "Home"
+            },
+            {
+              "title": "Economy",
+              "link": "/newsarticles/econ",
+              "parent": "Home"
+            },
+            {
+              "title": "Politics",
+              "link": "/newsarticles/politics",
+              "parent": "Home"
+            },
+            {
+              "title": "Macro News",
+              "link": "/newsarticles/macro",
+              "parent": "Home",
+              "new": true
+            },
+            {
+              "title": "Crypto News",
+              "link": "/newsarticles/crypto",
+              "parent": "Home",
+              "new": true
+            }
+          ]
+        }
+      ],
+      [
+        {
+          "title": "Country/Region",
+          "links": [
+            {
+              "title": "US News",
+              "link": "/newsarticles/us_stock"
+            },
+            {
+              "title": "Canada News",
+              "link": "/newsarticles/canadian_stock"
+            },
+            {
+              "title": "China",
+              "link": "/newsarticles/china_stock"
+            },
+            {
+              "title": "Global News",
+              "link": "/newsarticles/global_news"
+            },
+            {
+              "title": "EU Markets",
+              "link": "/newsarticles/eu_markets"
+            },
+            {
+              "title": "Japan",
+              "link": "/newsarticles/japan_stock"
+            },
+            {
+              "title": "Africa",
+              "link": "/newsarticles/africa_economy"
+            },
+            {
+              "title": "South America",
+              "link": "/newsarticles/south_america"
+            }
+          ]
+        }
+      ],
+      [
+        {
+          "title": "Sector",
+          "links": [
+            {
+              "title": "Technology",
+              "link": "/newsarticles/tech"
+            },
+            {
+              "title": "Energy",
+              "link": "/newsarticles/energy"
+            },
+            {
+              "title": "Oil",
+              "link": "/newsarticles/oil"
+            },
+            {
+              "title": "Real Estate",
+              "link": "/newsarticles/real_estate"
+            },
+            {
+              "title": "Financials",
+              "link": "/newsarticles/financials"
+            },
+            {
+              "title": "Health Care",
+              "link": "/newsarticles/pharmaceuticals",
+              "new": true
+            }
+          ]
+        }
+      ],
+      [
+        {
+          "title": "Sector",
+          "links": [
+            {
+              "title": "Consumer",
+              "link": "/newsarticles/consumer_trends",
+              "new": true
+            },
+            {
+              "title": "Materials",
+              "link": "/newsarticles/basic_materials",
+              "new": true
+            },
+            {
+              "title": "Communications",
+              "link": "/newsarticles/communications",
+              "new": true
+            },
+            {
+              "title": "Utilities",
+              "link": "/newsarticles/utilities",
+              "new": true
+            },
+            {
+              "title": "Industrials",
+              "link": "/newsarticles/industrials",
+              "new": true
+            },
+            {
+              "title": "Digital Assets",
+              "link": "/newsarticles/digital_assets",
+              "new": true
+            }
+          ]
+        }
+      ]
+    ],
+    "services": [
+      {
+        "title": "Portfolio Analysis",
+        "content": "Test Stock Ideas",
+        "icon": "destination-map-1"
+      },
+      {
+        "title": "Stock Research",
+        "content": "Information with one click",
+        "icon": "money-box-1"
+      },
+      {
+        "title": "Portfolio Tracker",
+        "content": "Track of the equities you want",
+        "icon": "customer-support-1"
+      },
+      {
+        "title": "Crypto Research",
+        "content": "Coin Metrics",
+        "icon": "secure-payment-1"
+      }
+    ],
+    "image": "/images/homepageImages/megamenu.jpg"
+  },
+  {
+    "title":"Equities",
+    "dropdown": [
+      {
+        "title": "S&P 500 Stocks",
+        "link": "/universe/sp500"
+      },
+      {
+        "title": "Nasdaq Stocks",
+        "link": "/universe/nasdaq"
+      },
+      {
+        "title": "Dow Jones",
+        "link": "/universe/dj"
+      },
+      {
+        "title": "Canadian Equities",
+        "link": "/universe/tsx"
+      },
+      {
+        "title": "European Equities",
+        "link": "/euro",
+        "new": true
+      },
+      {
+        "title": "ETFs",
+        "link": "/universe/etfs",
+        "new": true
+      }
+    ]
+  },
+  {
+    "title":"About",
+    "dropdown": [
+      {
+        "title": "About Fintank",
+        "link": "/about"
+      },
+      {
+        "title": "FAQ",
+        "link": "/faq"
+      }
+    ]
+  },
+  {
+    "title": "Chart Comparison",
+    "link": "/build-comparison"
+  },
+  {
+    "title": "Sign up",
+    "link": "/signup",
+    "hideToLoggedUser": true
+  },
+  {
+    "title": "Log In",
+    "link": "/login",
+    "button": true,
+    "hideToLoggedUser": true
+  },
+  {
+    "title": "Connect Wallet",
+    "link": "/wallet-account",
+    "button": true,
+    "hideToLoggedUser": true
+  }
+ 
+]
