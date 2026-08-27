@@ -15,6 +15,7 @@ from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from stockuploader.models import Stock, ETF, ProfileStock, Crypto
 from rest_framework.response import Response
 from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
 from .serializers import StockSerializer
 from rest_framework.pagination import PageNumberPagination
 
@@ -446,6 +447,115 @@ def get_stock_quintiles_task(request, frequency, universe):
         return Response(payload, status=status.HTTP_200_OK)
     except KeyError as e:
         return Response({"detail": str(e)}, status=status.HTTP_404_NOT_FOUND)
+    except (ValueError, TypeError) as e:
+        return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    except Exception as e:
+        return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_watchlist_performance(request, symbol):
+    """Price series and period returns for one stock on the caller's watchlist.
+
+    Adds no upstream API calls. The daily series comes from
+    CorePerformanceTools.get_stock_price_data, which is already backed by the S3
+    parquet and a 24h per-symbol Redis entry, so a symbol held by many users is
+    still one read per day. See
+    docs/superpowers/plans/2026-08-22-watchlist-performance.md.
+
+    Scoped to the requesting user's watchlist rather than accepting any symbol:
+    without that check this would be an unauthenticated-equivalent route to
+    precomputed stats for the whole universe.
+    """
+    from .analyzer_utils.CorePerformanceTools import get_stock_price_data as _prices
+    from .analyzer_utils.watchlist_performance import period_returns, since_added_return
+    from .analyzer_utils.market_hours import get_effective_market_date
+
+    entry = (
+        ProfileStock.objects
+        .filter(user=request.user, stock__symbol__iexact=symbol, stock__isnull=False)
+        .select_related('stock')
+        .first()
+    )
+    if entry is None:
+        return Response(
+            {"detail": f"'{symbol}' is not on your watchlist."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    try:
+        payload = _prices(entry.stock.symbol)
+    except Exception:
+        # A symbol with no parquet in the bucket is an expected gap, not a fault.
+        return Response(
+            {"detail": f"No price history available for '{entry.stock.symbol}'."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    dates = payload.get('dates') or []
+    prices = (payload.get('series') or {}).get('adjClose') or []
+
+    if not dates or not prices:
+        return Response(
+            {"detail": f"No price history available for '{entry.stock.symbol}'."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    # The period figures depend only on the symbol and the trading day, so they
+    # are cached per symbol rather than per user -- the arithmetic runs once a
+    # day however many watchlists hold it.
+    try:
+        market_date = get_effective_market_date()
+    except Exception:
+        market_date = date.today()
+
+    periods_key = f"watchlist:perf:{entry.stock.symbol.upper()}:{market_date}:v1"
+    periods = cache.get(periods_key)
+    if periods is None:
+        periods = period_returns(dates, prices)
+        cache.set(periods_key, periods, timeout=86400)
+
+    # Depends on this user's own date_added, so it is computed per request. It is
+    # a binary search and a division over data already in hand.
+    since_added = since_added_return(dates, prices, entry.date_added)
+
+    return Response(
+        json_safe({
+            "symbol": entry.stock.symbol,
+            "name": entry.stock.name,
+            "date_added": entry.date_added,
+            "dates": dates,
+            "prices": prices,
+            "periods": periods,
+            "since_added": since_added,
+        }),
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(['GET'])
+def get_technicals(request, symbol):
+    """Candles, volume and technical indicators for one symbol.
+
+    Replaces the five endpoints build-comparison.js was written against, none
+    of which ever existed in a urls.py. Those were one billed FMP call per
+    indicator; this is one cached parquet read per symbol and no FMP call.
+
+    `indicators` is optional: omitting it returns candles and volume alone, so
+    a freshly added ticker renders its price chart before anything is toggled.
+
+    Status split copied from get_index_page_series above -- not from
+    get_stock_price_data, which is a blanket 500.
+    """
+    from .analyzer_utils.technicals import get_technicals as _getter
+    try:
+        payload = _getter(symbol, request.GET.get('indicators'))
+        return Response(payload, status=status.HTTP_200_OK)
+    except KeyError as e:
+        # str(KeyError('msg')) is "'msg'" -- args[0] avoids shipping the quotes.
+        detail = e.args[0] if e.args else str(e)
+        return Response({"detail": detail}, status=status.HTTP_404_NOT_FOUND)
     except (ValueError, TypeError) as e:
         return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
     except Exception as e:

@@ -546,3 +546,86 @@ class CacheTests(SimpleTestCase):
         self.assertNotIn(b'Infinity', raw)
         self.assertNotIn(b'NaN', raw)
         self.assertIsNone(payload['volume'][-1]['y'])
+
+
+@override_settings(CACHES=LOCMEM_CACHE, ROOT_URLCONF='fintank_backend.urls')
+class ViewStatusTests(SimpleTestCase):
+    """Copies get_index_page_series' status split, not get_stock_price_data's
+    blanket 500."""
+
+    def setUp(self):
+        cache.clear()
+
+    def _get(self, url):
+        from django.test import Client
+        return Client().get(url)
+
+    def test_the_route_resolves_and_accepts_a_dotted_ticker(self):
+        from django.urls import reverse
+        self.assertEqual(reverse('technicals', args=['AAPL']), '/api/technicals/AAPL/')
+        self.assertEqual(reverse('technicals', args=['RQP.TO']), '/api/technicals/RQP.TO/')
+
+    def test_a_good_request_returns_two_hundred_with_real_numbers(self):
+        with patch.object(technicals, '_load_adjusted_frame',
+                          return_value=technicals._adjust(price_frame(300))):
+            response = self._get('/api/technicals/AAPL/?indicators=rsi:14')
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body['symbol'], 'AAPL')
+        self.assertTrue(any(v is not None for v in body['indicators']['rsi:14']['series']))
+
+    def test_no_indicators_parameter_returns_a_candle_only_two_hundred(self):
+        with patch.object(technicals, '_load_adjusted_frame',
+                          return_value=technicals._adjust(price_frame(300))):
+            response = self._get('/api/technicals/AAPL/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['indicators'], {})
+        self.assertTrue(response.json()['candle'])
+
+    def test_every_malformed_spec_is_a_four_hundred_naming_the_problem(self):
+        cases = [
+            ('indicators=foo:14', 'foo'),
+            ('indicators=rsi:abc', 'rsi:abc'),
+            ('indicators=sma:1', '2..500'),
+            ('indicators=macd:12', 'macd:12'),
+            ('indicators=macd:26:12:9', 'fast'),
+            ('indicators=', 'rsi'),
+            ('indicators=' + ','.join(f'sma:{n}' for n in range(10, 23)), 'at most 12'),
+        ]
+        with patch.object(technicals, '_load_adjusted_frame',
+                          return_value=technicals._adjust(price_frame(300))):
+            for query, fragment in cases:
+                with self.subTest(query=query):
+                    response = self._get(f'/api/technicals/AAPL/?{query}')
+                    self.assertEqual(response.status_code, 400)
+                    self.assertIn(fragment, response.json()['detail'])
+
+    def test_a_missing_parquet_is_a_four_hundred_and_four_not_a_five_hundred(self):
+        with patch.object(technicals.data_getter, 'load_stock_prices',
+                          side_effect=FileNotFoundError('gone')):
+            response = self._get('/api/technicals/XYZ/?indicators=rsi:14')
+        self.assertEqual(response.status_code, 404)
+        self.assertIn('XYZ', response.json()['detail'])
+
+    def test_the_detail_message_is_not_wrapped_in_key_error_quotes(self):
+        with patch.object(technicals.data_getter, 'load_stock_prices',
+                          side_effect=OSError('s3 down')):
+            detail = self._get('/api/technicals/XYZ/').json()['detail']
+        self.assertFalse(detail.startswith("'"))
+
+    def test_an_unexpected_failure_is_a_five_hundred(self):
+        with patch.object(technicals, '_load_adjusted_frame',
+                          side_effect=RuntimeError('redis exploded')):
+            response = self._get('/api/technicals/AAPL/?indicators=rsi:14')
+        self.assertEqual(response.status_code, 500)
+
+    def test_the_response_survives_the_drf_renderer_with_degenerate_data(self):
+        """json_safe on the way out is what keeps inf from 500ing at render
+        time, after the view has already returned 200."""
+        frame = price_frame(300)
+        frame['high'] = frame['close']
+        frame['low'] = frame['close']
+        with patch.object(technicals, '_load_adjusted_frame',
+                          return_value=technicals._adjust(frame)):
+            response = self._get('/api/technicals/AAPL/?indicators=williams:14,adl,adx:14')
+        self.assertEqual(response.status_code, 200)

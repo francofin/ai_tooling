@@ -23,4 +23,10 @@ urlpatterns = [
     path('index-risk/<str:slug>/', views.get_index_page_risk, name='index_risk'),
     path('index-quotes/<str:slug>/', views.get_index_page_quotes, name='index_quotes'),
     path('getstockquintiles/<str:frequency>/<str:universe>/', views.get_stock_quintiles_task, name='stock_quintiles'),
+    # `str` accepts the dot in dotted tickers like RQP.TO, matching the other
+    # watchlist routes in stockuploader/urls.py.
+    path('watchlistperformance/<str:symbol>/', views.get_watchlist_performance, name='watchlist_performance'),
+    # `str` (not `slug`) accepts the dot in dotted tickers like RQP.TO, matching
+    # the reasoning already recorded on the watchlistperformance route above.
+    path('technicals/<str:symbol>/', views.get_technicals, name='technicals'),
 ]
