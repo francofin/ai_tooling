@@ -201,7 +201,7 @@ All cache values remain gzip-compressed JSON (existing pattern). S3 holds durabl
 #### Stock Detail Page (`/stock-data/[ticker]`)
 Sections:
 1. **Header strip** — current price, 1D change, market cap, sector, exchange
-2. **Price chart** — OHLCV candlestick (1D/1W/1M/3M/1Y), volume bars overlay. Use existing `useNewCandleSticks` hook.
+2. **Price chart** — OHLCV candlestick (1D/1W/1M/3M/1Y), volume bars overlay. `useNewCandleSticks` was removed by the technical charting comparison rebuild; `src/componentsLegacy/Comparison/PriceChart.js` renders candlesticks now.
 3. **Financial statements tabs** — Income Statement, Cash Flow, Balance Sheet pulled from existing `IncomeStatement`, `CashFlowStatement`, `BalanceSheet` models. Annual/TTM toggle.
 4. **Valuation metrics** — from `FundamentalMetric` / `FundamentalMetricTTM`. Existing `MetricsTable.js` reused.
 5. **Factor scores** — factor engine scores for this ticker (P/E rank, ROE rank, FCF yield rank, momentum). Small badge display.
@@ -576,7 +576,7 @@ Existing vars documented in CLAUDE.md. Add:
 | `backend/news/getNews.py` | Extend to call multi-source ingestion |
 | `backend/stockuploader/models.py` | Source for factor engine input data |
 | `src/hooks/useStockData.js` | Reuse in stock detail page |
-| `src/hooks/useNewCandleSticks.js` | Reuse for OHLCV charts on detail pages |
+| `src/hooks/useNewCandleSticks.js` | Removed by the technical charting comparison rebuild -- see `src/componentsLegacy/Comparison/PriceChart.js` instead |
 | `src/hooks/useSectorExposure.js` | Reuse in watchlist and ETF detail |
 | `src/hooks/useCovarWatchList.js` | Reuse in watchlist volatility section |
 | `src/componentsLegacy/MetricsTable.js` | Reuse on stock detail page |

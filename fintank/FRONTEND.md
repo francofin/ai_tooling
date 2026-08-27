@@ -179,13 +179,16 @@ round trip on a ~460 KB payload.
 `useWatchList` — all interpolate `NEXT_PUBLIC_FMP_API` into the query string, so **the FMP key
 ships in the client bundle.** Migrating these behind Django is unfinished work.
 
-### Unused (21)
+### Unused (20)
 
 `UseHover`, `UseMovers`, `UseSectorTS`, `useAccounts`, `useAddChart`, `useCandleStick`,
 `useChartResources`, `useChartUpdater`, `useCommodityData`, `useCovarWatchList`, `useETFData`,
-`useHeatMap`, `useLocationService`, `useNewCandleSticks`, `useNewsGenerator`,
+`useHeatMap`, `useLocationService`, `useNewsGenerator`,
 `useSectorExposure`, `useStockArticles`, `useStockCharts`, `useStockReturns`, `useWatchList`,
 `useWatchListLineChart`
+
+(`useNewCandleSticks` was deleted by the technical charting comparison rebuild;
+`src/componentsLegacy/Comparison/PriceChart.js` renders candlesticks now.)
 
 ---
 
