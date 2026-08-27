@@ -28,7 +28,7 @@ const IndicatorRail = ({ instances, onChange }) => {
     <>
       <h6 className="text-uppercase text-muted small mt-4 mb-2">{title}</h6>
       {group.map((name) => (
-        <IndicatorControl key={name} name={name} instances={instances} onChange={onChange} />
+        <IndicatorControl key={name} name={name} instances={instances} onChange={onChange} full={full} />
       ))}
     </>
   )

@@ -42,6 +42,7 @@ export const serializeSpec = (instances) =>
 export const deserializeSpec = (raw) => {
   if (!raw) return []
   return raw.split(',').reduce((instances, token) => {
+    if (instances.length >= MAX_INDICATORS) return instances
     const [name, ...values] = token.trim().split(':')
     const entry = meta[name]
     if (!entry || values.length !== entry.params.length) return instances

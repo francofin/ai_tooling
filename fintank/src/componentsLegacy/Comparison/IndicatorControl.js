@@ -24,7 +24,7 @@ import { indicatorMeta, makeInstance, validateInstance } from '@utils/technicalS
  * it only ever forwards `onChange` from an ancestor's `useState`) closes that
  * window instead of merely narrowing it.
  */
-const IndicatorControl = ({ name, instances, onChange }) => {
+const IndicatorControl = ({ name, instances, onChange, full }) => {
   const [showInfo, setShowInfo] = useState(false)
   const entry = indicatorMeta[name]
   const mine = instances.filter((instance) => instance.name === name)
@@ -56,7 +56,14 @@ const IndicatorControl = ({ name, instances, onChange }) => {
           >
             <FontAwesomeIcon icon={faCircleInfo} />
           </Button>
-          <Button variant="link" size="sm" className="p-0" aria-label={`Add ${entry.label}`} onClick={add}>
+          <Button
+            variant="link"
+            size="sm"
+            className="p-0"
+            aria-label={`Add ${entry.label}`}
+            onClick={add}
+            disabled={full}
+          >
             <FontAwesomeIcon icon={faPlus} />
           </Button>
         </div>
