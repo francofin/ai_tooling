@@ -141,6 +141,18 @@ class RsiTests(TestCase):
         # Wilder's own worked example: the first defined reading is ~70.46.
         self.assertAlmostEqual(series.iloc[14], 70.46, places=1)
 
+    def test_rsi_recovers_from_an_interior_nan_close(self):
+        """A data gap (a missing/NaN close mid-series, not just a leading
+        one -- Task 3 coerces to numeric but does not drop NaNs) must not
+        blank the whole series. The Wilder seed skips the gap when
+        accumulating its `period` valid observations, and the recursion
+        resumes normally on the next real close."""
+        closes = [100, 101, float('nan'), 103, 104, 105, 106, 107, 108, 109,
+                  110, 111, 112, 113, 114, 115, 116]
+        series = ti.rsi(frame(closes), 5)['series']
+        self.assertGreater(int(series.notna().sum()), 0)
+        self.assertFalse(np.isnan(series.iloc[-1]))
+
 
 class AdxTests(TestCase):
     """The most-botched indicator on the page. Each stage gets its own case."""
@@ -193,6 +205,27 @@ class AdxTests(TestCase):
         df = frame(closes)
         self.assertNotAlmostEqual(ti.adx(df, 14)['series'].iloc[20],
                                   ti._dx(df, 14).iloc[20], places=4)
+
+    def test_adx_returns_a_real_number_when_atr_itself_is_zero(self):
+        """A halted, pegged or limit-locked instrument has high == low ==
+        close for a stretch, so ATR itself -- not just the DI sum -- is a
+        genuine 0/0 at the DI stage. Distinct from
+        test_a_non_directional_market_gives_zero_not_infinity, where ATR is
+        nonzero (a real high/low range) and only the DI ratio is the 0/0."""
+        df = frame([100.0] * 40, highs=[100.0] * 40, lows=[100.0] * 40)
+        series = ti.adx(df, 14)['series']
+        self.assertTrue(np.isfinite(series.iloc[28]))   # min_rows(adx, 14) == 29
+        self.assertAlmostEqual(series.iloc[-1], 0.0)
+
+    def test_adx_recovers_from_an_interior_nan_bar(self):
+        """Same gap-recovery guarantee as RSI's, exercised through the
+        two-stage Wilder smoothing (TR/+DM/-DM, then DX) that adx() chains
+        _wilder through."""
+        closes = [100, 101, float('nan'), 103, 104, 105, 106, 107, 108, 109,
+                  110, 111, 112, 113, 114, 115, 116]
+        series = ti.adx(frame(closes), 3)['series']
+        self.assertGreater(int(series.notna().sum()), 0)
+        self.assertFalse(np.isnan(series.iloc[-1]))
 
 
 class MacdTests(TestCase):

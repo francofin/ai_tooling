@@ -29,7 +29,11 @@ def _ema(series: pd.Series, span: int) -> pd.Series:
 
 def _wilder(series: pd.Series, period: int) -> pd.Series:
     """Wilder's smoothing: seed with a plain average of the first `period`
-    valid observations, then recurse with weight 1/period on every bar after.
+    *valid* observations, then recurse with weight 1/period on every bar
+    after. NaN-aware in two independent ways: an interior NaN (a gap in the
+    source data, not just a leading one) is skipped when accumulating the
+    `period` observations the seed needs, and once past the seed, a NaN bar
+    holds the running average forward rather than resetting it.
 
     `series.ewm(alpha=1/period, adjust=False)` has the right decay factor but
     seeds its recursion at the very first data point rather than a
@@ -45,9 +49,9 @@ def _wilder(series: pd.Series, period: int) -> pd.Series:
     if valid.size < period:
         return pd.Series(out, index=series.index)
 
-    start = valid[0]
-    seed_at = start + period - 1
-    out[seed_at] = values[start:start + period].mean()
+    seed_positions = valid[:period]         # first `period` valid observations, gaps skipped
+    seed_at = seed_positions[-1]
+    out[seed_at] = values[seed_positions].mean()
 
     prev = out[seed_at]
     for i in range(seed_at + 1, values.size):
@@ -137,12 +141,19 @@ def _dx(df: pd.DataFrame, period: int) -> pd.Series:
     plus_dm, minus_dm = _directional_movement(df)
     atr = _wilder(_true_range(df), period)
 
-    plus_di = 100.0 * _wilder(plus_dm, period) / atr
-    minus_di = 100.0 * _wilder(minus_dm, period) / atr
+    # A halted, pegged or limit-locked instrument makes ATR itself zero (every
+    # high == low == close), which is a real 0/0 at the DI stage already --
+    # not just at the DX stage below. Guard the pre-division value (atr), the
+    # same way adl and williams guard their raw subtraction before dividing,
+    # not the already-divided DX ratio further down.
+    plus_di = (100.0 * _wilder(plus_dm, period) / atr).where(atr != 0.0, 0.0)
+    minus_di = (100.0 * _wilder(minus_dm, period) / atr).where(atr != 0.0, 0.0)
 
     di_sum = plus_di + minus_di
     dx = 100.0 * (plus_di - minus_di).abs() / di_sum
-    # A fully non-directional bar makes +DI + -DI zero. That is a real 0/0.
+    # A fully non-directional bar (ATR nonzero, both DI zero) makes +DI + -DI
+    # zero. That is a second, distinct real 0/0 -- the DI ratio can be zero
+    # even when ATR itself is fine.
     return dx.where(di_sum != 0.0, 0.0)
 
 
