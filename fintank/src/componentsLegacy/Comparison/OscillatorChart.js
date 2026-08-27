@@ -23,31 +23,37 @@ export const OSCILLATOR_HEIGHT = 160
 const OscillatorChart = ({ symbol, token, name, entry, dates }) => {
   const meta = indicatorMeta[name]
 
+  // `series`, `colors` and `stroke.width` all walk this same filtered list,
+  // in the same order, so a plot missing from `entry` can never shift colors
+  // or stroke widths onto the wrong series. Under the documented backend
+  // contract an indicator's plot keys are all-or-nothing, so this filter
+  // never actually drops anything today -- but the three arrays staying in
+  // lockstep costs nothing and stops that from being a landmine.
+  const plots = useMemo(() => meta.plots.filter((plot) => Array.isArray(entry[plot.key])), [meta, entry])
+
   const series = useMemo(() => {
     const x = dates.map(toEpoch)
-    return meta.plots
-      .filter((plot) => Array.isArray(entry[plot.key]))
-      .map((plot) => ({
-        name: plot.label,
-        type: plot.type,
-        data: entry[plot.key].map((value, i) => ({ x: x[i], y: value })),
-      }))
-  }, [meta, entry, dates])
+    return plots.map((plot) => ({
+      name: plot.label,
+      type: plot.type,
+      data: entry[plot.key].map((value, i) => ({ x: x[i], y: value })),
+    }))
+  }, [plots, entry, dates])
 
   const options = useMemo(
     () => ({
       chart: {
         id: `${symbol}:${token}`,
         group: `panel-${symbol}`,
-        type: series.length > 1 ? 'line' : meta.plots[0].type,
+        type: series.length > 1 ? 'line' : plots[0].type,
         height: OSCILLATOR_HEIGHT,
         toolbar: { show: false },
         animations: { enabled: false },
         zoom: { enabled: false },
       },
       dataLabels: { enabled: false },
-      colors: meta.plots.map((plot) => plot.color),
-      stroke: { width: meta.plots.map((plot) => (plot.type === 'column' ? 0 : 2)) },
+      colors: plots.map((plot) => plot.color),
+      stroke: { width: plots.map((plot) => (plot.type === 'column' ? 0 : 2)) },
       grid: { padding: { left: 8, right: 8 } },
       xaxis: { type: 'datetime', labels: { show: false } },
       yaxis: {
@@ -72,7 +78,7 @@ const OscillatorChart = ({ symbol, token, name, entry, dates }) => {
       legend: { show: series.length > 1, position: 'top', fontSize: '11px' },
       tooltip: { shared: true, x: { format: 'dd MMM yyyy' } },
     }),
-    [symbol, token, meta, entry.bands, series.length],
+    [symbol, token, meta, plots, entry.bands, series.length],
   )
 
   return (

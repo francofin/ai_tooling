@@ -9,6 +9,14 @@ import OscillatorChart, { OSCILLATOR_HEIGHT } from './OscillatorChart'
 
 const nameOf = (token) => token.split(':')[0]
 
+// Total vertical footprint of the reserved `.symbol-panel__warnings` slot
+// (0.5rem top margin + 24px box) in src/styles/pages/_chart-comparison.scss.
+// The slot renders whether or not `payload.warnings` has entries, so the
+// mounted `.symbol-panel__charts` content always has this exact height
+// budgeted for it and never disagrees with the off-screen placeholder below,
+// regardless of warning count.
+const WARNINGS_HEIGHT = 32
+
 /**
  * One ticker's column: sticky header, price chart, one sub-panel per
  * oscillator. Owns its own SWR subscription.
@@ -53,7 +61,7 @@ const SymbolPanel = ({ symbol, spec, onRemove, root }) => {
     ? Object.entries(payload.indicators).filter(([, entry]) => entry.kind === 'oscillator')
     : []
 
-  const chartsHeight = CHART_HEIGHT + oscillators.length * (OSCILLATOR_HEIGHT + 24)
+  const chartsHeight = CHART_HEIGHT + oscillators.length * (OSCILLATOR_HEIGHT + 24) + WARNINGS_HEIGHT
 
   return (
     <PanelErrorBoundary symbol={symbol}>
@@ -87,42 +95,54 @@ const SymbolPanel = ({ symbol, spec, onRemove, root }) => {
           </div>
         )}
 
-        {!error && payload && !visible && <div style={{ height: chartsHeight }} aria-hidden="true" />}
+        {/* `.symbol-panel__body` carries the panel's vertical padding, wrapping
+            both branches below, so the padding is never the mounted branch's to
+            add and the off-screen branch's to forget -- CSS applies it equally
+            either way and chartsHeight only has to account for content. */}
+        {!error && payload && (
+          <div className="symbol-panel__body">
+            {!visible ? (
+              <div style={{ height: chartsHeight }} aria-hidden="true" />
+            ) : (
+              <div className={stale ? 'symbol-panel__charts is-stale' : 'symbol-panel__charts'}>
+                <PriceChart
+                  symbol={symbol}
+                  dates={payload.dates}
+                  candle={payload.candle}
+                  volume={payload.volume}
+                  averageVolume={payload.average_volume}
+                  overlays={Object.entries(payload.indicators)
+                    .filter(([, entry]) => entry.kind === 'overlay')
+                    .map(([token, entry]) => ({
+                      token,
+                      name: nameOf(token),
+                      series: entry.series,
+                    }))}
+                />
 
-        {!error && payload && visible && (
-          <div className={stale ? 'symbol-panel__charts is-stale' : 'symbol-panel__charts'}>
-            <PriceChart
-              symbol={symbol}
-              dates={payload.dates}
-              candle={payload.candle}
-              volume={payload.volume}
-              averageVolume={payload.average_volume}
-              overlays={Object.entries(payload.indicators)
-                .filter(([, entry]) => entry.kind === 'overlay')
-                .map(([token, entry]) => ({
-                  token,
-                  name: nameOf(token),
-                  series: entry.series,
-                }))}
-            />
-
-            {oscillators.map(([token, entry]) => (
-              <OscillatorChart
-                key={token}
-                symbol={symbol}
-                token={token}
-                name={nameOf(token)}
-                entry={entry}
-                dates={payload.dates}
-              />
-            ))}
-
-            {payload.warnings?.length > 0 && (
-              <ul className="symbol-panel__warnings small text-muted">
-                {payload.warnings.map((warning) => (
-                  <li key={warning}>{warning}</li>
+                {oscillators.map(([token, entry]) => (
+                  <OscillatorChart
+                    key={token}
+                    symbol={symbol}
+                    token={token}
+                    name={nameOf(token)}
+                    entry={entry}
+                    dates={payload.dates}
+                  />
                 ))}
-              </ul>
+
+                {/* Fixed-height slot rendered whether or not there are warnings --
+                    see WARNINGS_HEIGHT above. */}
+                <div className="symbol-panel__warnings small text-muted" aria-hidden={!(payload.warnings?.length > 0)}>
+                  {payload.warnings?.length > 0 && (
+                    <ul>
+                      {payload.warnings.map((warning) => (
+                        <li key={warning}>{warning}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
             )}
           </div>
         )}

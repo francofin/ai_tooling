@@ -91,8 +91,14 @@
     border-radius: 0.5rem 0.5rem 0 0;
   }
 
-  &__charts {
+  // Wraps both the off-screen placeholder and the mounted `&__charts` block,
+  // so the padding is applied identically to either one -- SymbolPanel's
+  // chartsHeight only has to budget for content, never for this.
+  &__body {
     padding: 0.5rem;
+  }
+
+  &__charts {
     transition: opacity 120ms linear;
 
     // Last-good data held while a new spec is in flight, so charts stay
@@ -103,7 +109,17 @@
   }
 
   &__warnings {
+    // Fixed-height slot, rendered whether or not there are warnings (see
+    // WARNINGS_HEIGHT in SymbolPanel.js) -- 0.5rem margin + this 24px box is
+    // that constant's other half, so a panel's mounted height always matches
+    // the height computed for its off-screen placeholder, warnings or not.
+    height: 24px;
+    overflow-y: auto;
     margin: 0.5rem 0 0;
-    padding-left: 1rem;
+
+    ul {
+      margin: 0;
+      padding-left: 1rem;
+    }
   }
 }
