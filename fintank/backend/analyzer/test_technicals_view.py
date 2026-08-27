@@ -106,14 +106,25 @@ class CanonicalKeyTests(SimpleTestCase):
 
 
 def price_frame(n, start='2020-01-02', base=100.0, step=0.5):
-    """Stand-in for a per-symbol daily parquet, before back-adjustment."""
+    """Stand-in for a per-symbol daily parquet, before back-adjustment.
+
+    The close is a rising trend with a deterministic oscillation layered on
+    top (no RNG, no seed) so the series has genuine down days -- a plain
+    monotone ramp pins RSI at exactly 100 for every period, which makes any
+    test that compares two periods' output unable to ever fail honestly.
+
+    high/low are an asymmetric band around close (+1.0 / -0.5), not a
+    symmetric one -- a symmetric band puts close at the exact midpoint,
+    which makes the ADL money-flow multiplier identically zero for every
+    row and flattens the whole A/D line to 0.
+    """
     dates = pd.bdate_range(start, periods=n)
-    closes = np.array([base + step * i for i in range(n)])
+    closes = np.array([base + step * i + 3.0 * np.sin(i / 3.0) for i in range(n)])
     return pd.DataFrame({
         'date': [d.strftime('%Y-%m-%d') for d in dates],
         'open': closes - 0.2,
         'high': closes + 1.0,
-        'low': closes - 1.0,
+        'low': closes - 0.5,
         'close': closes,
         'adjClose': closes,               # no split unless a test says so
         'volume': np.full(n, 1_000_000.0),
@@ -174,9 +185,14 @@ class LoaderHygieneTests(SimpleTestCase):
         self.assertTrue((loaded['volume'] == 1_000_000.0).all())
 
     def test_a_split_leaves_no_discontinuity_in_a_recursive_indicator(self):
+        """A real 2:1 split leaves adjClose continuous and the raw pre-split
+        price double what the adjusted series shows -- not the other way
+        round. Back-adjustment must recover the smooth series, not
+        manufacture a new discontinuity out of an already-smooth adjClose."""
         from analyzer.analyzer_utils import technical_indicators as ti
         frame = price_frame(120)
-        frame.loc[:59, 'adjClose'] = frame.loc[:59, 'close'] / 2.0
+        for column in ('open', 'high', 'low', 'close'):
+            frame.loc[:59, column] = frame.loc[:59, column] * 2.0
         loaded = self._load(frame)
         series = ti.ema(loaded, 12)['series']
         jumps = series.diff().abs().iloc[61:]
@@ -274,8 +290,13 @@ class GetTechnicalsTests(SimpleTestCase):
         for i in range(1, 250):
             self.assertAlmostEqual(returned[i] - returned[i - 1],
                                    trimmed_first[i] - trimmed_first[i - 1], places=6)
-        # ... while the levels are offset by a constant.
-        offsets = {round(returned[i] - trimmed_first[i], 6) for i in range(250)}
+        # ... while the levels are offset by a constant. The offset itself is a
+        # ~1.17e8-magnitude cumulative sum built from two differently-grouped
+        # runs of float64 addition (600 terms folded then sliced, vs 250 terms
+        # summed fresh), so it agrees only to float64's precision at that
+        # magnitude (~1e-6), not to 6 decimal places -- rounding to 3 clears
+        # that noise with a wide margin below the ~333,333 real per-row signal.
+        offsets = {round(returned[i] - trimmed_first[i], 3) for i in range(250)}
         self.assertEqual(len(offsets), 1)
         self.assertNotAlmostEqual(offsets.pop(), 0.0)
 
