@@ -1,0 +1,20 @@
+{
+    "energyImages": [
+        {
+            "link": "#",
+            "img": "energy/en1.jpg"
+        },
+        {
+            "link": "#",
+            "img": "energy/en2.jpg"
+        },
+        {
+            "link": "#",
+            "img":  "energy/en3.jpg"
+        },
+        {
+            "link": "#",
+            "img":  "energy/en4.jpg"
+        }
+    ]
+}

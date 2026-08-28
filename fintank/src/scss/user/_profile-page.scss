@@ -1,0 +1,747 @@
+// Profile page — ported from the HUD theme (hudjs `src/styles/pages/_profile.scss`,
+// `widget/_widget-img-list.scss`, `ui/_nav-tabs.scss`).
+//
+// Everything is scoped under `.profile-page` on purpose. The Pages Router loads the
+// Directory theme (`src/scss/style.default.scss`), which has none of HUD's
+// `text-inverse` / `btn-outline-theme` / `nav-tabs-v2` utilities. Rather than wiring
+// the whole second theme in and restyling every existing page, the handful of
+// utilities this one page needs are shimmed here.
+//
+// The same scope also carries the section's dark, image-backed treatment. Every
+// page rendered through `ProfileLayout` gets it — currently /profile, /watchlist,
+// /backtest-portfolio and /create-alerts.
+
+.profile-page {
+	// HUD builds its neutrals off an `inverse` colour that flips with the theme.
+	// The section sits on a dark image (below), so pin it to white and let every
+	// `text-inverse` / `bg-inverse` utility follow.
+	--#{$prefix}inverse-rgb: #{to-rgb($white)};
+
+	// Dividers, card edges and table rules all read off this.
+	--#{$prefix}border-color: #{rgba($white, 0.12)};
+
+	color: rgba(var(--#{$prefix}inverse-rgb), 0.85);
+
+	// --- Page background ---------------------------------------------------
+	// Same fixed-cover + dark-overlay treatment as `src/pages/universe/[slug].js`.
+	// The overlay is what makes light text legible over a busy photo, so the two
+	// belong together — don't drop one without the other.
+
+	position: relative;
+	min-height: 100vh;
+	background-image: url('/images/homeImages/world.jpg');
+	background-size: cover;
+	background-position: center;
+	background-repeat: no-repeat;
+	background-attachment: fixed;
+
+	&::before {
+		content: '';
+		position: absolute;
+		inset: 0;
+		background: rgba(5, 5, 15, 0.78);
+		pointer-events: none;
+	}
+
+	// Lifts the content off the overlay.
+	& > * {
+		position: relative;
+		z-index: 1;
+	}
+
+	// --- Glass surfaces ----------------------------------------------------
+	// Every card in the section shares one translucent surface so the shell and
+	// the cards nested inside it layer consistently over the image.
+
+	& .card {
+		--#{$prefix}card-bg: #{rgba($white, 0.06)};
+		--#{$prefix}card-border-color: #{rgba($white, 0.12)};
+		--#{$prefix}card-color: #{rgba($white, 0.85)};
+		--#{$prefix}card-cap-bg: transparent;
+		--#{$prefix}card-cap-color: #{$white};
+
+		backdrop-filter: blur(12px);
+		-webkit-backdrop-filter: blur(12px);
+	}
+
+	& h1, & h2, & h3, & h4, & h5, & h6 {
+		color: $white;
+	}
+
+	// Anchors that carry no colour utility of their own would otherwise keep the
+	// light-theme link colour. Buttons and navs style themselves, so skip those.
+	& a:not(.btn):not(.nav-link):not(.list-group-item-action) {
+		color: rgba(var(--#{$prefix}inverse-rgb), 0.9);
+
+		&:hover,
+		&:focus-visible {
+			color: $primary;
+		}
+	}
+
+	& .list-group {
+		--#{$prefix}list-group-bg: transparent;
+		--#{$prefix}list-group-color: #{rgba($white, 0.85)};
+		--#{$prefix}list-group-border-color: #{rgba($white, 0.12)};
+		--#{$prefix}list-group-action-color: #{rgba($white, 0.85)};
+		--#{$prefix}list-group-action-hover-bg: #{rgba($white, 0.08)};
+		--#{$prefix}list-group-action-hover-color: #{$white};
+	}
+
+	& .table {
+		--#{$prefix}table-color: #{rgba($white, 0.85)};
+		--#{$prefix}table-bg: transparent;
+		--#{$prefix}table-border-color: #{rgba($white, 0.12)};
+		--#{$prefix}table-striped-color: #{rgba($white, 0.85)};
+		--#{$prefix}table-striped-bg: #{rgba($white, 0.04)};
+		--#{$prefix}table-hover-color: #{$white};
+		--#{$prefix}table-hover-bg: #{rgba($white, 0.08)};
+	}
+
+	& .form-control,
+	& .form-select {
+		color: rgba(var(--#{$prefix}inverse-rgb), 0.9);
+		background-color: rgba($white, 0.08);
+		border-color: rgba($white, 0.15);
+
+		&::placeholder {
+			color: rgba(var(--#{$prefix}inverse-rgb), 0.45);
+		}
+
+		&:focus {
+			color: $white;
+			background-color: rgba($white, 0.12);
+			border-color: rgba($primary, 0.6);
+		}
+
+		// The closed control sits on the dark card, so its text is light. The open
+		// dropdown is drawn by the browser on its own light background, though, and
+		// the options would inherit that same light text — invisible until a hover
+		// repaints the row. They get an explicit pairing of their own.
+		& option {
+			color: $body-color;
+			background-color: $white;
+		}
+	}
+
+	// --- Index chart panel -------------------------------------------------
+	// Chart.js renders to a canvas with its own dark-on-transparent defaults, so
+	// it keeps a light surface of its own rather than sitting on the dark card.
+	// See `componentsLegacy/Markets/IndexChartPicker`.
+
+	& .index-chart-panel {
+		background-color: #f8f9fa;
+		border-radius: $border-radius;
+		padding: $spacer;
+		color: $body-color;
+	}
+
+	// --- Avatar picker -----------------------------------------------------
+	// The sidebar avatar is a button now, so it needs the native chrome reset;
+	// `.profile-img` below still supplies the size and crop.
+
+	& .profile-img-button {
+		display: block;
+		width: 100%;
+		padding: 0;
+		border: 0;
+		background: none;
+		position: relative;
+		cursor: pointer;
+
+		& .profile-img-overlay {
+			position: absolute;
+			inset-inline: 0;
+			bottom: 0;
+			padding: $spacer * 0.35 0;
+			background-color: rgba($black, 0.6);
+			color: $white;
+			font-size: 0.75rem;
+			font-weight: $font-weight-bold;
+			text-transform: uppercase;
+			letter-spacing: 0.05em;
+			text-align: center;
+			opacity: 0;
+			transition: opacity 0.15s ease-in-out;
+		}
+
+		// Keyboard users get the same affordance as pointer users.
+		&:hover .profile-img-overlay,
+		&:focus-visible .profile-img-overlay {
+			opacity: 1;
+		}
+		&:focus-visible {
+			outline: 2px solid $primary;
+			outline-offset: 2px;
+		}
+	}
+
+	// --- Index movers (sidebar) --------------------------------------------
+	// The sidebar is 15.625rem wide, so rows are `TICKER  +0.00%` with the company
+	// name on a title attribute. The symbol truncates and the change never does:
+	// a clipped percentage would be actively misleading, a clipped ticker is not.
+
+	& .index-movers-scroll {
+		max-height: 26rem;
+		overflow-y: auto;
+		overscroll-behavior: contain;
+		padding-inline-end: $spacer * 0.25;
+	}
+	& .index-movers-heading {
+		position: sticky;
+		top: 0;
+		z-index: 1;
+		// Opaque so rows cannot show through the heading as they scroll under it.
+		background-color: #1c2130;
+		padding: $spacer * 0.35 0 $spacer * 0.25;
+		font-size: 0.7rem;
+		font-weight: $font-weight-bold;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: rgba(var(--#{$prefix}inverse-rgb), 0.55);
+	}
+	& .index-movers-list {
+		list-style: none;
+		margin: 0 0 $spacer * 0.5;
+		padding: 0;
+	}
+	& .index-movers-row {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: $spacer * 0.4;
+		padding: $spacer * 0.2 0;
+		font-size: 0.78rem;
+		border-bottom: 1px solid rgba($white, 0.06);
+
+		& .index-movers-symbol {
+			min-width: 0;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+			font-weight: $font-weight-bold;
+			color: rgba(var(--#{$prefix}inverse-rgb), 0.9);
+			text-decoration: none;
+
+			&:hover,
+			&:focus-visible {
+				color: $primary;
+				text-decoration: underline;
+			}
+		}
+		& .index-movers-change {
+			flex: 0 0 auto;
+			font-variant-numeric: tabular-nums;
+		}
+		& .index-movers-up { color: #4ade80; }
+		& .index-movers-down { color: #f87171; }
+		& .index-movers-flat { color: rgba(var(--#{$prefix}inverse-rgb), 0.5); }
+	}
+
+	// --- Watchlist performance ---------------------------------------------
+	// Tiles wrap rather than scroll: at sidebar widths a seven-across row would
+	// either overflow or shrink the numbers past readability.
+
+	& .watchlist-tiles {
+		display: flex;
+		flex-wrap: wrap;
+		gap: $spacer * 0.5;
+		margin-top: $spacer;
+	}
+	& .watchlist-tile {
+		flex: 1 1 5.5rem;
+		min-width: 5.5rem;
+		padding: $spacer * 0.5 $spacer * 0.65;
+		border: 1px solid rgba($white, 0.12);
+		border-radius: $border-radius;
+		background-color: rgba($white, 0.05);
+
+		& .watchlist-tile-label {
+			font-size: 0.7rem;
+			text-transform: uppercase;
+			letter-spacing: 0.04em;
+			color: rgba(var(--#{$prefix}inverse-rgb), 0.55);
+		}
+		& .watchlist-tile-value {
+			font-size: 1rem;
+			font-weight: $font-weight-bold;
+		}
+		& .watchlist-tile-sub {
+			font-size: 0.65rem;
+			color: rgba(var(--#{$prefix}inverse-rgb), 0.45);
+		}
+
+		// Colour carries direction, but the label and sign carry it too, so the
+		// tiles stay readable without relying on hue alone.
+		&.watchlist-tile-up .watchlist-tile-value { color: #4ade80; }
+		&.watchlist-tile-down .watchlist-tile-value { color: #f87171; }
+		&.watchlist-tile-flat .watchlist-tile-value,
+		&.watchlist-tile-muted .watchlist-tile-value {
+			color: rgba(var(--#{$prefix}inverse-rgb), 0.5);
+		}
+	}
+	& .watchlist-performance-note {
+		margin-top: $spacer * 0.75;
+		font-size: 0.7rem;
+		color: rgba(var(--#{$prefix}inverse-rgb), 0.45);
+	}
+
+	// --- News feed ---------------------------------------------------------
+	// The rail scrolls its own articles so the page length stays fixed no matter
+	// how many come back. See `componentsLegacy/Markets/NewsFeed`.
+
+	& .news-feed-scroll {
+		max-height: 70vh;
+		overflow-y: auto;
+		overscroll-behavior: contain;
+
+		& .news-feed-item + .news-feed-item {
+			margin-top: $spacer;
+		}
+
+		// `NewsPost` is the homepage card, styled for a light page — its
+		// `text-dark` / `text-muted` type would vanish against the glass card. It
+		// keeps its own light surface here rather than being restyled, so the two
+		// feeds stay identical.
+		& .card {
+			--#{$prefix}card-bg: #{$white};
+			--#{$prefix}card-color: #{$body-color};
+			backdrop-filter: none;
+			-webkit-backdrop-filter: none;
+			color: $body-color;
+		}
+	}
+
+	// Date-range slider under the chart. `react-range` is headless, so the track
+	// and thumbs are styled entirely here. The track sits inside a taller hit area
+	// so it stays easy to grab without drawing a thick bar.
+	& .index-chart-range {
+		padding: $spacer * 0.75 $spacer * 0.5 0;
+
+		& .index-chart-range-track-hit {
+			display: flex;
+			align-items: center;
+			height: 1.5rem;
+		}
+		& .index-chart-range-track {
+			height: 0.25rem;
+			width: 100%;
+			border-radius: 0.125rem;
+			align-self: center;
+		}
+		& .index-chart-range-thumb {
+			height: 1rem;
+			width: 1rem;
+			border-radius: 50%;
+			background-color: $white;
+			border: 2px solid $primary;
+			box-shadow: 0 1px 3px rgba($black, 0.3);
+			outline: none;
+
+			&:focus-visible,
+			&.is-dragged {
+				box-shadow: 0 0 0 0.2rem rgba($primary, 0.35);
+			}
+		}
+		& .index-chart-range-labels {
+			display: flex;
+			justify-content: space-between;
+			margin-top: $spacer * 0.25;
+			font-size: 0.75rem;
+			color: rgba($body-color, 0.65);
+		}
+	}
+
+	// --- HUD utility shims -------------------------------------------------
+
+	// Bootstrap already emits `.text-opacity-*` / `.bg-opacity-*`, which only set the
+	// `--bs-*-opacity` custom properties. These consume them the way HUD's do.
+	.text-inverse {
+		color: rgba(var(--#{$prefix}inverse-rgb), var(--#{$prefix}text-opacity, 1)) !important;
+	}
+	.bg-inverse {
+		background-color: rgba(var(--#{$prefix}inverse-rgb), var(--#{$prefix}bg-opacity, 1)) !important;
+	}
+
+	.btn-outline-theme {
+		--#{$prefix}btn-color: #{$primary};
+		--#{$prefix}btn-border-color: #{$primary};
+		--#{$prefix}btn-hover-color: #{color-contrast($primary)};
+		--#{$prefix}btn-hover-bg: #{$primary};
+		--#{$prefix}btn-hover-border-color: #{$primary};
+		--#{$prefix}btn-focus-shadow-rgb: #{to-rgb($primary)};
+		--#{$prefix}btn-active-color: #{color-contrast($primary)};
+		--#{$prefix}btn-active-bg: #{$primary};
+		--#{$prefix}btn-active-border-color: #{$primary};
+		--#{$prefix}btn-disabled-color: #{$primary};
+		--#{$prefix}btn-disabled-border-color: #{$primary};
+		--#{$prefix}gradient: none;
+
+		color: var(--#{$prefix}btn-color);
+		border: 1px solid var(--#{$prefix}btn-border-color);
+		background-color: transparent;
+	}
+
+	.fs-11px { font-size: 0.6875rem !important; }
+	.fs-12px { font-size: 0.75rem !important; }
+	.fs-13px { font-size: 0.8125rem !important; }
+	.fs-16px { font-size: 1rem !important; }
+	.w-100px { width: 6.25rem !important; }
+	.h-40px  { height: 2.5rem !important; }
+	.rounded-sm { border-radius: $border-radius-sm !important; }
+
+	// HUD pins this below its fixed app header; the Directory layout reserves 100px.
+	.desktop-sticky-top {
+		@include media-breakpoint-up(xl) {
+			position: sticky;
+			top: 7.5rem;
+		}
+	}
+
+	// --- ui/_nav-tabs.scss -------------------------------------------------
+
+	.nav.nav-tabs.nav-tabs-v2 {
+		border-bottom: 0;
+
+		& > .nav-item > .nav-link {
+			border: none;
+			border-bottom: 3px solid transparent;
+			padding: $nav-link-padding-y 0;
+			color: rgba(var(--#{$prefix}inverse-rgb), 0.5);
+			background: none;
+
+			&:hover,
+			&.active {
+				color: rgba(var(--#{$prefix}inverse-rgb), 1);
+				border-bottom-color: $primary;
+			}
+		}
+		& > .nav-item.show > .nav-link {
+			color: rgba(var(--#{$prefix}inverse-rgb), 1);
+			border-bottom-color: $primary;
+		}
+	}
+
+	// --- widget/_widget-img-list.scss --------------------------------------
+
+	.widget-img-list {
+		margin: -1px;
+		padding: 0;
+		display: flex;
+		flex-wrap: wrap;
+
+		& .widget-img-list-item {
+			padding: 1px;
+			width: 20%;
+
+			& a {
+				display: block;
+				text-decoration: none;
+				padding-top: 100%;
+				position: relative;
+				overflow: hidden;
+
+				& img,
+				& .img {
+					position: absolute;
+					top: 0;
+					inset-inline-start: 0;
+					inset-inline-end: 0;
+					bottom: 0;
+					max-width: 100%;
+				}
+				& .img {
+					background-size: cover;
+					background-position: center;
+					background-repeat: no-repeat;
+				}
+			}
+		}
+	}
+
+	// --- Side nav ----------------------------------------------------------
+
+	.profile-nav {
+		& .nav-link {
+			display: flex;
+			align-items: center;
+			gap: $spacer * 0.65;
+			padding: $spacer * 0.5 $spacer * 0.65;
+			border-radius: $border-radius;
+			color: rgba(var(--#{$prefix}inverse-rgb), 0.7);
+			font-size: $font-size-base * 0.9;
+			font-weight: $font-weight-normal;
+			line-height: 1.3;
+
+			& .profile-nav-icon {
+				flex: 0 0 auto;
+				width: 1rem;
+				color: rgba(var(--#{$prefix}inverse-rgb), 0.4);
+			}
+			& .profile-nav-label {
+				min-width: 0;
+			}
+
+			&:hover,
+			&:focus-visible {
+				color: rgba(var(--#{$prefix}inverse-rgb), 1);
+				background-color: rgba(var(--#{$prefix}inverse-rgb), 0.06);
+
+				& .profile-nav-icon {
+					color: $primary;
+				}
+			}
+
+			&.active {
+				color: $primary;
+				background-color: rgba($primary, 0.1);
+				font-weight: $font-weight-bold;
+
+				& .profile-nav-icon {
+					color: $primary;
+				}
+			}
+		}
+	}
+
+	// --- Not-yet-built page template ---------------------------------------
+
+	.profile-coming-soon {
+		max-width: 34rem;
+		margin: 0 auto;
+		padding: $spacer * 2 0;
+		text-align: center;
+
+		& .profile-coming-soon-icon {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			width: 4rem;
+			height: 4rem;
+			margin-bottom: $spacer;
+			border-radius: 50%;
+			background-color: rgba($primary, 0.1);
+			color: $primary;
+			font-size: $font-size-base * 1.5;
+		}
+		& .profile-coming-soon-card {
+			text-align: start;
+		}
+	}
+
+	// --- pages/_profile.scss -----------------------------------------------
+
+	.profile {
+		& .profile-img {
+			height: 12.5rem;
+			overflow: hidden;
+			margin-bottom: $spacer;
+			z-index: 10;
+
+			& img {
+				max-width: 100%;
+				width: 100%;
+				object-fit: cover;
+			}
+		}
+		& .profile-tab {
+			position: relative;
+			padding: 0 $spacer * 1.5;
+			flex: 1;
+
+			@include media-breakpoint-down(lg) {
+				overflow: scroll;
+				padding: 0 $spacer;
+				display: flex;
+				flex-wrap: nowrap;
+			}
+
+			& .nav-item {
+				& .nav-link {
+					text-align: center;
+
+					& .nav-value {
+						font-size: $font-size-base * 1.5;
+						font-weight: $font-weight-bold;
+						margin-bottom: $spacer * -0.35;
+
+						@include media-breakpoint-down(md) {
+							font-size: $font-size-base * 1.15;
+						}
+					}
+				}
+				& + .nav-item {
+					margin-inline-start: $spacer * 1.5;
+				}
+			}
+		}
+		& .profile-container {
+			display: flex;
+
+			@include media-breakpoint-down(lg) {
+				display: block;
+			}
+
+			& .profile-sidebar {
+				width: 15.625rem;
+				flex: 0 0 15.625rem;
+				padding: $spacer * 1.5;
+				border-inline-end: 1px solid var(--#{$prefix}border-color);
+
+				@include media-breakpoint-down(lg) {
+					display: none;
+				}
+			}
+			& .profile-content {
+				flex: 1;
+				min-width: 0;
+
+				& .profile-content-container {
+					padding: $spacer * 1.5;
+
+					@include media-breakpoint-down(lg) {
+						padding: $spacer;
+					}
+				}
+			}
+		}
+		& .profile-img-list {
+			list-style-type: none;
+			margin: $spacer * -0.25;
+			padding: 0;
+
+			@include clearfix();
+
+			& .profile-img-list-item {
+				width: 25%;
+				padding: $spacer * 0.25;
+				float: left;
+
+				:dir(rtl) & {
+					float: right;
+				}
+
+				&.main {
+					width: 50%;
+				}
+				& .profile-img-list-link {
+					display: block;
+					padding-top: 75%;
+					overflow: hidden;
+					position: relative;
+
+					& img,
+					& .profile-img-content {
+						position: absolute;
+						top: 0;
+						inset-inline-start: 0;
+						inset-inline-end: 0;
+						bottom: 0;
+						max-width: 100%;
+						background-size: cover;
+						background-position: center;
+						background-repeat: no-repeat;
+
+						&:before {
+							content: '';
+							position: absolute;
+							top: 0;
+							inset-inline-start: 0;
+							inset-inline-end: 0;
+							bottom: 0;
+							border: 1px solid rgba(var(--#{$prefix}inverse-rgb), 0.15);
+						}
+					}
+				}
+				&.with-number {
+					& .profile-img-number {
+						position: absolute;
+						top: 50%;
+						inset-inline-start: 0;
+						inset-inline-end: 0;
+						color: $white;
+						font-size: $font-size-base * 1.75;
+						font-weight: $font-weight-bold;
+						line-height: 1.625rem;
+						margin-top: $font-size-base * -1.75 * 0.5;
+						text-align: center;
+					}
+				}
+			}
+		}
+	}
+}
+
+// --- Avatar picker modal ---------------------------------------------------
+// Deliberately outside the `.profile-page` block: react-bootstrap renders the
+// modal through a portal on document.body, so a scoped rule would never reach
+// it. The modal keeps the default light chrome rather than the page's dark
+// glass, which is what the rest of the app's modals do.
+
+.avatar-picker-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(5rem, 1fr));
+	gap: $spacer * 0.5;
+}
+
+.avatar-picker-option {
+	position: relative;
+	padding: 0;
+	border: 2px solid transparent;
+	border-radius: $border-radius;
+	background: none;
+	overflow: hidden;
+	line-height: 0;
+	cursor: pointer;
+	transition: border-color 0.15s ease-in-out, transform 0.15s ease-in-out;
+
+	& img {
+		width: 100%;
+		height: auto;
+		display: block;
+	}
+
+	&:hover:not(:disabled),
+	&:focus-visible {
+		border-color: $primary;
+		transform: scale(1.04);
+	}
+	&:focus-visible {
+		outline: 2px solid $primary;
+		outline-offset: 2px;
+	}
+
+	// The avatar in use. A ring alone would be ambiguous next to the hover
+	// state, so it also carries a checkmark.
+	&.is-current {
+		border-color: $primary;
+
+		&::after {
+			content: "✓";
+			position: absolute;
+			top: 0.15rem;
+			inset-inline-end: 0.25rem;
+			color: $white;
+			font-size: 0.9rem;
+			font-weight: $font-weight-bold;
+			line-height: 1;
+			text-shadow: 0 1px 2px rgba($black, 0.8);
+		}
+	}
+
+	// One save at a time: the others grey out rather than queueing writes.
+	&:disabled {
+		opacity: 0.5;
+		cursor: default;
+	}
+
+	& .avatar-picker-saving {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background-color: rgba($black, 0.45);
+		color: $white;
+	}
+}

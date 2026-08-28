@@ -154,6 +154,38 @@ def delete_from_watchlist(request, ticker):
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
+def list_watchlist(request):
+    """The requesting user's watchlist, most recently added first.
+
+    `date_added` is carried through because the profile performance panel reports
+    each holding's return since it was added; it has been recorded on
+    ProfileStock all along.
+
+    Rows whose Stock was deleted are skipped -- the FK is SET_NULL, so a removed
+    symbol leaves a ProfileStock pointing at nothing rather than disappearing.
+    """
+    entries = (
+        ProfileStock.objects
+        .filter(user=request.user, stock__isnull=False)
+        .select_related('stock')
+        .order_by('-date_added')
+    )
+
+    return Response(
+        [
+            {
+                "symbol": entry.stock.symbol,
+                "name": entry.stock.name,
+                "date_added": entry.date_added,
+            }
+            for entry in entries
+        ],
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def stock_on_watchlist(request, ticker):
     stock = _watchlist_stock_or_404(ticker)
     if stock is None:

@@ -1,0 +1,24 @@
+{
+    "marketImages": [
+        {
+            "link": "#",
+            "img": "materials/mat1.jpg"
+        },
+        {
+            "link": "#",
+            "img": "materials/mat2.jpg"
+        },
+        {
+            "link": "#",
+            "img": "materials/mat3.jpg"
+        },
+        {
+            "link": "#",
+            "img": "materials/mat4.jpg"
+        },
+        {
+            "link": "#",
+            "img": "materials/mat5.jpg"
+        }
+    ]
+}

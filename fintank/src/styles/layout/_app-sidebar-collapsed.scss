@@ -1,0 +1,34 @@
+@keyframes appSidebarCollapse {
+	from { margin-inline-start: 0; opacity: 1; }
+	to { margin-inline-start: -$app-sidebar-width; opacity: 0 }
+}
+@keyframes appContentCollapse {
+	from { margin-inline-start: $app-sidebar-width; }
+	to { margin-inline-start: 0; }
+}
+@keyframes appFooterCollapse {
+	from { margin-inline-start: $app-sidebar-width; }
+	to { margin-inline-start: $app-content-padding-x; }
+}
+
+
+.app-sidebar-collapsed {
+	@include media-breakpoint-up(md) {
+		& .app-sidebar {
+			opacity: 0;
+			margin-inline-start: -$app-sidebar-width;
+			
+			.app-init & {
+				animation: appSidebarCollapse 0.15s both cubic-bezier(0.7, 0, 0.3, 1);
+			}
+		}
+		& .app-content {
+			animation: appContentCollapse 0.15s both cubic-bezier(0.7, 0, 0.3, 1);
+			margin-inline-start: 0;
+		}
+		& .app-footer {
+			animation: appFooterCollapse 0.15s both cubic-bezier(0.7, 0, 0.3, 1);
+			margin-inline-start: $app-content-padding-x;
+		}
+	}
+}

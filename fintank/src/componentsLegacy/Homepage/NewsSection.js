@@ -1,11 +1,14 @@
-import React from "react"
+import React, { useState } from "react"
 import Link from "next/link"
 import { Container, Row, Col } from "react-bootstrap"
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome"
 import { faAngleDoubleRight } from "@fortawesome/free-solid-svg-icons"
 import NewsPost from "../NewsPost"
+import ArticleModal from "../ArticleModal"
 
 const NewsSection = ({ articles, data }) => {
+  const [activePost, setActivePost] = useState(null)
+
   if (!articles?.length) return null
 
   return (
@@ -26,11 +29,13 @@ const NewsSection = ({ articles, data }) => {
         <Row>
           {articles.slice(0, 64).map((post) => (
             <Col key={post.link} lg="3" sm="6" className="mb-4 hover-animate">
-              <NewsPost data={post} />
+              <NewsPost data={post} onOpen={setActivePost} />
             </Col>
           ))}
         </Row>
       </Container>
+
+      <ArticleModal post={activePost} onHide={() => setActivePost(null)} />
     </section>
   )
 }

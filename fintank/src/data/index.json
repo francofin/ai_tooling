@@ -1,0 +1,154 @@
+{
+    "swiper": [
+        {
+            "img": "/images/homeImages/toronto3.jpg",
+            "title": "Markets at a Glance",
+            "subTitle": "Live Market Data",
+            "content": "Real-time quotes, index performance, and sector trends across global exchanges.",
+            "parallax": -300,
+            "button": "Explore Markets",
+            "buttonLink": "/markets"
+        },
+        {
+            "img": "/images/homeImages/brooklyn.jpg",
+            "title": "Top Gainers & Losers",
+            "subTitle": "Today's Movers",
+            "content": "Track the biggest movers across US, Canadian, and global equity markets.",
+            "parallax": -300,
+            "button": "View Screener",
+            "buttonLink": "/stock-screener"
+        },
+        {
+            "img": "/images/homeImages/london.jpg",
+            "title": "News & Research",
+            "subTitle": "Global Financial News",
+            "content": "Curated articles across equities, crypto, macro, and sector-specific news.",
+            "parallax": -300,
+            "button": "Read News",
+            "buttonLink": "/news/markets"
+        }
+    ],
+    "hero": {
+        "title": "FinTank Labs",
+        "subTitle": "Your Portfolio has Never Been Easier To Manage.",
+        "subtitle2":"Research Ideas | Market Data | News Aggregator"
+    },
+    "swiperPoster": "photo-1501621965065-c6e1cf6b53e2-lowres.jpg",
+    "swiperImages": [
+        "toronto3.jpg",
+        "brooklyn.jpg",
+        "sky2.jpg",
+        "sky3.jpg",
+        "sky4.jpg",
+        "sky5.jpg",
+        "london.jpg",
+        "hong_kong.jpg",
+        "skyline.jpg",
+        "trinidad.jpg",
+        "toronto2.jpg"
+    ],
+    "searchOptions": [
+        {
+            "value": "US",
+            "label": "US Equities"
+        },
+        {
+            "value": "CAD",
+            "label": "Canadian Equities"
+        },
+        {
+            "value": "etfs",
+            "label": "ETFS"
+        },
+        {
+            "value": "Commodities",
+            "label": "Commodities"
+        },
+        {
+            "value": "all",
+            "label": "All Equities"
+        }
+    ],
+    "topBlocks": {
+        "title": "Live Market Summary",
+        "subTitle": "Quotes updated every 15 minutes",
+        "blocks": [
+            {
+                "title": "Find the perfect rental",
+                "content": "One morning, when Gregor Samsa woke from troubled dreams, he found himself transformed in his bed in",
+                "icon": "destination-map-1"
+            },
+            {
+                "title": "Book with confidence",
+                "content": "The bedding was hardly able to cover it and seemed ready to slide off any moment. His many legs, pit",
+                "icon": "pay-by-card-1"
+            },
+            {
+                "title": "Enjoy your vacation",
+                "content": "His room, a proper human room although a little too small, lay peacefully between its four familiar",
+                "icon": "heart-1"
+            }
+        ]
+    },
+    "movers": {
+        "subTitle":"Days Top Movers and Losers",
+        "gainers": "Top Gainers in Markets",
+        "losers": "Biggest Losers today",
+        "active":"Most Active Stocks",
+        "sentiment":"Stock Upgrades and Downgrades"
+    },
+    "jumbotron": {
+        "title": "Fintank a Modern Finance Research Platform And Data Aggregator",
+        "button": "Fintank Research",
+        "link": "/category-rooms",
+        "img": "homepageImages/explore.jpg"
+    },
+    "testimonials": {
+        "title": "Our dear customers said about us",
+        "subTitle": "Testimonials",
+        "swiperItems": [
+            {
+                "title": "Jessica Watson",
+                "content": "Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever",
+                "avatar": "img/avatar/avatar-3.jpg"
+            },
+            {
+                "title": "Jessica Watson",
+                "content": "Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever",
+                "avatar": "img/avatar/avatar-3.jpg"
+            },
+            {
+                "title": "Jessica Watson",
+                "content": "Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever",
+                "avatar": "img/avatar/avatar-3.jpg"
+            },
+            {
+                "title": "Jessica Watson",
+                "content": "Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever",
+                "avatar": "img/avatar/avatar-3.jpg"
+            },
+            {
+                "title": "Jessica Watson",
+                "content": "Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever",
+                "avatar": "img/avatar/avatar-3.jpg"
+            },
+            {
+                "title": "Jessica Watson",
+                "content": "Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever",
+                "avatar": "img/avatar/avatar-3.jpg"
+            }
+        ]
+    },
+    "blogPosts": {
+        "title": "Breaking News Articles",
+        "subTitle": "Stories from around the globe",
+        "button": "See more stories",
+        "buttonLink": "/news/markets"
+    },
+    "stockArticlePosts": {
+        "title": "Breaking News Articles",
+        "subTitle": "Stories About",
+        "button": "See more stories",
+        "buttonLink": "/news/markets"
+    }
+}

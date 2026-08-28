@@ -1,0 +1,10 @@
+.pagination {
+	& .page-item {
+		& .page-link {
+			border-radius: rem($border-radius);
+		}
+		& + .page-item {
+			margin-inline-start: rem(5px);
+		}
+	}
+}

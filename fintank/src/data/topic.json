@@ -1,0 +1,101 @@
+{
+    "posts": [
+      {
+        "id": "1",
+        "slug": "markets"
+      },
+      {
+        "id": "2",
+        "slug": "economy"
+      },
+      {
+        "id": "3",
+        "slug": "politics"
+      },
+      {
+        "id": "4",
+        "slug": "inflation"
+      },
+      {
+        "id": "5",
+        "slug": "war"
+      },
+      {
+        "id": "6",
+        "slug": "etaunido"
+      },
+      {
+        "id": "7",
+        "slug": "china"
+      },
+      {
+        "id": "8",
+        "slug": "mediooeste"
+      },
+      {
+        "id": "9",
+        "slug": "aleman"
+      },
+      {
+        "id": "10",
+        "slug": "japon"
+      },
+      {
+        "id": "11",
+        "slug": "africa"
+      },
+      {
+        "id": "12",
+        "slug": "suram"
+      },
+      {
+        "id": "13",
+        "slug": "tech"
+      },
+      {
+        "id": "14",
+        "slug": "energy"
+      },
+      {
+        "id": "15",
+        "slug": "oil"
+      },
+      {
+        "id": "16",
+        "slug": "realestate"
+      },
+      {
+        "id": "17",
+        "slug": "finance"
+      },
+      {
+        "id": "18",
+        "slug": "health"
+      },
+      {
+        "id": "19",
+        "slug": "cons"
+      },
+      {
+        "id": "20",
+        "slug": "materials"
+      },
+      {
+        "id": "21",
+        "slug": "comm"
+      },
+      {
+        "id": "22",
+        "slug": "util"
+      },
+      {
+        "id": "23",
+        "slug": "indus"
+      },
+      {
+        "id": "24",
+        "slug": "crypto"
+      }
+    ]
+  }
+  

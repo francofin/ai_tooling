@@ -23,6 +23,11 @@ const ROUTES = [
   { method: 'POST', pattern: /^addtowatchlist\/[^/]+$/ },
   { method: 'POST', pattern: /^deletefromwatchlist\/[^/]+$/ },
   { method: 'GET', pattern: /^stockonwatchlist\/[^/]+\/verify$/ },
+  // Both are scoped to the caller on the Django side: the list reads
+  // request.user, and the performance route 404s for a symbol the user has not
+  // added, so neither exposes anything the caller could not already see.
+  { method: 'GET', pattern: /^mywatchlist$/ },
+  { method: 'GET', pattern: /^watchlistperformance\/[^/]+$/ },
 ]
 
 export default async function handler(req, res) {

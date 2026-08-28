@@ -1,0 +1,20 @@
+{
+    "industrialsImages": [
+        {
+            "link": "#",
+            "img": "industrials/ind1.jpg"
+        },
+        {
+            "link": "#",
+            "img": "industrials/ind2.jpg"
+        },
+        {
+            "link": "#",
+            "img":  "industrials/ind3.jpg"
+        },
+        {
+            "link": "#",
+            "img":  "industrials/ind4.jpg"
+        }
+    ]
+}

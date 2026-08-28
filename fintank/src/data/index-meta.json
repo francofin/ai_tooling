@@ -1,0 +1,30 @@
+{
+  "sp500": {
+    "title": "S&P 500 Index",
+    "indexHistory": "Per the spglobal website, The S&P 500® is widely regarded as the best single gauge of large-cap U.S. equities. According to our Annual Survey of Assets, an estimated USD 15.6 trillion is indexed or benchmarked to the index, with indexed assets comprising approximately USD 7.1 trillion of this total (as of Dec. 31, 2021). The index includes 500 leading companies and covers approximately 80% of available market capitalization."
+  },
+  "nasdaq": {
+    "title": "NASDAQ Composite Index",
+    "indexHistory": "The Nasdaq Composite is a stock market index that includes almost all stocks listed on the Nasdaq stock exchange. Along with the Dow Jones Industrial Average and S&P 500, it is one of the three most-followed stock market indices in the United States. The composition of the NASDAQ Composite is heavily weighted towards companies in the information technology sector. The Nasdaq-100, which includes 100 of the largest non-financial companies in the Nasdaq Composite, accounts for over 90% of the movement of the Nasdaq Composite."
+  },
+  "r2000": {
+    "title": "Russell 2000 Index",
+    "indexHistory": "Per FTSE Russell, The Russell 2000® Index measures the performance of the small-cap segment of the US equity universe. It includes approximately 2,000 of the smallest securities based on a combination of their market cap and current index membership."
+  },
+  "tsx": {
+    "title": "S&P/TSX Composite Index",
+    "indexHistory": "Per the TMX Money website, The S&P/TSX Composite Index has provided investors with a premier indicator of market activity for Canadian equity markets since its launch in 1977. With approximately 95% coverage of the Canadian equities market, it is the primary gauge for Canadian-based, Toronto Stock Exchange listed companies. The S&P/TSX Composite Index serves the dual purpose of a benchmark and an investable index. The index is designed to offer the representation of a broad benchmark index while maintaining the liquidity characteristics of narrower indices. This unique combination makes the S&P/TSX Composite Index ideal for portfolio management and index replication."
+  },
+  "rmicro": {
+    "title": "Russell Microcap Index",
+    "indexHistory": "Per FTSE Russell, the Russell Microcap® Index measures the performance of the microcap segment of the US equity market. It comprises the smallest 1,000 securities in the Russell 2000 Index plus the next 1,000 smallest eligible securities by market capitalisation, making it the narrowest slice of the investable US market that is still broadly tracked. Microcap names trade far less liquidly than their large-cap counterparts, so the index tends to show wider swings and a higher sensitivity to domestic economic conditions than the broader market. The index level shown here is tracked through the constituent ETF that holds the index."
+  },
+  "tsx_small_cap": {
+    "title": "S&P/TSX SmallCap Index",
+    "indexHistory": "Per S&P Dow Jones Indices, the S&P/TSX SmallCap Index provides an investable measure of the Canadian small-cap market. Drawn from the S&P/TSX Composite, it captures the companies below the large- and mid-cap tiers and carries a heavier weighting toward materials and energy names than the broader Canadian market. Small-cap Canadian equities are more exposed to commodity cycles and to domestic economic conditions than the Composite as a whole. The index level shown here is tracked through the constituent ETF that holds the index."
+  },
+  "msci_eafe": {
+    "title": "MSCI EAFE Index",
+    "indexHistory": "Per MSCI, the MSCI EAFE Index represents the performance of large- and mid-cap securities across 21 developed markets in Europe, Australasia and the Far East, excluding the US and Canada. It covers roughly 85% of the free float-adjusted market capitalisation in each country and is the most widely used benchmark for developed international equity exposure. Because its returns are earned in local currencies, movements reflect both underlying equity performance and shifts in exchange rates against the US dollar. The index level shown here is tracked through the constituent ETF that holds the index."
+  }
+}

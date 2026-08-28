@@ -1,0 +1,36 @@
+{
+    "polImages": [
+        {
+            "link": "#",
+            "img": "politics/pol1.jpg"
+        },
+        {
+            "link": "#",
+            "img":"politics/pol2.jpg"
+        },
+        {
+            "link": "#",
+            "img": "politics/pol3.jpg"
+        },
+        {
+            "link": "#",
+            "img": "politics/pol4.jpg"
+        },
+        {
+            "link": "#",
+            "img":"politics/pol5.jpg"
+        },
+        {
+            "link": "#",
+            "img": "politics/pol6.jpg"
+        },
+        {
+            "link": "#",
+            "img": "politics/pol7.jpg"
+        },
+        {
+            "link": "#",
+            "img": "politics/pol8.jpg"
+        }
+    ]
+}

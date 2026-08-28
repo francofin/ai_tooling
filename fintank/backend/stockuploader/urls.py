@@ -1,6 +1,6 @@
 from django.urls import path
 from .views import (upload_file_for_model, add_to_watchlist, delete_from_watchlist,
-                    stock_on_watchlist)
+                    stock_on_watchlist, list_watchlist)
 
 app_name = "stockuploader"
 
@@ -13,4 +13,5 @@ urlpatterns = [
          name='delete_from_watchlist'),
     path('stockonwatchlist/<str:ticker>/verify/', stock_on_watchlist,
          name='stock_on_watchlist'),
+    path('mywatchlist/', list_watchlist, name='list_watchlist'),
 ]

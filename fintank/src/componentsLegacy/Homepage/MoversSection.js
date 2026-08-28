@@ -1,5 +1,5 @@
 import React, { useState } from "react"
-import { Container, Row } from "react-bootstrap"
+import { Container, Row, Spinner } from "react-bootstrap"
 import Select from "react-select"
 import dynamic from "next/dynamic"
 import Swiper from "../Swiper"
@@ -11,7 +11,7 @@ const ReactApexChart = dynamic(() => import("react-apexcharts"), { ssr: false })
 const MoversSection = ({ moverData, data }) => {
   const [indexHeatMapValue, setIndexHeatMapValue] = useState(constituentIndexMaps[0].value)
   const [indexHeatMapLabel, setIndexHeatMapLabel] = useState(constituentIndexMaps[0].label)
-  const { options: heatMapOptions, series: heatMapSeries } = useIndexHeatMaps(
+  const { options: heatMapOptions, series: heatMapSeries, loading: heatMapLoading } = useIndexHeatMaps(
     indexHeatMapValue,
     indexHeatMapLabel
   )
@@ -78,7 +78,22 @@ const MoversSection = ({ moverData, data }) => {
         </div>
         <Row>
           {typeof window !== "undefined" && (
-            heatMapOptions ? (
+            heatMapLoading ? (
+              <div
+                style={{
+                  height: 750,
+                  background: '#0d1117',
+                  borderRadius: 6,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Spinner animation="border" variant="light" role="status">
+                  <span className="visually-hidden">Loading...</span>
+                </Spinner>
+              </div>
+            ) : heatMapOptions ? (
               <ReactApexChart
                 options={heatMapOptions}
                 series={heatMapSeries}

@@ -1,0 +1,81 @@
+// Research article body — the markdown rendered by the journal app and dropped
+// into `.text-content` on /research-posts/<slug>.
+//
+// The theme's own `.text-content` rules (custom/_type.scss) style headings and
+// paragraphs but say nothing about media, and the report exhibits are 1800px
+// wide against a ~700px column, so without this the page scrolls sideways.
+
+.research-article {
+	// A designed banner is shown whole rather than cropped into a hero band, so
+	// the artwork's own headline and margins survive.
+	& .research-article-banner {
+		& img {
+			width: 100%;
+			height: auto;
+			display: block;
+		}
+	}
+
+	& .text-content {
+		// Charts are exported at full resolution so they stay sharp on retina and
+		// in print. They must scale down to the column, never widen it.
+		& img {
+			max-width: 100%;
+			height: auto;
+			display: block;
+			margin: $spacer * 1.5 auto;
+			border-radius: $border-radius;
+		}
+
+		// A markdown table has no width limit of its own, and a wide one would
+		// push the layout out exactly as the images did. It scrolls inside its own
+		// box instead.
+		& .table-responsive {
+			margin: $spacer * 1.5 0;
+		}
+		& table {
+			width: 100%;
+			margin-bottom: 0;
+			font-size: $font-size-base * 0.85;
+
+			& th,
+			& td {
+				padding: $spacer * 0.5 $spacer * 0.65;
+				border-bottom: 1px solid var(--#{$prefix}border-color);
+				vertical-align: top;
+			}
+			& th {
+				font-weight: $font-weight-bold;
+				text-align: start;
+				background-color: rgba($black, 0.02);
+			}
+		}
+
+		// Markdown emits `---` as a horizontal rule between sections; the report
+		// uses them heavily as section breaks.
+		& hr {
+			margin: $spacer * 2.5 0;
+			opacity: 0.15;
+		}
+
+		& blockquote {
+			margin: $spacer * 1.5 0;
+			padding-inline-start: $spacer;
+			border-inline-start: 3px solid $primary;
+			color: rgba($black, 0.7);
+			font-style: italic;
+		}
+
+		// A long URL in a citation would otherwise widen the column on mobile.
+		& a {
+			overflow-wrap: break-word;
+		}
+
+		& pre {
+			overflow-x: auto;
+			padding: $spacer;
+			border-radius: $border-radius;
+			background-color: rgba($black, 0.04);
+		}
+	}
+}

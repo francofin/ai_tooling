@@ -29,7 +29,14 @@ class AvatarPreset(models.Model):
     """Pre-generated avatars the product team can manage."""
     name = models.CharField(max_length=80, unique=True)
     slug = models.SlugField(max_length=100, unique=True, blank=True)
-    image = models.ImageField(upload_to="avatars/presets/")
+    # Optional: a preset can be backed either by a file in Django's media
+    # storage (`image`) or by an asset the frontend already ships (`static_path`).
+    image = models.ImageField(upload_to="avatars/presets/", blank=True, null=True)
+    # Root-relative URL of an asset served by the frontend, e.g.
+    # '/images/split_avatars/avatar_017.png'. The shipped avatar set lives in the
+    # Next public/ directory, so copying it into media storage would duplicate 48
+    # files and make the picker depend on S3 being configured in production.
+    static_path = models.CharField(max_length=300, blank=True, null=True)
     active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -41,6 +48,20 @@ class AvatarPreset(models.Model):
         if not self.slug:
             self.slug = slugify(self.name)[:100]
         return super().save(*args, **kwargs)
+
+    @property
+    def url(self) -> str | None:
+        """Where this preset's image can actually be fetched from.
+
+        Prefers an uploaded file so a preset overridden in the admin wins over
+        the shipped asset.
+        """
+        if self.image:
+            try:
+                return self.image.url
+            except Exception:
+                pass
+        return self.static_path or None
 
     def __str__(self) -> str:
         return self.name
@@ -76,17 +97,20 @@ class UserProfile(models.Model):
 
     @property
     def avatar_url(self) -> str | None:
-        """Preferred avatar URL for display: uploaded > preset."""
+        """Preferred avatar URL for display: uploaded > preset.
+
+        The preset arm defers to AvatarPreset.url, which resolves either an
+        uploaded file or a frontend-served static asset. Previously this read
+        `preset_avatar.image.url` directly, so a preset backed by a static asset
+        would have returned None.
+        """
         if self.avatar_upload:
             try:
                 return self.avatar_upload.url
             except Exception:
                 return None
-        if self.preset_avatar and self.preset_avatar.image:
-            try:
-                return self.preset_avatar.image.url
-            except Exception:
-                return None
+        if self.preset_avatar:
+            return self.preset_avatar.url
         return None
     
 

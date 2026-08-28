@@ -1,0 +1,34 @@
+.table {
+	&.table-card {
+		& thead,
+		& tbody {
+			& > tr {
+				& td,
+				& th {
+					&:first-child {
+						padding-inline-start: $card-spacer-x;
+					}
+					&:last-child {
+						padding-inline-end: $card-spacer-x;
+					}
+				}
+			}
+		}
+	}
+	&.table-xs {
+		font-size: rem(12px);
+		
+		& thead,
+		& tbody,
+		& tfoot {
+			& th {
+				padding-top: rem(4px);
+				padding-bottom: rem(4px);
+				padding-inline-start: rem(8px);
+			}
+			& td {
+				padding: rem(5px) rem(8px);
+			}
+		}
+	}
+}

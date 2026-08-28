@@ -1,0 +1,32 @@
+{
+    "extraImages": [
+        {
+            "link": "#",
+            "img": "homeImages/london.jpg"
+        },
+        {
+            "link": "#",
+            "img": "homeImages/sky3.jpg"
+        },
+        {
+            "link": "#",
+            "img": "homeImages/skyline.jpg"
+        },
+        {
+            "link": "#",
+            "img": "homeImages/world.jpg"
+        },
+        {
+            "link": "#",
+            "img": "homeImages/chess.jpg"
+        },
+        {
+            "link": "#",
+            "img": "homepageImages/explore3.jpg"
+        },
+        {
+            "link": "#",
+            "img": "stockPerformance/stock-down.jpg"
+        }
+    ]
+}

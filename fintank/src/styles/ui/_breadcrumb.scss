@@ -1,0 +1,26 @@
+.breadcrumb {
+	font-weight: bold;
+	
+	& .breadcrumb-item {
+		& a {
+			text-decoration: none;
+			
+			&:hover {
+				text-decoration: underline;
+			}
+		}
+		& + .breadcrumb-item {
+			:dir(rtl) & {
+				padding-inline-end: 0;
+				padding-inline-start: .5rem;
+			}
+			&:before {
+				:dir(rtl) & {
+					float: right;
+					padding-inline-start: 0;
+					padding-inline-end: .5rem;
+				}
+			}
+		}
+	}
+}

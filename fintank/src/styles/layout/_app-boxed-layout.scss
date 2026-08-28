@@ -1,0 +1,28 @@
+.app-boxed-layout {
+	@include media-breakpoint-up(lg) {
+		min-height: 100vh;
+	
+		&,
+		& .app-header {
+			max-width: rem(1280px);
+			margin-inline-start: auto;
+			margin-inline-end: auto;
+		}
+		& .app-top-nav {
+			max-width: rem(1280px);
+			margin-inline-start: auto;
+			margin-inline-end: auto;
+			overflow: hidden;
+			
+			& .menu .menu-item .menu-submenu {
+				position: fixed;
+				inset-inline-start: auto;
+				inset-inline-end: auto;
+				top: auto;
+			}
+		}
+		& .app-sidebar {
+			inset-inline-start: auto;
+		}
+	}
+}

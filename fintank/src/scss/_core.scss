@@ -1,0 +1,40 @@
+/**
+ * Directory – Directory & Listing Bootstrap 4 Theme v. 1.4.2
+ * Homepage: https://themes.getbootstrap.com/product/directory-directory-listing-theme-react/
+ * Copyright 2020, Bootstrapious - https://bootstrapious.com
+ */
+
+
+
+ 
+// functions.scss - Bootstrap functions
+@import '../../node_modules/bootstrap/scss/functions';
+@import '../../node_modules/bootstrap/scss/mixins';
+
+
+
+
+// your variables + overrides of Bootstrap variables
+@import 'user/user-variables';
+
+// custom variables + overrides of Bootstrap variables for this theme
+@import 'custom/variables';
+
+@import 'custom/utilities';
+
+ // bootstrap main
+ @import '../../node_modules/bootstrap/scss/bootstrap';
+ 
+// 3rd party plugin variables
+@import 'custom/variables-3rd-party.scss';
+
+
+
+
+// theme components
+@import 'custom/theme';
+
+// your components
+@import 'user/user';
+
+

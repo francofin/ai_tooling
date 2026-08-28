@@ -1,0 +1,22 @@
+.toasts-container {
+	position: fixed;
+	top: $app-header-height;
+	padding-top: $app-content-padding-y * 0.5;
+	width: rem(350px);
+	inset-inline-end: 0;
+	padding-inline-end: $app-content-padding-y * 0.5;
+	
+	@include media-breakpoint-down(md) {
+		width: rem(300px);
+	}
+	
+	& .toast {
+		width: 100%;
+	}
+}
+.toast-header {
+	& .btn-close {
+		margin-inline-end: calc(-.5 * var(--#{$prefix}toast-padding-x));
+		margin-inline-start: var(--#{$prefix}toast-padding-x);
+	}
+}

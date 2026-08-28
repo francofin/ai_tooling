@@ -1,0 +1,195 @@
+@use 'sass:math';
+@keyframes topMenuControlSlideInStart {
+	from { inset-inline-start: rem(-50px); }
+	to { inset-inline-start: 0; }
+}
+@keyframes topMenuControlSlideInEnd {
+	from { inset-inline-end: rem(-50px); }
+	to { inset-inline-end: 0; }
+}
+.app-top-nav {
+	background: var(--#{$prefix}app-top-nav-bg);
+	inset-inline-start: 0;
+	inset-inline-end: 0;
+	z-index: $app-top-nav-zindex;
+	
+	@include media-breakpoint-up(md) {
+		top: $app-header-height;
+		position: fixed;
+		height: $app-top-nav-height;
+	}
+	@include media-breakpoint-down(md) {
+		display: none;
+	}
+	
+	& .menu {
+		@include media-breakpoint-up(md) {
+			display: flex;
+			flex-wrap: nowrap;
+			align-items: center;
+		}
+		@include media-breakpoint-down(md) {
+			display: block;
+			margin: 0 !important;
+		}
+		
+		& .menu-item {
+			position: relative;
+				
+			& .menu-link {
+				text-decoration: none;
+				position: relative;
+				padding: math.div($app-top-nav-height - ($font-size-base * $line-height-base) - rem(1px), 2) $spacer;
+				color: var(--#{$prefix}app-top-nav-menu-link-color);
+				display: flex;
+				align-items: center;
+				justify-content: flex-end;
+				transition: all .2s ease-in-out;
+				white-space: nowrap;
+				
+				@include media-breakpoint-down(md) {
+					padding-top: $spacer * .5;
+					padding-bottom: $spacer * .5;
+				}
+				
+				& .menu-icon {
+					width: rem(30px);
+					height: rem(30px);
+					font-size: $font-size-base * 1.2;
+					margin: rem(-4px) 0;
+					position: relative;
+					display: flex;
+					align-items: center;
+					justify-content: center;
+					margin-inline-end: $spacer * .75;
+				}
+				& .menu-caret {
+					margin: rem(-5px) 0;
+					margin-inline-start: $spacer * .75;
+				}
+				& .menu-text {
+					flex: 1;
+				}
+				&:hover,
+				&:focus {
+					color: var(--#{$prefix}app-top-nav-menu-link-hover-color);
+				}
+			}
+			& .menu-submenu {
+				background: var(--#{$prefix}app-top-nav-menu-submenu-bg);
+				display: none;
+				padding: $spacer * .5 0;
+				min-width: rem(200px);
+				
+				@include media-breakpoint-up(md) {
+					position: absolute;
+					max-height: calc(100vh - #{$app-top-nav-height + $app-header-height});
+					inset-inline-start: 0;
+				}
+				@include media-breakpoint-down(md) {
+					padding-top: 0;
+					padding-bottom: $spacer;
+					padding-inline-start: rem(42px);
+				}
+				
+				& .menu-item {
+					position: relative;
+					
+					& .menu-link {
+						padding: $spacer * .25 $spacer;
+					}
+				}
+			}
+			&.active {
+				& > .menu-link {
+					color: var(--#{$prefix}app-top-nav-menu-link-active-color);
+				}
+				& > .menu-link {
+					& .menu-icon {
+						color: $app-top-nav-menu-link-icon-active-color;
+					}
+				}
+			}
+			&.menu-control {
+				position: absolute;
+				top: 0;
+				margin: 0;
+				z-index: 10;
+				
+				@include media-breakpoint-down(md) {
+					display: none !important;
+				}
+				
+				& > .menu-link {
+					padding: 0;
+					text-align: center;
+					width: $app-top-nav-height;
+					height: $app-top-nav-height;
+					background: var(--#{$prefix}app-top-nav-bg);
+					display: flex;
+					justify-content: center;
+					align-items: center;
+					color: var(--#{$prefix}app-top-nav-menu-link-color);
+					
+					& i {
+						float: none;
+						margin: 0;
+						font-size: rem(18px);
+						display: block;
+						line-height: rem(40px);
+						width: auto;
+						
+						:dir(rtl) & {
+							transform: rotate(180deg);
+						}
+					}
+					&:hover,
+					&:focus {
+						color: var(--#{$prefix}app-top-nav-menu-link-hover-color);
+					}
+				}
+				&.menu-control-start {
+					inset-inline-start: -$app-header-height;
+				
+					& > .menu-link {
+						box-shadow: 12px 0 10px -10px rgba($black,.5);
+						
+						:dir(rtl) & {
+							box-shadow: -12px 0 10px -10px rgba($black,.5);
+						}
+					}
+					&.show {
+						inset-inline-start: 0;
+						animation: topMenuControlSlideInStart .2s;
+					}
+				}
+				&.menu-control-end {
+					inset-inline-end: -$app-header-height;
+				
+					& > .menu-link {
+						box-shadow: -12px 0 10px -10px rgba($black,.5);
+						
+						:dir(rtl) & {
+							box-shadow: 12px 0 10px -10px rgba($black,.5);
+						}
+					}
+					&.show {
+						inset-inline-end: 0;
+						animation: topMenuControlSlideInEnd .2s;
+					}
+				}
+			}
+		}
+		& > .menu-item {
+			&.has-sub {
+				&:hover {
+					& > .menu-submenu {
+						@include media-breakpoint-up(md) {
+							display: block;
+						}
+					}
+				}
+			}
+		}
+	}
+}

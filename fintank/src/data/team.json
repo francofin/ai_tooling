@@ -1,0 +1,99 @@
+{
+  "title": "Complex Made Simple - Fintank",
+  "subtitle": "Complex Made Simple - Fintank",
+  "content": "Bringing the tools of the professional Institutional Money Managers, simplified for the Retail Investor. We encourage better decision making.",
+  "founders": {
+    "title": "Fintank, We've Done Analysis So You Can Easily Make The Decision.",
+    "items": [
+      {
+        "title": "",
+        "content": "Humble Beginnings",
+        "img": "fintank7.jpg",
+        "link": "#"
+      },
+      {
+        "title": "Francois Jack",
+        "content": "Founder and CEO",
+        "img": "avatar.jpg",
+        "link": "#"
+      },
+      {
+        "title": "",
+        "content": "Possibilities Are Endless",
+        "img": "fintank7.jpg",
+        "link": "#"
+      }
+    ]
+  },
+  "quote": {
+    "title": "Fintank was developed with the investor in mind. Fintank's Philosophy is based on experience and more importantly data. Availability and the appropriate use of data is central to effective and accrurate decision-making. The growth in data availability, data resources, tools and methodologies to analyze this data has allowed humankind to effectively improve our decision-making abilities. It has been central to and continues to assist in improving the lives of many. The availability, use and benefits of data are equally as important to the investor community. With more data and less noise, wiser investment decisions can be made. Stronger economic policy can be developed that supports and enhances the life of developed, developing and emerging economies alike. As we continue to face the unknown on the path of progress, it may be impossible to eliminate all associated risks. Data however in my opinion, allows us to minimize these risks and confront the challenges, ensuring a smoother path and a chance of greater success in achieving our ultimate goals.",
+    "author": "Francois K. Jack, Founder",
+    "avatar": "fintank7.jpg"
+  },
+  "sales": {
+    "title": "Sales",
+    "items": [
+      {
+        "title": "Meredith Goodwin",
+        "content": "CEO & Founder",
+        "img": "agent-0.png",
+        "link": "#",
+        "color": "secondary-light"
+      },
+      {
+        "title": "Weeks Garrett",
+        "content": "Co-founder",
+        "img": "agent-1.png",
+        "link": "#",
+        "color": "secondary-light"
+      },
+      {
+        "title": "Fisher Bauer",
+        "content": "CTO",
+        "img": "agent-2.png",
+        "link": "#",
+        "color": "secondary-light"
+      },
+      {
+        "title": "Aguilar Webb",
+        "content": "Community",
+        "img": "agent-3.png",
+        "link": "#",
+        "color": "secondary-light"
+      }
+    ]
+  },
+  "marketing": {
+    "title": "Marketing",
+    "items": [
+      {
+        "title": "Meredith Goodwin",
+        "content": "CEO & Founder",
+        "img": "agent-0.png",
+        "link": "#",
+        "color": "info-light"
+      },
+      {
+        "title": "Weeks Garrett",
+        "content": "Co-founder",
+        "img": "agent-1.png",
+        "link": "#",
+        "color": "info-light"
+      },
+      {
+        "title": "Fisher Bauer",
+        "content": "CTO",
+        "img": "agent-2.png",
+        "link": "#",
+        "color": "info-light"
+      },
+      {
+        "title": "Aguilar Webb",
+        "content": "Community",
+        "img": "agent-3.png",
+        "link": "#",
+        "color": "info-light"
+      }
+    ]
+  }
+}

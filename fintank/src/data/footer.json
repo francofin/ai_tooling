@@ -1,0 +1,98 @@
+[
+    {
+        "title": "Fintank",
+        "lowerImage":"homepageImages/fintank7.jpg",
+        "content": "We Make Investing an even playing ground.",
+        "social": [
+            {
+                "title": "twitter",
+                "link": "#"
+            },
+            {
+                "title": "facebook",
+                "link": "#"
+            },
+            {
+                "title": "instagram",
+                "link": "#"
+            },
+            {
+                "title": "pinterest",
+                "link": "#"
+            },
+            {
+                "title": "vimeo",
+                "link": "#"
+            }
+        ],
+        "lg": "4"
+    },
+    {
+        "title": "Markets",
+        "links": [
+            {
+                "title": "US Equities",
+                "link": "/universe/sp500"
+            },
+            {
+                "title": "Canadian Equities",
+                "link": "/universe/tsx"
+            },
+            {
+                "title": "Global Equities",
+                "link": "/universe/eurostocks"
+            },
+            {
+                "title": "Commodities",
+                "link": "/universe/commodities"
+            },
+            {
+                "title": "ETF Performance",
+                "link": "/etf-performance"
+            },
+            {
+                "title": "Index Performance",
+                "link": "/markets"
+            }
+        ],
+        "lg": "2",
+        "md": "6"
+    },
+    {
+        "title": "News",
+        "links": [
+            {
+                "title": "Market news",
+                "link": "/newsarticles/markets"
+            },
+            {
+                "title": "US News",
+                "link": "/newsarticles/etaunido"
+            },
+            {
+                "title": "Technology",
+                "link": "/newsarticles/tech"
+            },
+            {
+              "title": "Economy",
+              "link": "/newsarticles/economy",
+              "parent": "Home"
+            },
+            {
+              "title": "China",
+              "link": "/newsarticles/china"
+            }
+        ],
+        "lg": "2",
+        "md": "6"
+    },
+    {
+        "title": "Join The Fintank Community",
+        "content": "Fintank is here to serve the investment community, constantly observing, testing, understanding and evolving with markets. Our goal is to eliminate noise, one reduction at a time.",
+        "contentBottomMargin": "3",
+        "form": {
+            "placeholder": "Your Email Address"
+        },
+        "lg": "4"
+    }
+]

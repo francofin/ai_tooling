@@ -1,0 +1,66 @@
+.btn-group > .btn {
+	border-radius: var(--#{$prefix}btn-border-radius) !important;
+}
+.btn-group > .btn-group:not(:first-child), 
+.btn-group>:not(.btn-check:first-child) + .btn {
+	margin-left: 0;
+	margin-inline-start: calc(-1 * 1px);
+}
+.btn-group>.btn-group:not(:last-child)>.btn, 
+.btn-group>.btn.dropdown-toggle-split:first-child, 
+.btn-group>.btn:not(:last-child):not(.dropdown-toggle) {
+	border-start-end-radius: 0 !important;
+	border-end-end-radius: 0 !important;
+}
+.btn-group>.btn-group:not(:first-child)>.btn, 
+.btn-group>.btn:nth-child(n+3), 
+.btn-group>:not(.btn-check)+.btn {
+	border-start-start-radius: 0 !important;
+	border-end-start-radius: 0 !important;
+}
+
+@each $color, $value in $theme-colors {
+  .btn-#{$color} {
+		$bg:                 $value;
+		$border:             $value;
+		$textColor:          $white;
+		$hoverBg:            shade-color($value, 25%);
+		$hoverBorder:        shade-color($value, 25%);
+		$hoverTextColor:     $white;
+		$activeBg:           shade-color($value, 25%);
+		$activeBorder:       shade-color($value, 25%);
+		$activeTextColor:    $white;
+		$disabledBg:         tint-color($value, 25%);
+		$disabledBorder:     tint-color($value, 25%);
+		$disabledTextColor:  $white;
+		
+		@if $color == 'yellow' or $color == 'default' or $color == 'white' {
+			$textColor: $gray-900;
+			$hoverTextColor: $gray-900;
+			$activeTextColor: $gray-900;
+			$disabledTextColor: $gray-900;
+		}
+		@if $color == 'default' {
+			$hoverBg: $gray-400;
+			$hoverBorder: $gray-400;
+			$activeBg: $gray-400;
+			$activeBorder: $gray-400;
+		}
+		@if $color == 'white' {
+			$border: $gray-400;
+			$hoverBg: $gray-200;
+			$hoverBorder: $gray-500;
+			$activeBg: $gray-200;
+			$activeBorder: $gray-500;
+			$disabledBg: tint-color($gray-200, 25%);
+			$disabledBorder: tint-color($gray-500, 25%);
+		}
+		
+		@include button-variant(
+			$bg, $border, $textColor, $hoverBg, 
+			$hoverBorder, $hoverTextColor, 
+			$activeBg, $activeBorder, $activeTextColor,  
+			$disabledBg, $disabledBorder, $disabledTextColor
+		);
+  }
+}

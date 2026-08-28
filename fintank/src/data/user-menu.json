@@ -1,0 +1,18 @@
+{
+  "img": "/img/avatar/avatar-10.jpg",
+  "type": "avatar",
+  "title": "Fintank User",
+  "dropdown": [
+    {
+      "title": "Portfolio",
+      "link": "/profile"
+    },
+    {
+      "title": "Account",
+      "link": "/account"
+    },
+    {
+      "divider": true
+    }
+  ]
+}

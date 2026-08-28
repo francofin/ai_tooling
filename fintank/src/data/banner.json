@@ -1,0 +1,32 @@
+{
+    "bannerImages": [
+        {
+            "link": "#",
+            "img": "banner/banner1.jpg"
+        },
+        {
+            "link": "#",
+            "img": "banner/banner2.jpg"
+        },
+        {
+            "link": "#",
+            "img": "banner/banner3.jpg"
+        },
+        {
+            "link": "#",
+            "img": "banner/banner4.jpg"
+        },
+        {
+            "link": "#",
+            "img": "banner/banner5.jpg"
+        },
+        {
+            "link": "#",
+            "img": "banner/banner6.jpg"
+        },
+        {
+            "link": "#",
+            "img": "banner/banner7.jpg"
+        }
+    ]
+}

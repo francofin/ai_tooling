@@ -28,6 +28,8 @@ These apply to **every** task. They are not repeated per task.
 - **Do not add** any Python or npm dependency. scipy, numpy, pandas, pyarrow, s3fs, celery, redis are already in `backend/pyproject.toml`; `react-apexcharts` is already in `package.json`. **No cvxpy, no riskfolio-lib, no scikit-learn.**
 - **Do not run** the existing notebooks in `backend/class_files/` — several have live-fetch cells that hit FMP and S3 with real credentials.
 
+**Franc starts every server himself. Never start one for him.** This covers `python manage.py runserver`, the Celery worker, `npm run dev`, and anything that backgrounds a long-running process — whether directly, through a helper script, or via `run_in_background`. When a step needs the stack, say which services it needs and wait; do not launch them, and do not "just start it to check something" mid-task. Redis and Postgres are usually already up, so the ask is normally Django + Celery + `npm run dev` on port 8020. The browser checks in Tasks 16–19 are the steps this bites: without a Celery worker the page polls `queued` forever, because `POST /run/` only enqueues.
+
 **Complete allowlist of files touched outside `backend/backtester/` and `src/` (§16):**
 
 | File | Change |
@@ -145,7 +147,7 @@ Corrections made while executing 11–19, each explained at its task: the `Quota
 ### Remaining work, in order
 
 1. **Run `npm run build` on a machine with more memory** (or add swap). This is the only gate that has never passed. If it fails there for a *real* reason, the likely suspects are the sixteen new frontend files — start with the four `react-apexcharts` components, which are dynamically imported with `{ ssr: false }` but have never been bundled.
-2. **Browser-check the page** — Tasks 16 step 8, 17 step 9, 18 step 6, 19 step 2 list what to confirm. Needs Redis, Postgres, **a Celery worker**, Django, and `npm run dev` (port 8020). Without the worker the page polls `queued` forever, because `POST /run/` only enqueues.
+2. **Browser-check the page** — Tasks 16 step 8, 17 step 9, 18 step 6, 19 step 2 list what to confirm. Needs Redis, Postgres, **a Celery worker**, Django, and `npm run dev` (port 8020). Without the worker the page polls `queued` forever, because `POST /run/` only enqueues. **Ask Franc to start these and wait** — see the server rule in Global Constraints.
 3. **Task 20 at pre-deploy** — rotate, update `.env`, restart, verify, delete the notebook, update `docs/BACKEND_BREAKDOWN.md:467`.
 4. **Then** `superpowers:finishing-a-development-branch` for the merge decision.
 

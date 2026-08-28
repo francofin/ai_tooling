@@ -1,0 +1,62 @@
+{
+    "title": "F.A.Q.s",
+    "subtitle": "Frequently asked questions",
+    "content": "As we continue to learn, grow and become more knowledegable on all things finance, here are a few simple definitions and thoughts to get you started, motivated and integrated with the professionals.",
+    "questionGroups": [
+        {
+            "title": "Data Sources",
+            "questions": [
+                {
+                    "title": "Where Does Fintank Get Its Data From?",
+                    "content": "Fintank was created with the retail investor in mind, providing them with tools and the equipment for the investment world. Our data is sourced from Financial Modelling Prep, link found at <a href='https://site.financialmodelingprep.com/'>Financial Modelling Prep</a> ."
+                },
+                {
+                    "title": "How Does Fintank Verify Its Data ?",
+                    "content": "While there are many different data sources for financial data all with different methodologies for measuring and calculating many of the metrics available, Fintank compares its data from its providers with other data sources to ensure that data is in line with estimates of the wider investment community. "
+                },
+                {
+                    "title": "Raw Data Source",
+                    "content": "Fintank gets its raw data from financialmodellingprep. Data cleaned, scrubbed and organized by the sole operator of Fintank. As a local enterprise, we are continuously expanding our resources to better serve you."
+                },
+                {
+                    "title": "Missing Data Sources",
+                    "content": "Fintank does its best to ensure its data sources are up to date. We run weekly tasks to ensure that data is continuously updated and refreshed to ensure you consistently have accurate resources. In our experience, Equities in EMEA and Emerging Markets may be slightly inconsistent and constantly changing as market conditions change."
+                },
+                {
+                    "title": "Return Calculations",
+                    "content": "Fintank calculates its data for returns and spreads internally and is based on data provided through the Application Programming Interfaces (APIs)."
+                }
+            ]
+        },
+        {
+            "title": "News and Media Sources",
+            "questions": [
+                {
+                    "title": "News and Updates",
+                    "content": "Finatnk sources its news from two different Application Programming Interfaces (APIs). News is sourced from the Bing search engine for the presented topics as well as from Financial Modelling Prep for stock and market updates."
+                },
+                {
+                    "title": "Does Fintank Post Any Opinion Articles",
+                    "content": "As Fintank continues to grow, Research articles, knowledge topics and opinion pieces will be posted to enhance and support the broad investment community. Currently, Fintank only maintains our proprietary quantitative analysis tools and continues to develop these."
+                },
+                {
+                    "title": "Does Fintank Allow Advertisers?",
+                    "content": "Please feel free to inquire as to using our platform as a tool to advertise, Fintank currently has limited online real estate for advertisers as we prefer to take an investor and market first approach to use our platform for stock and market news and analysis. As we continue to grow, we encourage advertisers and sponsors, this is a crucial part of the market which spreads the message of the latest technologies and innovations for Small and Medium enterprises alike."
+                }
+            ]
+        },
+        {
+            "title": "Use of user related data",
+            "questions": [
+                {
+                    "title": "Does Fintank track any user related information?",
+                    "content": "Fintank's stock user model, does not track data at the individuals user level, but aggregate user level and will publish stock and ownership reports quarterly and annually, as to stock count ownership, viewership and average length of time in a users portfolio. Diligence is a community wide effort."
+                },
+                {
+                    "title": "Does Fintank provide a trading platform for individuals to place buy, sell or hold orders.",
+                    "content": "Fintank is not an online trading platform. We are working tirelessly to create an all encompassing digital platform, that allows you to fully manage your portfolio, but currently, we provide purely research and quantitative tools to discover new equities for your portfolio."
+                }
+            ]
+        }
+    ]
+}

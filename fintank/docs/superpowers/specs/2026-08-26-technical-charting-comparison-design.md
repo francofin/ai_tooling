@@ -10,7 +10,7 @@ technical-indicator charting tool. Nothing here conflicts with it.
 
 ## Context
 
-`src/pages/build-comparison.js` is a 2,079-line Pages Router page, linked from
+`src/pages/build-comparison.js` is a 2,078-line Pages Router page, linked from
 `src/data/menu.json` as **"Stock Charter"**. It presents a ticker search, a periodicity
 selector, an ApexCharts candlestick, and eleven technical indicators — each with its own
 collapse panel, period inputs, education modal, and Chart.js line chart.
@@ -72,7 +72,7 @@ pattern. **Nothing new needs to be ingested, and no FMP call is needed.**
 |---|---|---|
 | Frequency | **Daily only.** Intraday dropped. | S3 has daily and monthly only. The six intraday frequencies would require live FMP intraday calls on every interaction, with a user-chosen from-date defeating cache warmth. Removes the periodicity selector and `DayPicker` (~400 lines). |
 | Page purpose | **Multi-ticker comparison.** | Honours the route name. Cheap now that daily data is free from S3. |
-| Layout | **Side-by-side panel per ticker.** | One candlestick + oscillator stack per symbol, in a responsive wrapping grid. |
+| Layout | **Side-by-side panel per ticker, on a horizontal-scroll rail.** | One candlestick + oscillator stack per symbol. A wrapping grid was considered and rejected: it breaks the row at 4–5 tickers, which is exactly the count the 5-cap exists to serve. The rail keeps all five on one axis and pans. |
 | Ticker limit | **5.** | Bounds the request to 5 partial parquet reads. |
 | Indicators | **All 11**, split overlay vs oscillator. | Moving averages draw on the candlestick; the rest get sub-panels. No feature loss, much shorter page. |
 | Auth | **Public, no auth, no quota.** | Matches every neighbouring analyzer route (`index-history`, `stock-prices`, `financial-statements`). Zero marginal cost per request means no abuse pressure to defend. |
@@ -333,8 +333,14 @@ reads from it, so adding an indicator is one entry plus one function.
 
 - **EMA** uses `series.ewm(span=n, adjust=False).mean()`. The old loop-based version
   zero-padded then SMA-seeded, producing values that drift from every standard platform.
-- **RSI** uses **Wilder's smoothing** (`ewm(alpha=1/n, adjust=False)`) over gains and
-  losses, not a plain rolling mean. Degenerate case: a perfectly flat stretch gives
+- **RSI** uses **Wilder's smoothing** over gains and losses, not a plain rolling mean.
+  Note the seeding: `ewm(alpha=1/n, adjust=False)` has the right decay factor but seeds
+  its recursion at the *first observation*, whereas Wilder seeds at a plain mean of the
+  first `n` observations. An earlier draft of this spec specified the `ewm` form; it
+  misses Wilder's own published worked example (RSI 70.46 on his 16-close series) by
+  roughly twenty points, because only `n` bars of decay separate the seed from the first
+  displayed value. The seed is therefore computed explicitly and the recursion run from
+  there. Verified by hand against Wilder's example during implementation. Degenerate case: a perfectly flat stretch gives
   `avg_gain == avg_loss == 0` and `RS = 0/0 = NaN`. The all-gain case (`avg_loss == 0`)
   resolves to 100 naturally through float division, but the flat case must be handled
   explicitly — emit **50** (the neutral reading, and what reference implementations show).
@@ -363,7 +369,8 @@ implementer is most likely to go wrong.
    ```
    Only the **larger** of the two counts, and only when positive. A bar with both moves
    positive must zero out the smaller one — not merely cap or clip it.
-3. **Smooth `TR`, `+DM`, `−DM`** with `ewm(alpha=1/n, adjust=False)`, then
+3. **Smooth `TR`, `+DM`, `−DM`** with Wilder's smoothing (see the seeding note above --
+   *not* the bare `ewm` form), then
    `+DI = 100·(smoothed +DM / smoothed TR)`, likewise `−DI`. Using `ewm` here is
    mathematically equivalent to Wilder's classic running-sum formulation for the DI
    *ratio*, because the `n` scaling cancels — so this substitution is safe.
@@ -388,6 +395,10 @@ pd.Series([1..10]).ewm(span=5, adjust=False).mean() → [1.0, 1.333, 1.889, 2.59
 NaNs out for insufficient history. So `ema`, `rsi`, `adx`, `dema`, `tema`, and `macd`
 would silently return confident-looking garbage computed from two data points rather than
 being suppressed.
+
+Wilder-smoothed RSI and ADX are the exception: with explicit seeding they do emit
+leading `None`s, and their first defined index sits just inside their stated minimum. The
+remaining four (`ema`, `dema`, `tema`, `macd`) still emit from row zero.
 
 Therefore `technicals.py` **independently checks `len(df)` against the per-indicator
 "Min rows" column** in the token table above, and drops the indicator into `warnings`
@@ -566,8 +577,9 @@ src/componentsLegacy/Comparison/
   IndicatorRail.js         maps indicatorMeta → controls; validates `constraints`
   IndicatorControl.js      one toggle + N period inputs + info button
   IndicatorInfoModal.js    generic; reads description/bullets from meta
-  PanelGrid.js             layout container
+  PanelRail.js             horizontal scroll-snap rail; arrow-key nav; edge affordance
   SymbolPanel.js           one ticker's charts; owns its own data hook; error boundary
+                           sticky symbol header; lazy-renders when off-screen
   PriceChart.js            candlestick + volume-on-second-axis + MA overlays
   OscillatorChart.js       one oscillator; renders from `plots`
 src/hooks/useTechnicals.js
@@ -652,10 +664,71 @@ new key, `data` goes `undefined` in all five panels simultaneously, and ~30 char
 instances unmount and remount. `SymbolPanel` therefore holds last-good data in a ref and
 renders it dimmed while the new payload is in flight, keeping charts mounted.
 
-### Panel layout
+### Panel layout — horizontal-scroll rail
 
-> **Layout shape is a pending decision** — see the Open Questions section at the end of
-> this spec. The ApexCharts mechanics below apply to any of the candidate layouts.
+Panels sit genuinely side by side on a single horizontal axis and the user pans across
+them. This honours "side by side" literally at all five tickers, where a wrapping grid
+would have broken the row at exactly the count the 5-cap exists to serve.
+
+```
+src/componentsLegacy/Comparison/PanelRail.js
+```
+
+```css
+/* the rail */
+display: flex;
+overflow-x: auto;
+scroll-snap-type: x mandatory;
+overscroll-behavior-x: contain;   /* don't trigger browser back-swipe */
+
+/* each SymbolPanel */
+flex: 0 0 auto;
+min-width: 340px;                 /* candlestick floor; 320 is too tight with a y-axis */
+scroll-snap-align: start;
+```
+
+**Only the rail scrolls.** `IndicatorRail` stays fixed in the left column — a horizontal
+scroller that carried the controls with it would put the settings off-screen while
+comparing.
+
+Each panel carries a **sticky symbol header** (`position: sticky; top: 0`) so the ticker
+stays identifiable once the rail is panned and the page is scrolled vertically.
+
+On mobile the same markup degrades correctly with no separate breakpoint: one panel fills
+the viewport and snapping turns the rail into a swipeable carousel.
+
+#### Scroll affordance and keyboard access
+
+A horizontal scroller is invisible until discovered, and this one is the primary
+navigation for the whole feature. Required, not optional:
+
+- The scrollbar is **always visible**, not hover-revealed (`scrollbar-width: thin` plus an
+  explicit `::-webkit-scrollbar` rule) — the default on macOS is to hide it entirely.
+- A fade or chevron affordance on whichever edge has more content, driven by scroll
+  position.
+- The rail is focusable (`tabIndex={0}`) with `role="region"` and an `aria-label`, and
+  handles **Left/Right arrows** to move one panel and **Home/End** to jump to the ends.
+  Native scroll containers do not get arrow-key handling for free when the focused element
+  is inside a child.
+- Panels are reachable in DOM order by Tab, and focusing a panel scrolls it into view.
+
+#### Lazy rendering earns its place here
+
+`IntersectionObserver` against the rail as `root` is a natural fit: at five tickers, two
+to three panels are off-screen at any time. Off-screen panels render a fixed-height
+placeholder rather than mounting chart instances, which keeps the live grouped-chart
+count near the visible set rather than the full ~30 — directly reducing the
+`getGroupedCharts()` fan-out cost described below.
+
+Panels must therefore have **fixed, known heights** so the rail's scroll width does not
+shift as panels mount and unmount.
+
+#### Chart grouping axis
+
+`chart.group` is **per symbol** — the candlestick and every oscillator *within one panel*
+share a group, so hovering the price chart moves the crosshair down that ticker's own
+indicator stack. Cross-panel comparison is done by eye across the rail, which is the
+point of the layout.
 
 #### `chart.id` is mandatory, and the earlier draft omitted it
 
@@ -877,7 +950,12 @@ Franc starts Django and `npm run dev` himself. Verification is then:
    `minWidth` check from *Panel layout*
 4. A short-history symbol renders with `warnings` and its remaining indicators keep their
    assigned colors — the palette-shift check
-5. `npm run lint && npm run format:check` clean
+5. **Rail behaviour**: with 5 tickers the rail scrolls horizontally and snaps; the
+   scrollbar is visible without hovering; Left/Right arrows move one panel and Home/End
+   jump to the ends; the indicator rail stays fixed while the panels pan; sticky symbol
+   headers stay readable; scroll width does not jump as off-screen panels mount
+6. Mobile viewport: one panel fills the screen and swipes as a carousel
+7. `npm run lint && npm run format:check` clean
 
 > **Do not run `npm run ci` while the dev server is up.** `package.json` defines it as
 > `next build && next lint && prettier --check`, and `next build` writes to the same
@@ -901,36 +979,5 @@ state.
 | 4 | Delete `backend/utils/Technicals.py` | `grep -rn "Technicals\|FintankCharter" backend/` returns nothing |
 | 5 | `indicatorMeta.json` — 11 entries, prose migrated verbatim, `plots`/`constraints`/`color` populated | Data file complete; page untouched |
 | 6 | `useDebounce.js`, `useTechnicals.js`, `TickerPicker`, `IndicatorRail`, `IndicatorControl` | Rail renders from meta; duplicate instances (SMA 50 + SMA 200) serialize correctly; `constraints` block an invalid MACD before any request |
-| 7 | `PanelGrid`, `SymbolPanel`, `PriceChart`, `OscillatorChart` | Panels render with **working** crosshair sync — `chart.id` set and unique page-wide, toolbar disabled, y-axis `minWidth` matched |
+| 7 | `PanelRail`, `SymbolPanel`, `PriceChart`, `OscillatorChart` | Panels render with **working** crosshair sync — `chart.id` set and unique page-wide, toolbar disabled, y-axis `minWidth` matched. Rail scrolls and snaps, arrow keys move between panels, off-screen panels lazy-render |
 | 8 | Rewrite `build-comparison.js` as layout (**keeping `getStaticProps`**); delete the 3 chart utils **and `useNewCandleSticks.js`**; remove the dead import at `factor-performance.js:16`; relabel nav; URL state | `grep -rn "useNewCandleStick\|technicalCharter\|plotMacdChart\|plotAdlChart" src/` returns nothing; page title still renders; lint + format:check clean; Playwright walkthrough passes |
-
----
-
-## Open questions
-
-**One decision remains open: the panel layout.** The rest of this spec is settled and can
-be implemented as written — phases 1–6 are entirely unaffected by the outcome.
-
-The approved scope decision was "side-by-side panel per ticker, up to 5". This spec's
-first draft rendered that as a wrapping grid (`Col xs=12 lg=6 xxl=4`), and design review
-raised a fair objection: at 4–5 tickers the grid wraps, so **nothing is side by side at
-exactly the ticker count the 5-cap exists to serve**, and once wrapped, AAPL's RSI is no
-longer horizontally adjacent to MSFT's RSI — which is precisely the adjacency the
-shared-indicator-config decision exists to make meaningful.
-
-| Candidate | Shape | Grouped charts | Trade-off |
-|---|---|---|---|
-| **A. Wrapping grid** (current draft) | Panel per ticker, 3-up then 2-up | ~30 | Preserves the per-ticker panel literally; loses adjacency at 4–5 tickers |
-| **B. Small multiples by indicator** | One **row** per chart type: a row of 5 candlesticks, a row of 5 RSIs. `chart.group` per row. | ~30 | Like sits beside like; makes shared config pay off; rows align naturally. Reads less like "a panel per ticker" |
-| **C. Horizontal-scroll rail** | Panels side by side on one axis, `overflow-x: auto`, `scroll-snap` | ~30 | Honours "side by side" most literally; requires panning to see all five |
-| **D. Overlay mode toggle** | One chart per indicator, 5 series | ~6 | Dissolves the `getGroupedCharts()` cost entirely; cannot do candlesticks |
-
-If A stays, two fixes are mandatory: pin every panel and sub-chart to identical fixed
-heights so rows align (also required by the y-axis `minWidth` rule), and add a
-compact/expanded toggle where compact is candle + one oscillator.
-
-D is worth having as a *mode* alongside whichever primary layout is chosen, not as a
-replacement — it is the only option that meaningfully reduces the synchronized-chart count.
-
-Phases 1–4 are backend review territory (`python-code-reviewer`); phases 5–8 frontend
-(`nextjs-fullstack-dev`).

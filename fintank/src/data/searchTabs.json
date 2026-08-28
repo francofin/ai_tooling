@@ -1,0 +1,12 @@
+{
+    "marketSearchTabs":{
+        "tabs": [
+            {
+                "title": "Equity Spreads"
+            },
+            {
+                "title": "Economic Spreads"
+            }
+        ]
+    }
+}

@@ -1,0 +1,44 @@
+{
+    "communicationsImages": [
+        {
+            "link": "#",
+            "img": "communications/comun1.jpg"
+        },
+        {
+            "link": "#",
+            "img": "communications/comun2.jpg"
+        },
+        {
+            "link": "#",
+            "img": "communications/comun3.jpg"
+        },
+        {
+            "link": "#",
+            "img":"communications/comun4.jpg"
+        },
+        {
+            "link": "#",
+            "img":"communications/comun5.jpg"
+        },
+        {
+            "link": "#",
+            "img":"communications/comun6.jpg"
+        },
+        {
+            "link": "#",
+            "img": "communications/comun7.jpg"
+        },
+        {
+            "link": "#",
+            "img":"communications/comun8.jpg"
+        },
+        {
+            "link": "#",
+            "img": "communications/comun9.jpg"
+        },
+        {
+            "link": "#",
+            "img": "communications/comun10.jpg"
+        }
+    ]
+}

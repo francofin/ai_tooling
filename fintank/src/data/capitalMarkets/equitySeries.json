@@ -1,0 +1,162 @@
+[
+  {
+    "id": "rone_v_rtwo",
+    "packKey": "rone_v_rtwo_pack",
+    "title": "Russell 1000 Versus Russell 2000 (R2000-R1000)",
+    "label": "Russell 2000 Vs Russell 1000",
+    "color": "rgba(138, 19, 122)",
+    "blurb": "The spread between the Russell 1000 and the Russell 2000 serves as a valuable indicator of relative performance between large-cap and small-cap stocks in the U.S. equity market. A widening spread, with the Russell 1000 outpacing the Russell 2000, can signal investor preference for larger, more established companies, often associated with a risk-averse sentiment or expectations of slower economic growth. Conversely, a narrowing spread, with the Russell 2000 outperforming, may reflect a risk-on sentiment, suggesting investors are more willing to embrace smaller companies and potentially anticipate stronger economic growth. This spread helps gauge market sentiment and sector rotation dynamics."
+  },
+  {
+    "id": "rone_rmid",
+    "packKey": "rone_rmid_pack",
+    "title": "Russell 1000 Versus Russell Mid Cap (R1000-RMID)",
+    "label": "Russell Mid Cap Vs Russell 1000",
+    "color": "rgba(20, 191, 11)",
+    "blurb": "The spread between the Russell 1000 and the Russell Mid Cap provides insights into the performance of large-cap stocks versus mid-cap stocks in the U.S. equity market. A widening spread, with the Russell 1000 outperforming the Russell Mid Cap, may indicate investor preference for larger, more established companies, potentially reflecting risk-averse sentiment or economic uncertainty. Conversely, a narrowing spread, with the Russell Mid Cap outperforming, may signal a risk-on sentiment, suggesting investors are favoring mid-sized companies and potentially anticipating stronger economic growth. This spread offers a glimpse into market sentiment and sector rotation dynamics within the mid to large-cap range."
+  },
+  {
+    "id": "rtwo_rmid",
+    "packKey": "rtwo_rmid_pack",
+    "title": "Russell 2000 Versus Russell Mid Cap (R2000-RMID)",
+    "label": "Russell 2000 Vs Russell Mid Cap",
+    "color": "rgba(78, 78, 78)",
+    "blurb": "The spread between the Russell 2000 and the Russell Mid Cap provides valuable insights into the performance of small-cap stocks versus mid-cap stocks in the U.S. equity market. A widening spread, with the Russell 2000 outperforming the Russell Mid Cap, often indicates investor preference for smaller, more agile companies, potentially reflecting an appetite for higher risk and a belief in robust economic growth. Conversely, a narrowing spread, with the Russell Mid Cap outperforming, may suggest a more cautious market sentiment, where investors are favoring mid-sized companies perceived as relatively stable. This spread helps assess market sentiment and sector rotation dynamics within the mid to small-cap range and can offer clues about risk appetite and economic outlook."
+  },
+  {
+    "id": "ronev_v_roneg",
+    "packKey": "ronev_v_roneg_pack",
+    "title": "Russell 1000 Value Versus Russell 1000 Growth (R1VAL-R1GRO)",
+    "label": "Russell 1000 Value Vs Russell 1000 Growth",
+    "color": "rgba(11, 191, 134)",
+    "blurb": "The spread between the Russell 1000 Value Index and the Russell 1000 Growth Index provides insights into the performance of value-oriented versus growth-oriented stocks in the U.S. equity market. A widening spread, with the Russell 1000 Value Index outperforming the Growth Index, often indicates investor preference for mature, dividend-paying companies with attractive valuations. This can be seen as a sign of value-seeking behavior and a more conservative approach. Conversely, a narrowing spread, with the Russell 1000 Growth Index outperforming, may suggest investors are leaning towards companies with higher growth potential, even if they carry higher valuations. This spread helps gauge market sentiment and sector rotation dynamics within the large-cap segment, offering insights into investors' risk preferences and views on the economy."
+  },
+  {
+    "id": "rtwov_v_rtwog",
+    "packKey": "rtwov_v_rtwog_pack",
+    "title": "Russell 2000 Value Versus Russell 2000 Growth (R2VAL-R2GRO)",
+    "label": "Russell 2000 Value Vs Russell 2000 Growth",
+    "color": "rgba(21, 129, 179)",
+    "blurb": "The spread between the Russell 2000 Value Index and the Russell 2000 Growth Index offers insights into the performance of value-oriented small-cap stocks versus growth-oriented small-cap stocks in the U.S. equity market. A widening spread, with the Russell 2000 Value Index outperforming the Growth Index, often indicates investor preference for smaller companies with solid fundamentals and lower valuations, reflecting a value-oriented strategy. Conversely, a narrowing spread, with the Russell 2000 Growth Index outperforming, may suggest a market sentiment favoring smaller companies with higher growth potential, even if they come with higher valuations. This spread helps assess investor sentiment and sector rotation dynamics within the small-cap segment, shedding light on risk preferences and economic outlook among investors. Indices represented by the ETF's that track their performance."
+  },
+  {
+    "id": "sp500_v_nasd",
+    "packKey": "sp500_v_nasd_pack",
+    "title": "S&P 500 Versus the NASDAQ Composite (NASD-SP500)",
+    "label": "S&P 500 Vs Nasdaq Composite",
+    "color": "rgba(179, 61, 32)",
+    "blurb": "The spread between the S&P 500 Index and the Nasdaq Composite Index provides valuable insights into the performance of two prominent U.S. equity benchmarks. A widening spread, with the S&P 500 outperforming the Nasdaq, often signifies investor preference for a more diversified mix of large-cap companies across various sectors, reflecting a balanced approach to equity investments. Conversely, a narrowing spread, with the Nasdaq outperforming, may indicate investor appetite for technology-focused and high-growth companies, potentially signaling a risk-on sentiment and optimism about the tech sector. This spread helps gauge market sentiment and sector rotation dynamics within the U.S. equity market, offering insights into investor preferences, risk appetite, and economic outlook."
+  },
+  {
+    "id": "sp500_v_sp500q",
+    "packKey": "sp500_v_sp500q_pack",
+    "title": "S&P 500 Versus S&P 500 Quality (SPQUAL-SP500)",
+    "label": "S&P 500 Vs S&P 500 Quality",
+    "color": "rgba(44, 160, 168)",
+    "blurb": "The spread between the S&P 500 Index and the S&P 500 Quality Index offers insights into the performance of the broader market compared to a subset of high-quality companies within the S&P 500. A widening spread, with the S&P 500 outperforming the Quality Index, often suggests that investors are favoring a more diversified approach, which may include companies of varying quality levels. Conversely, a narrowing spread, with the Quality Index outperforming, may indicate that investors are seeking out higher-quality, more stable companies within the S&P 500, potentially reflecting a risk-averse sentiment or concerns about economic stability. This spread helps assess market sentiment and sector rotation dynamics, revealing investor preferences for quality versus broader market exposure and offering insights into risk appetite and economic outlook."
+  },
+  {
+    "id": "ustot_v_uscd",
+    "packKey": "ustot_v_uscd_pack",
+    "title": "US Total Market Versus US Consumer Discretionary (USCD-USTOT)",
+    "label": "US Consumer Discretionary Vs US Total Market",
+    "color": "rgba(44, 160, 168)",
+    "blurb": "The spread between the US Total Market Index and the US Consumer Discretionary Index provides insights into the performance of the entire U.S. stock market compared to a specific sector focused on consumer discretionary goods and services. A widening spread, with the US Total Market outperforming the Consumer Discretionary Index, typically indicates that investors are favoring a more diversified approach, including sectors beyond consumer discretionary. Conversely, a narrowing spread, with the Consumer Discretionary Index outperforming, may signal that investors are increasingly interested in consumer-oriented companies, suggesting optimism about consumer spending and economic growth. This spread helps gauge market sentiment and sector-specific dynamics, offering insights into investor preferences, economic outlook, and consumer-related trends."
+  },
+  {
+    "id": "ustot_v_uscs",
+    "packKey": "ustot_v_uscs_pack",
+    "title": "US Total Market Versus US Consumer Staples (USCS-USTOT)",
+    "label": "US Consumer Staples Vs US Total Market",
+    "color": "rgba(82, 26, 82)",
+    "blurb": "The spread between the US Total Market Index and the US Consumer Staples Index provides insights into the performance of the entire U.S. stock market compared to a specific sector focused on consumer staples, which includes essential, non-cyclical goods like food, beverages, and household products. A widening spread, with the US Total Market outperforming the Consumer Staples Index, often indicates that investors are favoring a broader market exposure, potentially signaling confidence in economic growth and a willingness to take on more risk. Conversely, a narrowing spread, with the Consumer Staples Index outperforming, may suggest that investors are seeking defensive, recession-resistant assets, reflecting a more risk-averse sentiment or concerns about economic stability. This spread helps assess market sentiment, sector rotation dynamics, and investor preferences regarding risk and economic conditions."
+  },
+  {
+    "id": "ustot_v_ushc",
+    "packKey": "ustot_v_ushc_pack",
+    "title": "US Total Market Versus US Health Care (USHC-USTOT)",
+    "label": "US Health Care Vs US Total Market",
+    "color": "rgba(21, 47, 54)",
+    "blurb": "The spread between the US Total Market Index and the US Health Care Index offers insights into the performance of the overall U.S. stock market in comparison to a specific sector focused on healthcare-related companies. A widening spread, with the US Total Market outperforming the Health Care Index, often suggests that investors are favoring a more diversified approach, potentially indicating confidence in various sectors beyond healthcare. Conversely, a narrowing spread, with the Health Care Index outperforming, may indicate a preference for healthcare stocks, reflecting investor confidence in the resilience of the healthcare sector, regardless of broader market conditions. This spread helps assess market sentiment and sector-specific dynamics, offering insights into investor preferences, healthcare trends, and risk appetite."
+  },
+  {
+    "id": "ustot_v_usfin",
+    "packKey": "ustot_v_usfin_pack",
+    "title": "US Total Market Versus US Financials (USFIN-USTOT)",
+    "label": "US Financials Vs US Total Market",
+    "color": "rgba(115, 113, 10)",
+    "blurb": "The spread between the US Total Market Index and the US Financials Index provides insights into the performance of the overall U.S. stock market compared to a specific sector focused on financial companies. A widening spread, with the US Total Market outperforming the Financials Index, often indicates that investors are favoring a more diversified approach, potentially signaling confidence in various sectors beyond financials. Conversely, a narrowing spread, with the Financials Index outperforming, may suggest a preference for financial companies, reflecting investor optimism about the health of the financial sector, interest rate trends, and economic conditions. This spread helps assess market sentiment and sector-specific dynamics, offering insights into investor preferences, financial sector trends, and expectations for economic factors like interest rates and banking activities."
+  },
+  {
+    "id": "ustot_v_usmat",
+    "packKey": "ustot_v_usmat_pack",
+    "title": "US Total Market Versus US Basic Materials (USMAT-USTOT)",
+    "label": "US Materials Vs US Total Market",
+    "color": "rgba(18, 97, 56)",
+    "blurb": "The spread between the US Total Market Index and the US Basic Materials Index provides insights into the performance of the overall U.S. stock market compared to a specific sector focused on basic materials companies. A widening spread, with the US Total Market outperforming the Basic Materials Index, often indicates that investors are favoring a more diversified approach, potentially signaling confidence in various sectors beyond basic materials. Conversely, a narrowing spread, with the Basic Materials Index outperforming, may suggest a preference for companies in the basic materials sector, reflecting investor optimism about economic growth and infrastructure development. This spread helps assess market sentiment and sector-specific dynamics, offering insights into investor preferences, trends in the basic materials sector, and economic outlook."
+  },
+  {
+    "id": "ustot_v_usind",
+    "packKey": "ustot_v_usind_pack",
+    "title": "US Total Market Versus US Industrials (USIND-USTOT)",
+    "label": "US Industrials Vs US Total Market",
+    "color": "rgba(44, 160, 168)",
+    "blurb": "The spread between the US Total Market Index and the US Industrials Index provides insights into the performance of the overall U.S. stock market compared to a specific sector focused on industrial companies. A widening spread, with the US Total Market outperforming the Industrials Index, often indicates that investors are favoring a more diversified approach, potentially signaling confidence in various sectors beyond industrials. Conversely, a narrowing spread, with the Industrials Index outperforming, may suggest a preference for companies in the industrial sector, reflecting investor optimism about economic growth, manufacturing, and infrastructure development. This spread helps assess market sentiment and sector-specific dynamics, offering insights into investor preferences, trends in the industrial sector, and economic outlook, particularly in terms of manufacturing and infrastructure investment."
+  },
+  {
+    "id": "sptsx",
+    "packKey": "sptsxpack",
+    "title": "S&P 500 Versus the S&P/TSX Composite (TSX-SP500)",
+    "label": "S&P 500 Vs TSX Composite",
+    "color": "rgba(21, 47, 54)",
+    "blurb": "The spread between the S&P 500 Index and the S&P/TSX Index provides insights into the relative performance of the U.S. and Canadian equity markets. A widening spread, with the S&P 500 outperforming the S&P/TSX, often suggests that investors are favoring U.S. equities, potentially reflecting confidence in the U.S. economy, a stronger U.S. dollar, or sector-specific dynamics within the S&P 500. Conversely, a narrowing spread, with the S&P/TSX outperforming, may indicate a preference for Canadian equities, reflecting investor optimism about the Canadian economy, commodity prices, or other factors specific to the Canadian market. This spread helps assess investor sentiment and potential shifts in allocation between U.S. and Canadian assets, offering insights into market preferences, currency movements, and economic outlooks for both countries."
+  },
+  {
+    "id": "tsx_v_tsxsci",
+    "packKey": "tsx_v_tsxsci_pack",
+    "title": "S&P/TSX Composite Versus the S&P/TSX Small Cap Index (TSXSCI-TSX)",
+    "label": "TSX Small Cap Vs TSX Composite",
+    "color": "rgba(20, 191, 11)",
+    "blurb": "The spread between the S&P/TSX Index and the S&P/TSX Small Cap Index offers insights into the performance of larger Canadian companies versus smaller-cap Canadian companies. A widening spread, with the S&P/TSX outperforming the Small Cap Index, often suggests that investors are favoring larger, more established companies, potentially reflecting a risk-averse sentiment or confidence in well-established businesses. Conversely, a narrowing spread, with the Small Cap Index outperforming, may indicate a preference for smaller-cap companies, reflecting optimism about their growth potential, economic conditions, or sector-specific trends within the small-cap segment. This spread helps assess investor sentiment and sector-specific dynamics, offering insights into preferences for larger versus smaller Canadian companies and potential shifts in risk appetite or economic outlook."
+  },
+  {
+    "id": "tsx_v_tsxmin",
+    "packKey": "tsx_v_tsxmin_pack",
+    "title": "S&P/TSX Composite Versus the S&P/TSX Mining Index (TSXMIN-TSX)",
+    "label": "TSX Mining Vs TSX Composite",
+    "color": "rgba(78, 78, 78)",
+    "blurb": "The spread between the S&P/TSX Index and the S&P/TSX Mining Index provides insights into the relative performance of the broader Canadian equity market and the mining sector. A widening spread, with the S&P/TSX outperforming the Mining Index, often suggests that investors are favoring a more diversified approach, potentially reflecting confidence in various sectors beyond mining or commodity markets. Conversely, a narrowing spread, with the Mining Index outperforming, may indicate a preference for mining-related companies, reflecting optimism about commodity prices, resource sector trends, or economic conditions related to mining activities. This spread helps assess investor sentiment and sector-specific dynamics, offering insights into preferences for broader market exposure versus a focus on the mining sector, and potential shifts in commodity market conditions."
+  },
+  {
+    "id": "tsx_v_tsxbank",
+    "packKey": "tsx_v_tsxbank_pack",
+    "title": "S&P/TSX Composite Versus the S&P/TSX Banking Index (TSXBANKS-TSX)",
+    "label": "TSX Banks Vs TSX Composite",
+    "color": "rgba(179, 61, 32)",
+    "blurb": "The spread between the S&P/TSX Index and the S&P/TSX Banking Index provides insights into the relative performance of the broader Canadian equity market and the banking sector within Canada. A widening spread, with the S&P/TSX outperforming the Banking Index, often suggests that investors are favoring a more diversified approach, potentially reflecting confidence in various sectors beyond banking or specific dynamics within the broader market. Conversely, a narrowing spread, with the Banking Index outperforming, may indicate a preference for banking-related companies, reflecting investor optimism about the financial sector, interest rate trends, or economic conditions linked to the banking industry. This spread helps assess investor sentiment and sector-specific dynamics, offering insights into preferences for broader market exposure versus a focus on the banking sector, and potential shifts in financial market conditions or economic outlook."
+  },
+  {
+    "id": "acwi_v_acwiexus",
+    "packKey": "acwi_v_acwiexus_pack",
+    "title": "MSCI ACWI Versus MSCI ACWI Ex US Stocks (ACWIEXUS-ACWI)",
+    "label": "MSCI ACWI Vs MSCI ACWI Ex US",
+    "color": "rgba(21, 129, 179)",
+    "blurb": "The spread between the MSCI ACWI (All Country World Index) and the MSCI ACWI Ex US Index provides insights into the relative performance of global equities inclusive of the United States versus the performance of global equities excluding U.S. stocks. A widening spread, with the MSCI ACWI outperforming the Ex US Index, often suggests that investors are favoring U.S. equities over international markets, potentially reflecting confidence in the U.S. economy, currency trends, or specific dynamics within U.S. stock markets. Conversely, a narrowing spread, with the Ex US Index outperforming, may indicate a preference for international stocks, reflecting optimism about global economic conditions, emerging markets, or currency factors. This spread helps assess investor sentiment and sector-specific dynamics on a global scale, offering insights into preferences for U.S. versus international market exposure and potential shifts in global economic conditions or currency trends."
+  },
+  {
+    "id": "eafe_v_eafesc",
+    "packKey": "eafe_v_eafesc_pack",
+    "title": "MSCI EAFE Versus the MSCI EAFE Small Cap Index (EAFESC-EAFE)",
+    "label": "EAFE Small Cap Vs EAFE",
+    "color": "rgba(21, 129, 179)",
+    "blurb": "The spread between the MSCI EAFE (Europe, Australasia, and the Far East) Index and the MSCI EAFE Small Cap Index provides insights into the relative performance of larger-cap international equities within developed markets compared to smaller-cap international stocks. A widening spread, with the MSCI EAFE outperforming the Small Cap Index, often suggests that investors are favoring larger, more established companies in international markets, potentially reflecting a risk-averse sentiment or confidence in well-established businesses overseas. Conversely, a narrowing spread, with the Small Cap Index outperforming, may indicate a preference for smaller-cap international companies, reflecting optimism about their growth potential, economic conditions, or sector-specific trends within the small-cap segment. This spread helps assess investor sentiment and sector-specific dynamics within developed international markets, offering insights into preferences for larger versus smaller international equities and potential shifts in risk appetite or economic outlook abroad."
+  },
+  {
+    "id": "eafev_v_eafeg",
+    "packKey": "eafev_v_eafeg_pack",
+    "title": "MSCI EAFE Value Versus the MSCI EAFE Growth Index (EAFEV-EAFEG)",
+    "label": "EAFE Value Vs EAFE Growth",
+    "color": "rgba(245, 223, 24)",
+    "blurb": "The spread between the MSCI EAFE Value Index and the MSCI EAFE Growth Index offers insights into the relative performance of value-oriented versus growth-oriented stocks within developed international markets. A widening spread, with the EAFE Value Index outperforming the Growth Index, often indicates that investors are favoring value stocks, which are typically characterized by lower valuations and dividends, potentially reflecting a cautious or defensive market sentiment. Conversely, a narrowing spread, with the Growth Index outperforming, may suggest that investors are leaning towards growth-oriented stocks, which are often associated with higher valuations and potential for higher earnings growth, reflecting a risk-on sentiment or confidence in economic growth. This spread helps assess investor sentiment and sector-specific dynamics within developed international markets, offering insights into preferences for value versus growth stocks and potential shifts in market conditions or economic outlook abroad."
+  }
+]

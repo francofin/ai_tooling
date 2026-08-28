@@ -4,9 +4,10 @@ import axios from 'axios'
 /**
  * One symbol's membership in the signed-in user's watchlist.
  *
- * Distinct from the older useWatchList.js, which quotes an existing list
- * straight from FMP in the browser. This goes through /api/watchlist/*, so the
- * JWT stays in its httpOnly cookie and never reaches client code.
+ * Goes through /api/watchlist/*, so the JWT stays in its httpOnly cookie and
+ * never reaches client code. (It replaced an older useWatchList.js that quoted
+ * the list straight from FMP in the browser with the API key in the query
+ * string; that hook was unused and has been removed.)
  *
  * `signedOut` is kept separate from `error`: not being logged in is an expected
  * state the button renders as a prompt, not a failure worth showing in red.

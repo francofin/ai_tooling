@@ -31,6 +31,28 @@ const GrowthChart = ({ result }) => {
     return rows
   }, [result])
 
+  // ApexCharts' logarithmic axis needs explicit bounds. Left to pick its own,
+  // it drops points below 1.0 to the axis floor, which draws the early years of
+  // a $1 index as vertical spikes. Bracketing the data with whole decades fixes
+  // it and also gives the axis readable ticks.
+  const logBounds = useMemo(() => {
+    let lo = Infinity
+    let hi = -Infinity
+    series.forEach((row) =>
+      row.data.forEach((point) => {
+        if (typeof point.y === 'number' && isFinite(point.y) && point.y > 0) {
+          if (point.y < lo) lo = point.y
+          if (point.y > hi) hi = point.y
+        }
+      }),
+    )
+    if (!isFinite(lo) || !isFinite(hi)) return null
+    return {
+      min: Math.pow(10, Math.floor(Math.log10(lo))),
+      max: Math.pow(10, Math.ceil(Math.log10(hi))),
+    }
+  }, [series])
+
   const annotations = useMemo(() => {
     const entries = (result?.composition_events || []).filter(
       (event) => event.action === 'entered' && event.date !== result.effective_start,
@@ -73,6 +95,8 @@ const GrowthChart = ({ result }) => {
             xaxis: { type: 'datetime' },
             yaxis: {
               logarithmic: logScale,
+              logBase: 10,
+              ...(logScale && logBounds ? { min: logBounds.min, max: logBounds.max } : {}),
               labels: { formatter: (value) => (value ? value.toFixed(2) : value) },
             },
             annotations,

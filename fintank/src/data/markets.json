@@ -1,0 +1,37 @@
+{
+    "banner":"markets/marketbanner.jpg",
+    "marketImages": [
+        {
+            "link": "#",
+            "img": "markets/markets1.jpg"
+        },
+        {
+            "link": "#",
+            "img": "markets/markets2.jpg"
+        },
+        {
+            "link": "#",
+            "img": "markets/market3.jpg"
+        },
+        {
+            "link": "#",
+            "img": "markets/market4.jpg"
+        },
+        {
+            "link": "#",
+            "img": "markets/market5.jpg"
+        },
+        {
+            "link": "#",
+            "img": "markets/market6.jpg"
+        },
+        {
+            "link": "#",
+            "img": "markets/market7.jpg"
+        },
+        {
+            "link": "#",
+            "img": "markets/market8.jpg"
+        }
+    ]
+}

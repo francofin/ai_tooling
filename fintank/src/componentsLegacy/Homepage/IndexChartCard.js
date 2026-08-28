@@ -1,19 +1,23 @@
 import React from "react"
-import { Chart } from "react-chartjs-2"
+import IndexChartView from "./IndexChartView"
 import { useIndexCharter } from "../../hooks/useIndexChart"
 
+/**
+ * One index chart, fetching its own data. Used by the homepage grid.
+ *
+ * Callers that need to transform the series before it is drawn should use
+ * `useIndexCharter` with `IndexChartView` directly instead.
+ */
 const IndexChartCard = ({ index, chartType = "bar" }) => {
-  const { chartData, chartOptions, loading } = useIndexCharter(index)
-
-  if (loading || !chartOptions) return <div style={{ height: 200 }} />
+  const { chartData, chartOptions, indexName, loading } = useIndexCharter(index)
 
   return (
-    <Chart
-      type={chartType}
-      options={chartOptions}
-      data={chartData}
-      height={100}
-      width={200}
+    <IndexChartView
+      chartData={chartData}
+      chartOptions={chartOptions}
+      indexName={indexName}
+      loading={loading}
+      chartType={chartType}
     />
   )
 }

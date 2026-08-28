@@ -1,0 +1,57 @@
+{
+    "banner":"health/hc2.jpg",
+    "hcImages": [
+        {
+            "link": "#",
+            "img": "health/hc1.jpg"
+        },
+        {
+            "link": "#",
+            "img": "health/hc3.jpg"
+        },
+        {
+            "link": "#",
+            "img": "health/hc4.jpg"
+        },
+        {
+            "link": "#",
+            "img": "health/hc5.jpg"
+        },
+        {
+            "link": "#",
+            "img": "health/hc6.jpg"
+        },
+        {
+            "link": "#",
+            "img": "health/hc7.jpg"
+        },
+        {
+            "link": "#",
+            "img": "health/hc8.jpg"
+        },
+        {
+            "link": "#",
+            "img": "health/hc9.jpg"
+        },
+        {
+            "link": "#",
+            "img": "health/hc10.jpg"
+        },
+        {
+            "link": "#",
+            "img": "health/hc11.jpg"
+        },
+        {
+            "link": "#",
+            "img": "health/hc12.jpg"
+        },
+        {
+            "link": "#",
+            "img": "health/hc13.jpg"
+        },
+        {
+            "link": "#",
+            "img": "health/hc14.jpg"
+        }
+    ]
+}

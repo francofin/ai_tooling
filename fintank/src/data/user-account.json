@@ -1,0 +1,24 @@
+{
+    "title": "Your account",
+    "subtitle": "Manage your account and settings here.",
+    "cards": [
+        {
+            "title": "Personal info",
+            "link": "/personal-info",
+            "icon": "identity-1",
+            "content": "Provide personal details and how we can reach you"
+        },
+        {
+            "title": "Login & security",
+            "link": "/security",
+            "icon": "password-1",
+            "content": "Update your password and secure your account"
+        },
+        {
+            "title": "Portfolio",
+            "link": "/profile",
+            "icon": "diary-1",
+            "content": "Review portfolio watchlist and holdings you have added."
+        }
+    ]
+}

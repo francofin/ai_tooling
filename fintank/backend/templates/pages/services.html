@@ -1,0 +1,96 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+
+  <main id="main">
+    <section id="services" class="contact">
+          <div class="container">
+
+            <div class="section-title">
+              <h2>All Services</h2>
+              <p>Database Upload Machine</p>
+            </div>
+            <div class="row" data-aos="fade-in">
+              <div class="col-lg-4 mt-5 mt-lg-0 d-flex align-items-stretch">
+                <form action="{% url 'stockuploader:upload_file' 'income' %}" method="post" role="form" class="fintank-email-form" enctype="multipart/form-data">
+                  {% csrf_token %}
+                  <input type="file" name="myfile" class="text-center">
+                  <div class="text-center"><button type="submit">Upload Income Statements</button></div>
+                </form>
+              </div>
+
+               <div class="col-lg-4 mt-5 mt-lg-0 d-flex align-items-stretch">
+                <form action="{% url 'stockuploader:upload_file' 'fundamentalmetric' %}" method="post" role="form" class="fintank-email-form" enctype="multipart/form-data">
+                  {% csrf_token %}
+                  <input type="file" name="myfile" class="text-center">
+                  <div class="text-center"><button type="submit">Upload Fundamental Metrics</button></div>
+                </form>
+              </div>
+
+
+              <div class="col-lg-4 mt-5 mt-lg-0 d-flex align-items-stretch">
+                <form action="{% url 'stockuploader:upload_file' 'fundamentalratio' %}" method="post" role="form" class="fintank-email-form" enctype="multipart/form-data">
+                  {% csrf_token %}
+                  <input type="file" name="myfile" class="text-center">
+                  <div class="text-center"><button type="submit">Upload Fundamental Ratios</button></div>
+                </form>
+              </div>
+
+            </div>
+            <div class="row mt-5" data-aos="fade-in">
+
+              <div class="col-lg-4 mt-5 mt-lg-0 d-flex align-items-stretch">
+                <form action="" method="post" role="form" class="fintank-email-form" enctype="multipart/form-data">
+                  {% csrf_token %}
+                  <input type="file" name="myfile" class="text-center">
+                  <div class="text-center"><button type="submit">Upload ETF Data</button></div>
+                </form>
+              </div>
+
+              <div class="col-lg-4 mt-5 mt-lg-0 d-flex align-items-stretch">
+                <form action="{% url 'stockuploader:upload_file' 'stock' %}" method="post" role="form" class="fintank-email-form" enctype="multipart/form-data">
+                  {% csrf_token %}
+                  <input type="file" name="myfile" class="text-center">
+                  <div class="text-center"><button type="submit">Upload All Stock Data</button></div>
+                </form>
+              </div>
+
+              <div class="col-lg-4 mt-5 mt-lg-0 d-flex align-items-stretch">
+                <form action="{% url 'stockuploader:upload_file' 'balance_sheet' %}" method="post" role="form" class="fintank-email-form" enctype="multipart/form-data">
+                  {% csrf_token %}
+                  <input type="file" name="myfile" class="text-center">
+                  <div class="text-center"><button type="submit">Upload Balance Sheets</button></div>
+                </form>
+              </div>
+
+            </div>
+
+            <div class="row mt-5" data-aos="fade-in">
+
+              <div class="col-lg-4 mt-5 mt-lg-0 d-flex align-items-stretch">
+                <form action="{% url 'stockuploader:upload_file' 'fundamentalmetricttm' %}" method="post" role="form" class="fintank-email-form" enctype="multipart/form-data">
+                  {% csrf_token %}
+                  <input type="file" name="myfile" class="text-center">
+                  <div class="text-center"><button type="submit">Upload TTM Fundamental Metrics</button></div>
+                </form>
+              </div>
+
+              <div class="col-lg-4 mt-5 mt-lg-0 d-flex align-items-stretch">
+                <form action="{% url 'stockuploader:upload_file' 'fundamentalratiottm' %}" method="post" role="form" class="fintank-email-form" enctype="multipart/form-data">
+                  {% csrf_token %}
+                  <input type="file" name="myfile" class="text-center">
+                  <div class="text-center"><button type="submit">Upload TTM FFundamental Ratios</button></div>
+                </form>
+              </div>
+
+            </div>
+
+            {% include 'includes/messages.html' %}
+          </div>
+
+      </div>
+    </section><!-- End Contact Section -->
+
+  </main>
+{% endblock %}

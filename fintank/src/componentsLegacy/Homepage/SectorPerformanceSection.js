@@ -30,7 +30,7 @@ const SectorPerformanceSection = () => {
         <div className="text-center pb-lg-4">
           <p className="h2">Sector Performance: {sectorData?.message}</p>
         </div>
-        <Row>
+        <Row className="px-4 g-0">
           {sectorData.sectors.map((sector, index) => (
             <Col
               key={index}
@@ -42,7 +42,7 @@ const SectorPerformanceSection = () => {
               }`}
             >
               <div
-                style={{ minHeight: "400px" }}
+                style={{ minHeight: "260px" }}
                 className="d-flex align-items-center dark-overlay hover-scale-bg-image"
               >
                 <Image
@@ -53,11 +53,8 @@ const SectorPerformanceSection = () => {
                   layout="fill"
                   className="bg-image"
                 />
-                <div className="p-3 p-sm-5 text-white z-index-20">
-                  <h4 className="h4 text-center">{sector.sector}</h4>
-                  <p className="mb-4">
-                    <strong>{parseFloat(sector.averageChange).toFixed(2)}%</strong>
-                  </p>
+                <div className="p-3 text-white text-center z-index-20">
+                  <h4 className="h4">{sector.sector}: {parseFloat(sector.averageChange).toFixed(2)}%</h4>
                 </div>
               </div>
             </Col>

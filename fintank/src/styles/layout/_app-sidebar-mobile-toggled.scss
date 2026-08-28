@@ -1,0 +1,23 @@
+@keyframes appSidebarMobileSlideInStart {
+	from { inset-inline-start: -$app-sidebar-width; } 
+	to { inset-inline-start: 0; }
+}
+
+@keyframes appSidebarMobileBackdrop { 
+	from { background: transparent; } 
+	to { background: $app-sidebar-mobile-backdrop-bg; } 
+}
+
+.app-sidebar-mobile-toggled {
+	@include media-breakpoint-down(md) {
+		& .app-sidebar {
+			animation: appSidebarMobileSlideInStart .1s ease;
+			inset-inline-start: 0;
+		}
+		& .app-sidebar-mobile-backdrop:not(.app-sidebar-end) {
+			display: block;
+			background: $app-sidebar-mobile-backdrop-bg;
+			animation: appSidebarMobileBackdrop .1s ease;
+		}
+	}
+}

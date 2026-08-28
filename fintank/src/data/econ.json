@@ -1,0 +1,32 @@
+{
+    "econImages": [
+        {
+            "link": "#",
+            "img": "economy/econ1.jpg"
+        },
+        {
+            "link": "#",
+            "img": "economy/econ2.jpg"
+        },
+        {
+            "link": "#",
+            "img": "economy/econ3.jpg"
+        },
+        {
+            "link": "#",
+            "img": "economy/econ4.jpg"
+        },
+        {
+            "link": "#",
+            "img": "economy/econ5.jpg"
+        },
+        {
+            "link": "#",
+            "img": "economy/econ6.jpg"
+        },
+        {
+            "link": "#",
+            "img": "economy/econ7.jpg"
+        }
+    ]
+}

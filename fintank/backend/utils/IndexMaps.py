@@ -1,0 +1,225 @@
+import requests
+import json
+import pandas as pd
+import numpy as np
+import boto3
+import time
+from datetime import date, datetime, timedelta
+from dateutil.relativedelta import relativedelta
+from dateutil import parser
+from functools import reduce
+from django.conf import settings
+import psycopg2
+from psycopg2.extensions import register_adapter, AsIs
+psycopg2.extensions.register_adapter(np.int64, psycopg2._psycopg.AsIs)
+
+
+fintank_data_client = boto3.client(
+    's3',
+    aws_access_key_id = str(settings.AWS_ACCESS_KEY_ID),
+    aws_secret_access_key = str(settings.AWS_SECRET_ACCESS_KEY),
+    region_name = 'us-east-1'
+)
+
+class IndexMaps:
+    
+    def __init__(self, config):
+        self.mapping = {'IBEX 35': 'IBEX',
+                         'FTSE Bursa Malaysia KLCI': 'KLSE',
+                         'Wilshire 5000 Total Market Index': 'W5000',
+                         'Russell 1000 Total Return': 'RUITR',
+                         '13 Week Treasury Bill': 'IRX',
+                         'S&P MID CAP 400 INDEX': 'MID',
+                         'Russell 2000': 'RUT',
+                         'HANG SENG CHINA ENTERPRISES INDEX': 'HSCE',
+                         'BIST 100': 'XU100.IS',
+                         'Russell 3000': 'RUA',
+                         'KOSPI Composite Index': 'KS11',
+                         'S&P BSE SENSEX': 'BSESN',
+                         'Tadawul All Shares Index': 'TASI.SR',
+                         'Dow Jones U.S. Semiconductors Index': 'DJUSSC',
+                         'NYSE AMEX COMPOSITE INDEX': 'XAX',
+                         'STXE 600 PR.EUR': 'STOXX',
+                         'NASDAQ 100 Total Return Index': 'XNDX',
+                         'SSE Composite Index': '000001.SS',
+                         'S&P/TSX 60 Index': 'TX60.TS',
+                         'MDAX PERFORMANCE-INDEX': 'MDAXI',
+                         'Dow Jones Utility Average': 'DJU',
+                         'ALL ORDINARIES': 'AORD',
+                         'Russell 3000 Total Return': 'RUATR',
+                         'Dow Jones Transportation Average': 'DJT',
+                         'Thomson Reuters/CoreCommodity C': 'TRCCRBTR',
+                         'CBOE VIX VOLATILITY INDEX': 'VVIX',
+                         'NYSE Arca Tech 100 Index': 'PSE',
+                         'EGX 30 Price Return Index': 'CASE30',
+                         'CBOE NASDAQ 100 Volatility': 'VXN',
+                         'Nikkei 300': 'N300',
+                         'STI Index': 'STI',
+                         'AEX-INDEX': 'AEX',
+                         'Parallel Market Capped Index ': 'NOMUC.SR',
+                         'Treasury Yield 5 Years': 'FVX',
+                         'S&P 500': 'GSPC',
+                         'CAC 40': 'FCHI',
+                         'DAX PERFORMANCE-INDEX': 'GDAXI',
+                         'Jakarta Composite Index': 'JKSE',
+                         'Dow Jones Industrial Average': 'DJI',
+                         'Treasury Yield 10 Years': 'TNX',
+                         'S&P GSCI Index': 'SPGSCI',
+                         'Nikkei 225': 'N225',
+                         'NYSE COMPOSITE (DJ)': 'NYA',
+                         'FTSE 100': 'FTSE',
+                         'MERVAL': 'MERV',
+                         'Russell 1000': 'RUI',
+                         'EURONEXT 100': 'N100',
+                         'Dow Jones U.S. Total Stock Mark': 'DWCF',
+                         'MOEX Russia Index': 'IMOEX.ME',
+                         'SDAX PERFORMANCEINDEX': 'SDAXI',
+                         'S&P Global Natural Resources Index': 'SPGNRUP',
+                         'Treasury Yield 30 Years': 'TYX',
+                         'US Dollar/USDX - Index - Cash ': 'DX-Y.NYB',
+                         'NASDAQ Composite': 'IXIC',
+                         'TA-125': 'TA125.TA',
+                         'S&P/TSX Composite index': 'GSPTSE',
+                         'Dow Jones Industrial Average TR': 'DJITR',
+                         'Cboe UK 100 Price Return': 'BUK100P',
+                         'S&P 500 (TR)': 'SP500TR',
+                         'TSEC weighted index': 'TWII',
+                         'MSCIUSREIT INDEX': 'RMZ',
+                         'SMI PR': 'SSMI',
+                         'BEL 20': 'BFX',
+                         'CBOE Volatility Index': 'VIX',
+                         'NYSE International 100 Index': 'NYITR',
+                         'S&P/TSX Composite Index - Banks': 'TXBA.TS',
+                         'ALERIAN MLP INDEX': 'AMZ',
+                         'FTSE 250': 'FTMC',
+                         'HANG SENG INDEX': 'HSI',
+                         'NIFTY BANK': 'NSEBANK',
+                         'FTSE 350 Index - Oil & Gas Prod': 'NMX0530',
+                         'XCSE:OMX Stockholm 30 Index': 'OMXS30',
+                         'Russell Midcap Total Return': 'RMCCTR',
+                         'CBOE Gold Volatitity Index': 'GVZ',
+                         'S&P/NZX 50 INDEX GROSS': 'NZ50',
+                         'FTSE 350': 'FTLC',
+                         'Top 40 USD Net TRI Index': 'JN0U.JO',
+                         'TECDAX TR': 'TECDAX',
+                         'CBOE Crude Oil Volatility Index ': 'OVX',
+                         'IBOVESPA': 'BVSP',
+                         'NIFTY 50': 'NSEI',
+                         'Russell 2000 Total Return': 'RUTTR',
+                         'CBOE SILVER ETF VOLATILITY INDEX': 'VXSLV',
+                         'ESTX 50 PR.EUR': 'STOXX50E',
+                         'Cboe Russell 2000 Volatility Index': 'RVX',
+                         'IPC MEXICO': 'MXX',
+                         'Austrian Traded Index in EUR': 'ATX',
+                         'S&P 100 INDEX': 'OEX',
+                         'NASDAQ 100': 'NDX',
+                         'S&P/ASX 200': 'AXJO'}
+        
+        self.index_config = config[0]
+        
+        self.index_minimum_start_dates = {'IBEX 35': '1993-02-15',
+                                         'FTSE Bursa Malaysia KLCI': '1993-12-03',
+                                         'Wilshire 5000 Total Market Index': '1989-01-03',
+                                         'Russell 1000 Total Return': '2020-04-30',
+                                         '13 Week Treasury Bill': '1960-01-04',
+                                         'S&P MID CAP 400 INDEX': '1981-01-02',
+                                         'Russell 2000': '1987-09-10',
+                                         'HANG SENG CHINA ENTERPRISES INDEX': '1993-07-15',
+                                         'BIST 100': 'None',
+                                         'Russell 3000': '1987-09-10',
+                                         'KOSPI Composite Index': '1996-12-11',
+                                         'S&P BSE SENSEX': '1997-07-01',
+                                         'Tadawul All Shares Index': '2022-07-24',
+                                         'Dow Jones U.S. Semiconductors Index': 'None',
+                                         'NYSE AMEX COMPOSITE INDEX': '1995-12-27',
+                                         'STXE 600 PR.EUR': '2004-04-26',
+                                         'NASDAQ 100 Total Return Index': '2020-04-30',
+                                         'SSE Composite Index': 'None',
+                                         'S&P/TSX 60 Index': 'None',
+                                         'MDAX PERFORMANCE-INDEX': '1996-02-29',
+                                         'Dow Jones Utility Average': '1992-01-02',
+                                         'ALL ORDINARIES': '1984-08-03',
+                                         'Russell 3000 Total Return': '2020-04-30',
+                                         'Dow Jones Transportation Average': '1992-01-02',
+                                         'Thomson Reuters/CoreCommodity C': '2022-09-29',
+                                         'CBOE VIX VOLATILITY INDEX': '2007-01-03',
+                                         'NYSE Arca Tech 100 Index': '1984-02-07',
+                                         'EGX 30 Price Return Index': '2019-12-05',
+                                         'CBOE NASDAQ 100 Volatility': '2000-10-10',
+                                         'Nikkei 300': '2005-03-17',
+                                         'STI Index': '1987-12-28',
+                                         'AEX-INDEX': '1992-10-12',
+                                         'Parallel Market Capped Index ': '2022-07-21',
+                                         'Treasury Yield 5 Years': '1962-01-02',
+                                         'S&P 500': '1927-12-30',
+                                         'CAC 40': '1990-03-01',
+                                         'DAX PERFORMANCE-INDEX': '1987-12-30',
+                                         'Jakarta Composite Index': '1990-04-06',
+                                         'Dow Jones Industrial Average': '1985-01-29',
+                                         'Treasury Yield 10 Years': '1962-01-02',
+                                         'S&P GSCI Index': '1984-01-03',
+                                         'Nikkei 225': '1965-01-05',
+                                         'NYSE COMPOSITE (DJ)': '1965-12-31',
+                                         'FTSE 100': '1984-01-03',
+                                         'MERVAL': '1996-10-08',
+                                         'Russell 1000': '1992-12-10',
+                                         'EURONEXT 100': '1999-12-31',
+                                         'Dow Jones U.S. Total Stock Mark': '1970-12-31',
+                                         'MOEX Russia Index': 'None',
+                                         'SDAX PERFORMANCEINDEX': '2013-03-05',
+                                         'S&P Global Natural Resources Index': '2022-08-01',
+                                         'Treasury Yield 30 Years': '1977-02-15',
+                                         'US Dollar/USDX - Index - Cash ': 'None',
+                                         'NASDAQ Composite': '1971-02-05',
+                                         'TA-125': '1992-10-08',
+                                         'S&P/TSX Composite index': '1979-06-29',
+                                         'Dow Jones Industrial Average TR': '2020-04-30',
+                                         'Cboe UK 100 Price Return': '2010-09-17',
+                                         'S&P 500 (TR)': '1988-01-04',
+                                         'TSEC weighted index': '1997-07-02',
+                                         'MSCIUSREIT INDEX': '1995-06-13',
+                                         'SMI PR': '1990-11-09',
+                                         'BEL 20': '1991-04-09',
+                                         'CBOE Volatility Index': '1990-01-02',
+                                         'NYSE International 100 Index': '2022-11-28',
+                                         'S&P/TSX Composite Index - Banks': 'None',
+                                         'ALERIAN MLP INDEX': '1996-01-02',
+                                         'FTSE 250': '1985-12-31',
+                                         'HANG SENG INDEX': '1986-12-31',
+                                         'NIFTY BANK': '2007-09-17',
+                                         'FTSE 350 Index - Oil & Gas Prod': '2021-03-19',
+                                         'XCSE:OMX Stockholm 30 Index': '2022-01-04',
+                                         'Russell Midcap Total Return': '2020-04-30',
+                                         'CBOE Gold Volatitity Index': '2008-06-03',
+                                         'S&P/NZX 50 INDEX GROSS': '2003-01-03',
+                                         'FTSE 350': '1985-12-31',
+                                         'Top 40 USD Net TRI Index': '2017-09-26',
+                                         'TECDAX TR': '1998-01-02',
+                                         'CBOE Crude Oil Volatility Index ': '2007-05-10',
+                                         'IBOVESPA': '1993-04-27',
+                                         'NIFTY 50': '2007-09-17',
+                                         'Russell 2000 Total Return': '2020-04-30',
+                                         'CBOE SILVER ETF VOLATILITY INDEX': '2020-04-28',
+                                         'ESTX 50 PR.EUR': '1986-12-31',
+                                         'Cboe Russell 2000 Volatility Index': '2020-04-28',
+                                         'IPC MEXICO': '1991-11-08',
+                                         'Austrian Traded Index in EUR': '1992-11-11',
+                                         'S&P 100 INDEX': '1982-08-02',
+                                         'NASDAQ 100': '1985-10-01',
+                                         'S&P/ASX 200': '1992-11-23'}
+        
+        
+        
+        
+    def get_minimum_start_date(self, indexes: list):
+        if any(item not in list(self.index_minimum_start_dates.keys()) for item in indexes):
+            raise ValueError("Index Selected Is Not Available")
+        else:
+            indexes_required = indexes
+            chosen_maps = {k: v for k, v in self.index_minimum_start_dates.items() if k in indexes_required}
+            start_dates = [parser.parse(self.index_minimum_start_dates[indexes_required[i]]).date() for i in range(0, len(indexes_required)) if self.index_minimum_start_dates[indexes_required[i]] != "None"]
+            most_common_start_date = reduce(lambda a,b: a if a > b else b, start_dates)
+            return str(most_common_start_date)
+
+        
+        

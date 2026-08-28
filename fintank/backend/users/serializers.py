@@ -11,6 +11,20 @@ from rest_framework.validators import UniqueValidator
 
 from .models import CustomUser, UserProfile, AvatarPreset
 
+class AvatarPresetSerializer(serializers.ModelSerializer):
+    """A preset as the picker needs it: something to show and something to send.
+
+    `url` comes from the model property, which resolves either an uploaded file
+    or a frontend-served static asset, so the client never has to know which
+    kind a given preset is.
+    """
+    url = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = AvatarPreset
+        fields = ("id", "name", "slug", "url")
+
+
 class SignUpSerializer(serializers.ModelSerializer):
     password2 = serializers.CharField(write_only=True, style={"input_type": "password"})
 

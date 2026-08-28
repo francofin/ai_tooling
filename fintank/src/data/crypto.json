@@ -1,0 +1,32 @@
+{
+    "cryptoImages": [
+        {
+            "link": "#",
+            "img": "crypto/crypto1.jpg"
+        },
+        {
+            "link": "#",
+            "img": "crypto/crypto2.png"
+        },
+        {
+            "link": "#",
+            "img":  "crypto/crypto3.png"
+        },
+        {
+            "link": "#",
+            "img":  "crypto/crypto4.png"
+        },
+        {
+            "link": "#",
+            "img":  "crypto/crypto5.jpg"
+        },
+        {
+            "link": "#",
+            "img":  "crypto/crypto6.jpg"
+        },
+        {
+            "link": "#",
+            "img":  "crypto/crypto7.jpg"
+        }
+    ]
+}

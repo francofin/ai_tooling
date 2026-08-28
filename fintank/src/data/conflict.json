@@ -1,0 +1,24 @@
+{
+    "conflictImages": [
+        {
+            "link": "#",
+            "img": "conflict/war1.jpg"
+        },
+        {
+            "link": "#",
+            "img": "conflict/war2.jpg"
+        },
+        {
+            "link": "#",
+            "img": "conflict/war3.jpg"
+        },
+        {
+            "link": "#",
+            "img":  "conflict/war4.jpg"
+        },
+        {
+            "link": "#",
+            "img":  "conflict/war5.jpg"
+        }
+    ]
+}

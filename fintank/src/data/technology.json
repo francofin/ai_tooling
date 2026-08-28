@@ -1,0 +1,32 @@
+{
+    "techImages": [
+        {
+            "link": "#",
+            "img": "technology/tech1.jpg"
+        },
+        {
+            "link": "#",
+            "img": "technology/tech2.jpg"
+        },
+        {
+            "link": "#",
+            "img":  "technology/tech3.jpg"
+        },
+        {
+            "link": "#",
+            "img":  "technology/tech4.jpg"
+        },
+        {
+            "link": "#",
+            "img":  "technology/tech5.jpg"
+        },
+        {
+            "link": "#",
+            "img":  "technology/tech6.jpg"
+        },
+        {
+            "link": "#",
+            "img":  "technology/tech7.jpg"
+        }
+    ]
+}

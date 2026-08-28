@@ -1,0 +1,906 @@
+{
+    "title": "Your nearest bookings",
+    "button": {
+      "title": "Past bookings",
+      "link": "#"
+    },
+    "download": {
+      "title": "Download CSV",
+      "link": "#"
+    },
+    "sectors": [
+        {
+        "value": "All",
+        "label": "All",
+        "type": "sector"
+      },
+      {
+        "value": "Industrials",
+        "label": "Industrials",
+        "type": "sector"
+      },
+      {
+        "value": "Healthcare",
+        "label": "Healthcare",
+        "type": "sector"
+      },
+      {
+        "value": "Technology",
+        "label": "Technology",
+        "type": "sector"
+      },
+      {
+        "value": "Communication Services",
+        "label": "Communication Services",
+        "type": "sector"
+      },
+      {
+        "value": "Consumer Defensive",
+        "label": "Consumer Defensive",
+        "type": "sector"
+      },
+      {
+        "value": "Consumer Cyclical",
+        "label": "Consumer Cyclical",
+        "type": "sector"
+      },
+      {
+        "value": "Utilities",
+        "label": "Utilities",
+        "type": "sector"
+      },
+      {
+        "value": "Financial Services",
+        "label": "Financial Services",
+        "type": "sector"
+      },
+      {
+        "value": "Basic Materials",
+        "label": "Basic Materials",
+        "type": "sector"
+      },
+      {
+        "value": "Real Estate",
+        "label": "Real Estate",
+        "type": "sector"
+      },
+      {
+        "value": "Energy",
+        "label": "Energy",
+        "type": "sector"
+      }
+    ],
+    "marketCapRanges":[
+      {
+        "value":0,
+        "label":"No Minimum"
+      },{
+        "value":500000000,
+        "label":"$500M"
+      },
+      {
+        "value":1000000000,
+        "label":"$1B"
+      },
+      {
+        "value":5000000000,
+        "label":"$5B"
+      },
+      {
+        "value":10000000000,
+        "label":"$10B"
+      },
+      {
+        "value":50000000000,
+        "label":"$50B"
+      },
+      {
+        "value":100000000000,
+        "label":"$100B"
+      }
+    ],
+    "betaRanges":[
+      {
+        "value":5,
+        "label":"Very High Beta Stocks"
+      },
+      {
+        "value":2,
+        "label":"Moderately High Beta Stocks"
+      },
+      {
+        "value":0,
+        "label":"Beta Neutral Stocks"
+      },
+      {
+        "value":-2,
+        "label":"Negative Beta Stocks"
+      },
+      {
+        "value":-10,
+        "label":"Very Negative Beta Stocks"
+      },
+      {
+        "value":"",
+        "label":"All Stocks, (no Filter)"
+      }
+    ],
+    "dividendFilter":[
+      {
+        "value":"",
+        "label":"All Stocks, (no filter)"
+      },
+      {
+        "value":0,
+        "label":"Only Stocks With A Positive Dividend"
+      }
+    ],
+    "priceRanges":[
+      {
+        "value":0,
+        "label":"Minimum Price"
+      },
+      {
+        "value":5,
+        "label":"$5"
+      },
+      {
+        "value":10,
+        "label":"$10"
+      },
+      {
+        "value":50,
+        "label":"$50"
+      },
+      {
+        "value":100,
+        "label":"$100"
+      },
+      {
+        "value":200,
+        "label":"$200"
+      },
+      {
+        "value":500,
+        "label":"$500"
+      },
+      {
+        "value":1000,
+        "label":"$1000"
+      },
+      {
+        "value":2000000,
+        "label":"Max Price"
+      }
+      
+    ],
+    "country": [
+      {
+        "value":"US",
+        "label":"US"
+      },
+      {
+        "value":"CA",
+        "label":"Canada"
+      },
+      {
+        "value":"GB",
+        "label":"United Kingdom"
+      },
+      {
+        "value":"CH",
+        "label":"Switzerland"
+      },
+      {
+        "value":"JP",
+        "label":"Japan"
+      },
+      {
+        "value":"AU",
+        "label":"Australia"
+      },
+      {
+        "value":"HK",
+        "label":"Hong Kong"
+      },
+      {
+        "value":"FR",
+        "label":"France"
+      },
+      {
+        "value":"BR",
+        "label":"Brazil"
+      },
+      {
+        "value":"MX",
+        "label":"Mexico"
+      },
+      {
+        "value":"TW",
+        "label":"Taiwan"
+      },
+      {
+        "value":"CN",
+        "label":"China"
+      },
+      {
+        "value":"NL",
+        "label":"Netherlands"
+      },
+      {
+        "value":"DK",
+        "label":"Denmark"
+      },
+      {
+        "value":"DE",
+        "label":"Germany"
+      },
+      {
+        "value":"IN",
+        "label":"India"
+      },
+      {
+        "value":"BE",
+        "label":"Belgium"
+      },
+      {
+        "value":"ES",
+        "label":"Spain"
+      },
+      {
+        "value":"IT",
+        "label":"Italy"
+      },
+      {
+        "value":"SG",
+        "label":"Singapore"
+      },
+      {
+        "value":"NO",
+        "label":"Norway"
+      },
+      {
+        "value":"IE",
+        "label":"Ireland"
+      },
+      {
+        "value":"MO",
+        "label":"Macao"
+      },
+      {
+        "value":"KR",
+        "label":"South Korea"
+      },
+      {
+        "value":"NZ",
+        "label":"New Zealand  "
+      },
+      {
+        "value":"ZA",
+        "label":"South Africa"
+      },
+      {
+        "value":"RU",
+        "label":"Russia"
+      }
+    ],
+    "subSectors": [
+        {
+            "value": "All",
+            "label": "All",
+            "type": "subsector"
+        },
+        {
+          "value": "Industrial Conglomerates",
+          "label": "Industrial Conglomerates",
+          "type": "subsector"
+        },
+        {
+          "value": "Building Products",
+          "label": "Building Products",
+          "type": "subsector"
+        },
+        {
+          "value": "Health Care Equipment",
+          "label": "Health Care Equipment",
+          "type": "subsector"
+        },
+        {
+          "value": "Pharmaceuticals",
+          "label": "Pharmaceuticals",
+          "type": "subsector"
+        },
+        {
+          "value": "IT Consulting & Other Services",
+          "label": "IT Consulting & Other Services",
+          "type": "subsector"
+        },
+        {
+          "value": "Interactive Home Entertainment",
+          "label": "Interactive Home Entertainment",
+          "type": "subsector"
+        },
+        {
+          "value": "Agricultural Products",
+          "label": "Agricultural Products",
+          "type": "subsector"
+        },
+        {
+          "value": "Application Software",
+          "label": "Application Software",
+          "type": "subsector"
+        },
+        {
+         "value": "Data Processing & Outsourced Services",
+          "label": "Data Processing & Outsourced Services",
+          "type": "subsector"
+        },
+        {
+          "value": "Automotive Retail",
+          "label": "Automotive Retail",
+          "type": "subsector"
+        },
+        {
+          "value": "Independent Power Producers & Energy Traders",
+          "label": "Independent Power Producers & Energy Traders",
+          "type": "subsector"
+        },
+        {
+          "value": "Life & Health Insurance",
+          "label": "Life & Health Insurance",
+          "type": "subsector"
+        },
+        {
+          "value": "Industrial Gases",
+          "label": "Industrial Gases",
+          "type": "subsector"
+        },
+        {
+          "value": "Internet Services & Infrastructure",
+          "label": "Internet Services & Infrastructure",
+          "type": "subsector"
+        },
+        {
+          "value": "Airlines",
+          "label": "Airlines",
+          "type": "subsector"
+        },
+        {
+          "value": "Specialty Chemicals",
+          "label": "Specialty Chemicals",
+          "type": "subsector"
+        },
+        {
+          "value": "Office REITs",
+          "label": "Office REITs",
+          "type": "subsector"
+        },
+        {
+          "value": "Health Care Supplies",
+          "label": "Health Care Supplies",
+          "type": "subsector"
+        },
+        {
+          "value": "Electric Utilities",
+          "label": "Electric Utilities",
+          "type": "subsector"
+        },
+        {
+          "value": "Property & Casualty Insurance",
+          "label": "Property & Casualty Insurance",
+          "type": "subsector"
+        },
+        {
+          "value": "Interactive Media & Services",
+          "label": "Interactive Media & Services",
+          "type": "subsector"
+        },
+        {
+          "value": "Tobacco",
+          "label": "Tobacco",
+          "type": "subsector"
+        },
+        {
+          "value": "Internet & Direct Marketing Retail",
+          "label": "Internet & Direct Marketing Retail",
+          "type": "subsector"
+        },
+        {
+          "value": "Paper Packaging",
+          "label": "Paper Packaging",
+          "type": "subsector"
+        },
+        {
+          "value": "Semiconductors",
+          "label": "Semiconductors",
+          "type": "subsector"
+        },
+        {
+          "value": "Multi-Utilities",
+          "label": "Multi-Utilities",
+          "type": "subsector"
+        },
+        {
+          "value": "Consumer Finance",
+          "label": "Consumer Finance",
+          "type": "subsector"
+        },
+        {
+          "value": "Specialized REITs",
+          "label": "Specialized REITs",
+          "type": "subsector"
+        },
+        {
+          "value": "Water Utilities",
+          "label": "Water Utilities",
+          "type": "subsector"
+        },
+        {
+          "value": "Asset Management & Custody Banks",
+          "label": "Asset Management & Custody Banks",
+          "type": "subsector"
+        },
+        {
+          "value": "Health Care Distributors",
+          "label": "Health Care Distributors",
+          "type": "subsector"
+        },
+        {
+          "value": "Electrical Components & Equipment",
+          "label": "Electrical Components & Equipment",
+          "type": "subsector"
+        },
+        {
+          "value": "Biotechnology",
+          "label": "Biotechnology",
+          "type": "subsector"
+        },
+        {
+          "value": "Electronic Components",
+          "label": "Electronic Components",
+          "type": "subsector"
+        },
+        {
+          "value": "Insurance Brokers",
+          "label": "Insurance Brokers",
+          "type": "subsector"
+        },
+        {
+          "value": "Oil & Gas Exploration & Production",
+          "label": "Oil & Gas Exploration & Production",
+          "type": "subsector"
+        },
+        {
+          "value": "Technology Hardware, Storage & Peripherals",
+          "label": "Technology Hardware, Storage & Peripherals",
+          "type": "subsector"
+        },
+        {
+          "value": "Semiconductor Equipment",
+          "label": "Semiconductor Equipment",
+          "type": "subsector"
+        },
+        {
+          "value": "Auto Parts & Equipment",
+          "label": "Auto Parts & Equipment",
+          "type": "subsector"
+        },
+        {
+          "value": "Communications Equipment",
+          "label": "Communications Equipment",
+          "type": "subsector"
+        },
+        {
+          "value": "Multi-line Insurance",
+          "label": "Multi-line Insurance",
+          "type": "subsector"
+        },
+        {
+          "value": "Integrated Telecommunication Services",
+          "label": "Integrated Telecommunication Services",
+          "type": "subsector"
+        },
+        {
+          "value": "Gas Utilities",
+          "label": "Gas Utilities",
+          "type": "subsector"
+        },
+        {
+          "value": "Specialty Store",
+          "label": "Specialty Store",
+          "type": "subsector"
+        },
+        {
+          "value": "Residential REITs",
+          "label": "Residential REITs",
+          "type": "subsector"
+        },
+        {
+          "value": "Oil & Gas Equipment & Services",
+          "label": "Oil & Gas Equipment & Services",
+          "type": "subsector"
+        },
+        {
+          "value": "Metal & Glass Containers",
+          "label": "Metal & Glass Containers",
+          "type": "subsector"
+        },
+        {
+          "value": "Diversified Banks",
+          "label": "Diversified Banks",
+          "type": "subsector"
+        },
+        {
+          "value": "Multi-Sector Holdings",
+          "label": "Multi-Sector Holdings",
+          "type": "subsector"
+        },
+        {
+          "value": "Computer & Electronics Retail",
+          "label": "Computer & Electronics Retail",
+          "type": "subsector"
+        },
+        {
+          "value": "Life Sciences Tools & Services",
+          "label": "Life Sciences Tools & Services",
+          "type": "subsector"
+        },
+        {
+          "value": "Aerospace & Defense",
+          "label": "Aerospace & Defense",
+          "type": "subsector"
+        },
+        {
+          "value": "Distillers & Vintners",
+          "label": "Distillers & Vintners",
+          "type": "subsector"
+        },
+        {
+          "value": "Air Freight & Logistics",
+          "label": "Air Freight & Logistics",
+          "type": "subsector"
+        },
+        {
+          "value": "Casinos & Gaming",
+          "label": "Casinos & Gaming",
+          "type": "subsector"
+        },
+        {
+          "value": "Packaged Foods & Meats",
+          "label": "Packaged Foods & Meats",
+          "type": "subsector"
+        },
+        {
+          "value": "Hotels, Resorts & Cruise Lines",
+          "label": "Hotels, Resorts & Cruise Lines",
+          "type": "subsector"
+        },
+        {
+          "value": "Construction Machinery & Heavy Trucks",
+          "label": "Construction Machinery & Heavy Trucks",
+          "type": "subsector"
+        },
+        {
+          "value": "Financial Exchanges & Data",
+          "label": "Financial Exchanges & Data",
+          "type": "subsector"
+        },
+        {
+          "value": "Real Estate Services",
+          "label": "Real Estate Services",
+          "type": "subsector"
+        },
+        {
+          "value": "Technology Distributors",
+          "label": "Technology Distributors",
+          "type": "subsector"
+        },
+        {
+          "value": "Managed Health Care",
+          "label": "Managed Health Care",
+          "type": "subsector"
+        },
+        {
+          "value": "Fertilizers & Agricultural Chemicals",
+          "label": "Fertilizers & Agricultural Chemicals",
+          "type": "subsector"
+        },
+        {
+          "value": "Investment Banking & Brokerage",
+          "label": "Investment Banking & Brokerage",
+          "type": "subsector"
+        },
+        {
+          "value": "Cable & Satellite",
+          "label": "Cable & Satellite",
+          "type": "subsector"
+        },
+        {
+          "value": "Integrated Oil & Gas",
+          "label": "Integrated Oil & Gas",
+          "type": "subsector"
+        },
+        {
+          "value": "Restaurants",
+          "label": "Restaurants",
+          "type": "subsector"
+        },
+        {
+          "value": "Household Products",
+          "label": "Household Products",
+          "type": "subsector"
+        },
+        {
+          "value": "Diversified Support Services",
+          "label": "Diversified Support Services",
+          "type": "subsector"
+        },
+        {
+          "value": "Regional Banks",
+          "label": "Regional Banks",
+          "type": "subsector"
+        },
+        {
+          "value": "Soft Drinks",
+          "label": "Soft Drinks",
+          "type": "subsector"
+        },
+        {
+          "value": "Research & Consulting Services",
+          "label": "Research & Consulting Services",
+          "type": "subsector"
+        },
+        {
+          "value": "Hypermarkets & Super Centers",
+          "label": "Hypermarkets & Super Centers",
+          "type": "subsector"
+        },
+        {
+          "value": "Railroads",
+          "label": "Railroads",
+          "type": "subsector"
+        },
+        {
+          "value": "Industrial Machinery",
+          "label": "Industrial Machinery",
+          "type": "subsector"
+        },
+        {
+          "value": "Health Care Services",
+          "label": "Health Care Services",
+          "type": "subsector"
+        },
+        {
+          "value": "Homebuilding",
+          "label": "Homebuilding",
+          "type": "subsector"
+        },
+        {
+          "value": "Health Care Facilities",
+          "label": "Health Care Facilities",
+          "type": "subsector"
+        },
+        {
+          "value": "Agricultural & Farm Machinery",
+          "label": "Agricultural & Farm Machinery",
+          "type": "subsector"
+        },
+        {
+          "value": "Movies & Entertainment",
+          "label": "Movies & Entertainment",
+          "type": "subsector"
+        },
+        {
+          "value": "General Merchandise Stores",
+          "label": "General Merchandise Stores",
+          "type": "subsector"
+        },
+        {
+          "value": "Commodity Chemicals",
+          "label": "Commodity Chemicals",
+          "type": "subsector"
+        },
+        {
+          "value": "Industrial REITs",
+          "label": "Industrial REITs",
+          "type": "subsector"
+        },
+        {
+          "value": "Diversified Chemicals",
+          "label": "Diversified Chemicals",
+          "type": "subsector"
+        },
+        {
+          "value": "Personal Products",
+          "label": "Personal Products",
+          "type": "subsector"
+        },
+        {
+          "value": "Reinsurance",
+          "label": "Reinsurance",
+          "type": "subsector"
+        },
+        {
+          "value": "Retail REITs",
+          "label": "Retail REITs",
+          "type": "subsector"
+        },
+        {
+          "value": "Automobile Manufacturers",
+          "label": "Automobile Manufacturers",
+          "type": "subsector"
+        },
+        {
+          "value": "Systems Software",
+          "label": "Systems Software",
+          "type": "subsector"
+        },
+        {
+          "value": "Copper",
+          "label": "Copper",
+          "type": "subsector"
+        },
+        {
+          "value": "Consumer Electronics",
+          "label": "Consumer Electronics",
+          "type": "subsector"
+        },
+        {
+          "value": "Leisure Products",
+          "label": "Leisure Products",
+          "type": "subsector"
+        },
+        {
+          "value": "Health Care REITs",
+          "label": "Health Care REITs",
+          "type": "subsector"
+        },
+        {
+          "value": "Home Improvement Retail",
+          "label": "Home Improvement Retail",
+          "type": "subsector"
+        },
+        {
+          "value": "Hotel & Resort REITs",
+          "label": "Hotel & Resort REITs",
+          "type": "subsector"
+        },
+        {
+          "value": "Advertising",
+          "label": "Advertising",
+          "type": "subsector"
+        },
+        {
+          "value": "Trucking",
+          "label": "Trucking",
+          "type": "subsector"
+        },
+        {
+          "value": "Construction & Engineering",
+          "label": "Construction & Engineering",
+          "type": "subsector"
+        },
+        {
+          "value": "Electronic Equipment & Instruments",
+          "label": "Electronic Equipment & Instruments",
+          "type": "subsector"
+        },
+        {
+          "value": "Oil & Gas Storage & Transportation",
+          "label": "Oil & Gas Storage & Transportation",
+          "type": "subsector"
+        },
+        {
+          "value": "Food Retail",
+          "label": "Food Retail",
+          "type": "subsector"
+        },
+        {
+          "value": "Distributors",
+          "label": "Distributors",
+          "type": "subsector"
+        },
+        {
+          "value": "Alternative Carriers",
+          "label": "Alternative Carriers",
+          "type": "subsector"
+        },
+        {
+          "value": "Oil & Gas Refining & Marketing",
+          "label": "Oil & Gas Refining & Marketing",
+          "type": "subsector"
+        },
+        {
+          "value": "Construction Materials",
+          "label": "Construction Materials",
+          "type": "subsector"
+        },
+        {
+          "value": "Home Furnishings",
+          "label": "Home Furnishings",
+          "type": "subsector"
+        },
+        {
+          "value": "Brewers",
+          "label": "Brewers",
+          "type": "subsector"
+        },
+        {
+          "value": "Housewares & Specialties",
+          "label": "Housewares & Specialties",
+          "type": "subsector"
+        },
+        {
+          "value": "Gold",
+          "label": "Gold",
+          "type": "subsector"
+        },
+        {
+          "value": "Publishing",
+          "label": "Publishing",
+          "type": "subsector"
+        },
+        {
+          "value": "Apparel, Accessories & Luxury Goods",
+          "label": "Apparel, Accessories & Luxury Goods",
+          "type": "subsector"
+        },
+        {
+          "value": "Steel",
+          "label": "Steel",
+          "type": "subsector"
+        },
+        {
+          "value": "Environmental & Facilities Services",
+          "label": "Environmental & Facilities Services",
+          "type": "subsector"
+        },
+        {
+          "value": "Human Resource & Employment Services",
+          "label": "Human Resource & Employment Services",
+          "type": "subsector"
+        },
+        {
+          "value": "Apparel Retail",
+          "label": "Apparel Retail",
+          "type": "subsector"
+        },
+        {
+          "value": "Food Distributors",
+          "label": "Food Distributors",
+          "type": "subsector"
+        },
+        {
+          "value": "Wireless Telecommunication Services",
+          "label": "Wireless Telecommunication Services",
+          "type": "subsector"
+        },
+        {
+          "value": "Electronic Manufacturing Services",
+          "label": "Electronic Manufacturing Services",
+          "type": "subsector"
+        },
+        {
+          "value": "Trading Companies & Distributors",
+          "label": "Trading Companies & Distributors",
+          "type": "subsector"
+        },
+        {
+          "value": "Drug Retail",
+          "label": "Drug Retail",
+          "type": "subsector"
+        },
+        {
+          "value": "Broadcasting",
+          "label": "Broadcasting",
+          "type": "subsector"
+        },
+        {
+          "value": "Household Appliances",
+          "label": "Household Appliances",
+          "type": "subsector"
+        }
+      ]
+    
+  }
+  

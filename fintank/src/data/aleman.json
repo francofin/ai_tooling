@@ -1,0 +1,40 @@
+{
+    "alemanImages": [
+        {
+            "link": "#",
+            "img": "aleman/gm1.jpg"
+        },
+        {
+            "link": "#",
+            "img": "aleman/gm2.jpg"
+        },
+        {
+            "link": "#",
+            "img":  "aleman/gm3.jpg"
+        },
+        {
+            "link": "#",
+            "img":  "aleman/gm4.jpg"
+        },
+        {
+            "link": "#",
+            "img":  "aleman/gm5.jpg"
+        },
+        {
+            "link": "#",
+            "img":  "aleman/gm6.jpg"
+        },
+        {
+            "link": "#",
+            "img": "aleman/gm7.jpg"
+        },
+        {
+            "link": "#",
+            "img": "aleman/gm8.jpg"
+        },
+        {
+            "link": "#",
+            "img": "aleman/gm9.jpg"
+        }
+    ]
+}

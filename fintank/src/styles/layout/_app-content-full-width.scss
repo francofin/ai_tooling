@@ -1,0 +1,12 @@
+.app-content-full-width {
+	& .app-content {
+		margin: 0;
+	}
+	& .app-footer {
+		margin-inline-start: $app-content-padding-x;
+		
+		@include media-breakpoint-down(md) {
+			margin-inline-start: $app-content-sm-padding-x;
+		}
+	}
+}

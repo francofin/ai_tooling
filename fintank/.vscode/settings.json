@@ -1,0 +1,35 @@
+{
+  "python.defaultInterpreterPath": "../.venv/bin/python",
+  "python.terminal.activateEnvironment": true,
+
+  // Notebook navigation: fold sections by markdown header, keep chevrons visible
+  "notebook.showFoldingControls": "always",
+  "notebook.outline.showCodeCells": true,
+  "notebook.stickyScroll.enabled": true,
+  "notebook.output.scrolling": true,
+  "notebook.compactView": true,
+
+  // Memory: applies when fintank/ is opened directly rather than via the
+  // monorepo root (which has its own .vscode/settings.json with the same intent).
+  "files.watcherExclude": {
+    "**/node_modules/**": true,
+    "**/.next/**": true,
+    "**/.venv/**": true,
+    "**/__pycache__/**": true,
+    "**/.git/objects/**": true,
+    "**/anchor/target/**": true,
+    "**/stables/out/**": true,
+    "**/stables/cache/**": true,
+    "**/.playwright-mcp/**": true
+  },
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/.next": true,
+    "**/.venv": true,
+    "**/__pycache__": true,
+    "**/anchor/target": true,
+    "**/package-lock.json": true
+  },
+  "typescript.tsserver.maxTsServerMemory": 3072,
+  "typescript.disableAutomaticTypeAcquisition": true
+}

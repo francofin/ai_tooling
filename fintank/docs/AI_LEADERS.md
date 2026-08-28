@@ -1,0 +1,4 @@
+## AI Leadership notes
+
+### Strategists
+

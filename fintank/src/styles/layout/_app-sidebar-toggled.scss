@@ -1,0 +1,29 @@
+@keyframes appSidebarExpand {
+	from { margin-inline-start: -$app-sidebar-width; }
+	to { margin-inline-start: 0; }
+}
+@keyframes appContentExpand {
+	from { margin-inline-start: 0; }
+	to { margin-inline-start: $app-sidebar-width; }
+}
+@keyframes appFooterExpand {
+	from { margin-inline-start: $app-content-padding-x; }
+	to { margin-inline-start: $app-sidebar-width + $app-content-padding-x; }
+}
+
+.app-sidebar-toggled {
+	@include media-breakpoint-up(md) {
+		& .app-sidebar {
+			animation: appSidebarExpand 0.15s both cubic-bezier(0.7, 0, 0.3, 1);
+			margin-inline-start: 0;
+		}
+		& .app-content {
+			animation: appContentExpand 0.15s both cubic-bezier(0.7, 0, 0.3, 1);
+			margin-inline-start: $app-sidebar-width;
+		}
+		& .app-footer {
+			animation: appFooterExpand 0.15s both cubic-bezier(0.7, 0, 0.3, 1);
+			margin-inline-start: $app-sidebar-width + $app-content-padding-x;
+		}
+	}
+}

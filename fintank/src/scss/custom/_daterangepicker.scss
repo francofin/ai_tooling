@@ -1,0 +1,13 @@
+/*
+* ===================================================
+*     Daterange Picker
+* ===================================================
+*/
+
+$colorMiddle: lighten(map-get($theme-colors, "primary"), 5%) !default;
+
+.rdp {
+  .rdp-day_range_middle {
+    background-color: $colorMiddle !important;
+  }
+}

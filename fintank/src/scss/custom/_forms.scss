@@ -1,0 +1,237 @@
+/*
+* ===================================================
+*     Custom form controls
+* ===================================================
+*/
+
+// 1. Label
+.form-label {
+  color: $gray-600;
+  font-size: $font-size-base * 0.8;
+  @include uppercase;
+}
+
+// 2. Underlined form control, i.e. Keep only border bottom
+.form-control.form-control-underlined {
+  border-radius: 0;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+  padding-left: 0;
+}
+
+// 3. Items +/- button
+
+.form-control.input-items {
+  width: 2rem;
+  border-color: transparent;
+  margin-left: 0.6rem;
+  margin-right: 0.6rem;
+  padding-left: 0;
+  padding-right: 0;
+  text-align: center;
+
+  &:disabled {
+    background: $white;
+  }
+}
+
+.btn.btn-items {
+  display: inline-block;
+  width: 30px;
+  height: 30px;
+  line-height: 30px;
+  border-radius: 50%;
+  letter-spacing: 0;
+  font-weight: normal;
+  padding: 0;
+  border: solid 1px map-get($theme-colors, "primary");
+  text-align: center;
+  color: map-get($theme-colors, "primary");
+  flex-shrink: 0;
+}
+
+// 4. Input + absolutely positioned label inside it
+
+.input-label-absolute {
+  position: relative;
+}
+
+.label-absolute {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  color: $gray-600;
+}
+
+.input-label-absolute-left {
+  .label-absolute {
+    left: 0.7rem;
+  }
+
+  .form-control {
+    padding-left: 2rem;
+  }
+}
+
+.input-label-absolute-right {
+  .label-absolute {
+    right: 0.7rem;
+  }
+
+  .form-control {
+    padding-right: 2rem;
+  }
+}
+
+// 5. Expanding input - used for search in the navbar
+
+.input-expand {
+  position: relative;
+  z-index: 50;
+
+  .form-control {
+    width: 100%;
+    max-width: 15rem;
+    transition: all 0.5s !important;
+  }
+
+  &.focus {
+    // position: absolute;
+
+    .form-control {
+      width: 15rem !important;
+    }
+  }
+}
+
+.input-reset.focus {
+  .form-control {
+    padding-right: 2rem;
+  }
+
+  .btn-reset {
+    display: block;
+  }
+}
+
+.btn-reset {
+  display: none;
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  color: $gray-600;
+  background: none;
+
+  &:focus {
+    box-shadow: none;
+  }
+}
+
+// 6. Collapse button (+/- icon switching)
+
+.btn-collapse {
+  &::before {
+    display: inline-block;
+    content: "";
+    width: 20px;
+    height: 20px;
+    margin-right: 0.5rem;
+    vertical-align: text-bottom;
+    background-image: escape-svg(
+      url('data:image/svg+xml;charset=utf8,<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 64 64" aria-labelledby="title" aria-describedby="desc" role="img"><title>Add</title><desc>A line styled icon from Orion Icon Library.</desc><path data-name="layer1" fill="none" stroke="#{$primary}" stroke-miterlimit="10" stroke-width="8" d="M32 16v32m16-16H16" stroke-linejoin="round" stroke-linecap="round"/></svg>')
+    );
+  }
+
+  &[aria-expanded="true"] {
+    &::before {
+      background-image: escape-svg(
+        url('data:image/svg+xml;charset=utf8,<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 64 64" aria-labelledby="title" aria-describedby="desc" role="img"><title>Minus</title><desc>A line styled icon from Orion Icon Library.</desc><path data-name="layer1" fill="none" stroke="#{$primary}" stroke-miterlimit="10" stroke-width="8" d="M48 32H16" stroke-linejoin="round" stroke-linecap="round"/></svg>')
+      );
+    }
+  }
+  &:focus {
+    box-shadow: none;
+  }
+}
+@each $color,
+  $value
+    in map-merge(
+      $theme-colors,
+      (
+        muted: $gray-600,
+      )
+    )
+{
+  .btn-collapse.text-#{$color} {
+    &::before {
+      background-image: escape-svg(
+        url('data:image/svg+xml;charset=utf8,<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 64 64" aria-labelledby="title" aria-describedby="desc" role="img"><title>Add</title><desc>A line styled icon from Orion Icon Library.</desc><path data-name="layer1" fill="none" stroke="#{$value}" stroke-miterlimit="10" stroke-width="8" d="M32 16v32m16-16H16" stroke-linejoin="round" stroke-linecap="round"/></svg>')
+      );
+    }
+  }
+
+  .btn-collapse.text-#{$color}[aria-expanded="true"] {
+    &::before {
+      background-image: escape-svg(
+        url('data:image/svg+xml;charset=utf8,<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 64 64" aria-labelledby="title" aria-describedby="desc" role="img"><title>Minus</title><desc>A line styled icon from Orion Icon Library.</desc><path data-name="layer1" fill="none" stroke="#{$value}" stroke-miterlimit="10" stroke-width="8" d="M48 32H16" stroke-linejoin="round" stroke-linecap="round"/></svg>')
+      );
+    }
+  }
+}
+// 7. Muted button
+
+// .btn-muted {
+//   @include button-variant($text-muted, $text-muted);
+// }
+
+// .btn-outline-muted {
+//   @include button-outline-variant($text-muted);
+// }
+
+// 8. Adjust custom switch
+.form-switch {
+  .form-check-input {
+    height: $form-switch-height;
+
+    &::before {
+      height: $form-switch-height;
+    }
+  }
+
+  .form-check-label {
+    margin-top: 0.3em;
+  }
+}
+
+// 9.  Social icon button
+
+.btn-social {
+  position: relative;
+  padding-left: 3rem;
+}
+
+.btn-social-icon {
+  position: absolute;
+  left: 1rem;
+  width: 2rem;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+// 10. Form Blocks
+
+.form-block {
+  padding-top: 4rem;
+  padding-bottom: 4rem;
+  border-bottom: 1px solid $gray-200;
+
+  &:first-of-type {
+    border-top: 1px solid $gray-200;
+  }
+
+  &:last-of-type {
+    border-bottom: none;
+  }
+}

@@ -1,0 +1,44 @@
+{
+    "latamImages": [
+        {
+            "link": "#",
+            "img": "latam/sa1.jpg"
+        },
+        {
+            "link": "#",
+            "img": "latam/sa2.jpg"
+        },
+        {
+            "link": "#",
+            "img": "latam/sa3.jpg"
+        },
+        {
+            "link": "#",
+            "img":"latam/sa4.jpg"
+        },
+        {
+            "link": "#",
+            "img":"latam/sa5.jpg"
+        },
+        {
+            "link": "#",
+            "img":"latam/sa6.jpg"
+        },
+        {
+            "link": "#",
+            "img": "latam/sa7.jpg"
+        },
+        {
+            "link": "#",
+            "img":"latam/sa8.jpg"
+        },
+        {
+            "link": "#",
+            "img": "latam/sa9.jpg"
+        },
+        {
+            "link": "#",
+            "img": "latam/sa10.jpg"
+        }
+    ]
+}

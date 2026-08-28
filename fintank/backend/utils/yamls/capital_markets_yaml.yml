@@ -1,0 +1,85 @@
+- Commodities:
+  - Copper: HGUSD
+    Gold: GCUSD
+    Lumber: LBSUSD
+    Natural Gas: NGUSD
+    Oil: BZUSD
+  Dow_Jones:
+    comparison_indexes:
+    - CAC 40: FCHI
+      CBOE Volatility Index: VIX
+      Dow Jones Transportation Average: DJT
+      Dow Jones U.S. Semiconductors Index: DJUSSC
+      Dow Jones U.S. Total Stock Mark: DWCF
+      Dow Jones Utility Average: DJU
+      ESTX 50 PR.EUR: STOXX50E
+      IBEX 35: IBEX
+      IPC MEXICO: MXX
+      MDAX PERFORMANCE-INDEX: MDAXI
+      NIFTY 50: NSEI
+      NYSE International 100 Index: NYITR
+      S&P 500: GSPC
+      S&P BSE SENSEX: BSESN
+      S&P/NZX 50 INDEX GROSS: NZ50
+      S&P/TSX 60 Index: TX60.TS
+    index_code: DJI
+    index_name: Dow Jones Industrial Average
+  NASDAQ:
+    comparison_indexes:
+    - CBOE Volatility Index: VIX
+      Dow Jones Transportation Average: DJT
+      Dow Jones U.S. Semiconductors Index: DJUSSC
+      Dow Jones U.S. Total Stock Mark: DWCF
+      Dow Jones Utility Average: DJU
+      FTSE 350 Index - Oil & Gas Prod: NMX0530
+      S&P 500: GSPC
+      S&P/TSX Composite index: GSPTSE
+    index_code: IXIC
+    index_name: NASDAQ Composite
+  Russell_2000:
+    comparison_indexes:
+    - CBOE Volatility Index: VIX
+      FTSE 250: FTMC
+      FTSE 350: FTLC
+      Nikkei 300: N300
+      Russell 1000: RUI
+      Russell 3000: RUA
+      Russell Midcap Total Return: RMCCTR
+      S&P 100 INDEX: OEX
+      S&P 500: GSPC
+      STXE 600 PR.EUR: STOXX
+    index_code: RUT
+    index_name: Russell 2000
+  S&P500:
+    comparison_indexes:
+    - CBOE Volatility Index: VIX
+      EURONEXT 100: N100
+      FTSE 100: FTSE
+      FTSE 250: FTMC
+      HANG SENG INDEX: HSI
+      IPC MEXICO: MXX
+      Nikkei 225: N225
+      Russell 2000: RUT
+      S&P 100 INDEX: OEX
+      S&P MID CAP 400 INDEX: MID
+      S&P/ASX 200: AXJO
+      S&P/TSX Composite index: GSPTSE
+      STXE 600 PR.EUR: STOXX
+    index_code: GSPC
+    index_name: S&P 500
+  TSX:
+    comparison_indexes:
+    - CBOE Volatility Index: VIX
+      EURONEXT 100: N100
+      FTSE 100: FTSE
+      FTSE 250: FTMC
+      HANG SENG INDEX: HSI
+      Nikkei 225: N225
+      S&P 100 INDEX: OEX
+      S&P 500: GSPC
+      S&P MID CAP 400 INDEX: MID
+      S&P/ASX 200: AXJO
+      S&P/TSX 60 Index: TX60.TS
+      STXE 600 PR.EUR: STOXX
+    index_code: GSPTSE
+    index_name: S&P/TSX Composite index

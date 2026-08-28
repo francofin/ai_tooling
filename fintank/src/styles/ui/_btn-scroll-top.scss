@@ -1,0 +1,29 @@
+.btn-scroll-top {
+	position: fixed;
+	bottom: rem(30px);
+	width: rem(40px);
+	height: rem(40px);
+	background: rgba($gray-800, .75);
+	color: $white;
+	text-align: center;
+	text-decoration: none;
+	z-index: $app-header-zindex;
+	border-radius: 36px;
+	transition: $btn-transition;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	inset-inline-end: rem(30px);
+	
+	@include media-breakpoint-down(md) {
+		bottom: rem(20px);
+		z-index: $app-header-zindex;
+		inset-inline-end: rem(20px);
+	}
+	
+	&:hover {
+		background: var(--#{$prefix}theme);
+		color: var(--#{$prefix}theme-color);
+		text-decoration: none;
+	}
+}

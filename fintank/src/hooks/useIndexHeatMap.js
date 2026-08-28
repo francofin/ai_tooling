@@ -27,8 +27,8 @@ export const useIndexHeatMaps = (index, initialIndexName) => {
                     height: 350,
                     type: 'treemap',
                     toolbar: { show: false },
-                    background: '#0d1117',
-                    foreColor: '#c9d1d9',
+                    background: '#ffffff',
+                    foreColor: '#000000',
                     events: {
                       dataPointSelection: function(event, chartContext, config) {
                         const symbol = config.w.config.series[0]?.data[config.dataPointIndex]?.x
@@ -39,7 +39,7 @@ export const useIndexHeatMaps = (index, initialIndexName) => {
                   title: {
                     text: `${initialIndexName} Stock Performance`,
                     align: 'left',
-                    style: { color: '#c9d1d9' }
+                    style: { color: '#000000' }
                   },
                   dataLabels: {
                     enabled: true,
