@@ -4,6 +4,8 @@ import { indicatorMeta } from '@utils/technicalSpec'
 
 const ReactApexChart = dynamic(() => import('react-apexcharts'), { ssr: false })
 
+import { chartId } from './chartId'
+
 const toEpoch = (date) => new Date(`${date}T00:00:00Z`).getTime()
 
 export const OSCILLATOR_HEIGHT = 160
@@ -43,7 +45,7 @@ const OscillatorChart = ({ symbol, token, name, entry, dates }) => {
   const options = useMemo(
     () => ({
       chart: {
-        id: `${symbol}:${token}`,
+        id: chartId(symbol, token),
         group: `panel-${symbol}`,
         type: series.length > 1 ? 'line' : plots[0].type,
         height: OSCILLATOR_HEIGHT,

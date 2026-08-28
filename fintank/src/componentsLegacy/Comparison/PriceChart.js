@@ -4,6 +4,8 @@ import { indicatorMeta } from '@utils/technicalSpec'
 
 const ReactApexChart = dynamic(() => import('react-apexcharts'), { ssr: false })
 
+import { chartId } from './chartId'
+
 const toEpoch = (date) => new Date(`${date}T00:00:00Z`).getTime()
 
 export const CHART_HEIGHT = 320
@@ -88,7 +90,7 @@ const PriceChart = ({ symbol, dates, candle, volume, averageVolume, overlays }) 
   const options = useMemo(
     () => ({
       chart: {
-        id: `${symbol}:price`,
+        id: chartId(symbol, 'price'),
         group: `panel-${symbol}`,
         type: 'line',
         height: CHART_HEIGHT,
