@@ -15,7 +15,7 @@ export const useIndexCharter = (index) => {
         try {
             setLoading(true)
 
-            const baseUrl = `${process.env.NEXT_PUBLIC_FINTANK_API_URL}/index-history/${index}`
+            const baseUrl = `${process.env.NEXT_PUBLIC_FINTANK_API_URL}/index-history/${index}/`
             const indexDataPack = await fetcher(baseUrl)
 
             const data = indexDataPack?.data || {}

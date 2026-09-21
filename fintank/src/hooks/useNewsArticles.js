@@ -4,7 +4,7 @@ import { filterDisplayableArticles } from "../utils/newsArticles"
 
 // The same Django endpoint the homepage reads at build time. Going through the
 // backend keeps the upstream news API key server-side.
-const URL = `${process.env.NEXT_PUBLIC_FINTANK_API_URL}/get_articles/fmp`
+const URL = `${process.env.NEXT_PUBLIC_FINTANK_API_URL}/get_articles/fmp/`
 
 const fetcher = async (url) => {
   const res = await axios.get(url)

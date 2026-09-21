@@ -13,7 +13,7 @@ export const useIndexHeatMaps = (index, initialIndexName) => {
         const fetchData = async () => {
             try {
                 setLoading(true);
-                const baseUrl = `${process.env.NEXT_PUBLIC_FINTANK_API_URL}/constituent-returns/${index}`
+                const baseUrl = `${process.env.NEXT_PUBLIC_FINTANK_API_URL}/constituent-returns/${index}/`
                 const indexDataPack = await fetcher(baseUrl);
                 const universeData = indexDataPack?.universe_data || []
                 const heatMapData = indexDataPack?.heat_map || []
