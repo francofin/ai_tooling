@@ -6,7 +6,7 @@ import boto3
 import gzip
 import json
 from django.conf import settings
-from .analyzer_utils.CorePerformanceTools import home_crypto_cache, home_etf_cache, economic_data_cache, json_safe
+from .analyzer_utils.CorePerformanceTools import home_crypto_cache, home_etf_cache, economic_data_cache, json_safe, _load_cached_json
 from utils.StockCalculations import GetData
 from django.core.cache import cache
 from datetime import date
@@ -261,7 +261,12 @@ def get_universe_profiles_task(request, universe):
     try:
         compressed = cache.get(cache_key)
         if compressed:
-            payload = json.loads(gzip.decompress(compressed))
+            # _load_cached_json, not a bare json.loads: json.dumps writes NaN
+            # without complaint and json.loads reads it straight back, so a blob
+            # cached by the pre-fix writer stays poisoned for its full 24h TTL
+            # and keeps 500ing the renderer. Normalising on the way out lets
+            # those entries heal themselves instead of needing a manual flush.
+            payload = _load_cached_json(compressed)
             return Response(payload, status=status.HTTP_200_OK)
     except Exception:
         pass
@@ -416,6 +421,21 @@ def get_index_page_risk(request, slug):
     from .analyzer_utils.index_tools import get_index_risk as _getter
     try:
         payload = _getter(slug, limit=request.GET.get('limit', 20))
+        return Response(payload, status=status.HTTP_200_OK)
+    except KeyError as e:
+        return Response({"detail": str(e)}, status=status.HTTP_404_NOT_FOUND)
+    except (ValueError, TypeError) as e:
+        return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    except Exception as e:
+        return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+def get_index_page_sector_contribution(request, slug):
+    """Sector contribution to index return, and constituent breadth, by window."""
+    from .analyzer_utils.index_tools import get_index_sector_contribution as _getter
+    try:
+        payload = _getter(slug)
         return Response(payload, status=status.HTTP_200_OK)
     except KeyError as e:
         return Response({"detail": str(e)}, status=status.HTTP_404_NOT_FOUND)

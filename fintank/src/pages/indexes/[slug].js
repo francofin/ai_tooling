@@ -4,7 +4,9 @@ import { Container, Row, Col } from "react-bootstrap"
 
 import IndexHeader from "@componentsLegacy/IndexDetail/IndexHeader"
 import IndexPriceChart from "@componentsLegacy/IndexDetail/IndexPriceChart"
+import IndexInternals from "@componentsLegacy/IndexDetail/IndexInternals"
 import RiskDecomposition from "@componentsLegacy/IndexDetail/RiskDecomposition"
+import SectorContribution from "@componentsLegacy/IndexDetail/SectorContribution"
 import VixComparisonChart from "@componentsLegacy/IndexDetail/VixComparisonChart"
 import PeerComparisonSection from "@componentsLegacy/IndexDetail/PeerComparisonSection"
 import MoversPanel from "@componentsLegacy/IndexDetail/MoversPanel"
@@ -108,6 +110,10 @@ const IndexDetail = ({ slug, series, meta, unknownSlug }) => {
             />
 
             <IndexPriceChart title={title} dates={series?.dates} series={series?.series} />
+
+            <IndexInternals internals={series?.internals} asOf={series?.as_of} />
+
+            <SectorContribution slug={slug} />
 
             <RiskDecomposition slug={slug} />
 

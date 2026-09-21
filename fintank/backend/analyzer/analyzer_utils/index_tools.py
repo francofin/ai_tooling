@@ -31,6 +31,7 @@ from django.utils import timezone
 from utils.IndexFileMappers import IndexFileMappers
 from utils.StockCalculations import GetData
 from .market_hours import is_market_open_now
+from .CorePerformanceTools import json_safe
 
 data_getter = GetData()
 fmp_api = settings.FMP_API
@@ -255,17 +256,22 @@ def get_index_series(slug, frequency='daily', years=DEFAULT_YEARS):
         raise ValueError(f"Unknown frequency '{frequency}'.")
     years = max(1, min(int(years), MAX_YEARS))
 
-    cache_key = f"index:series:{slug}:{frequency}:{years}:v1"
+    # v2: the payload gained `internals`. Reusing v1 would serve the old
+    # shape from already-cached blobs for a further 24h, so the strip would
+    # be missing on exactly the slugs people visit most.
+    cache_key = f"index:series:{slug}:{frequency}:{years}:v2"
     compressed = cache.get(cache_key)
     if compressed:
         return json.loads(gzip.decompress(compressed))
 
-    wanted = ['date'] + PRICE_COLUMNS + list(MA_COLUMNS.values())
+    wanted = (['date'] + PRICE_COLUMNS + list(MA_COLUMNS.values())
+              + _internals_columns())
     df = _load_price_frame(
         config['price_key'], config['price_source'], frequency=frequency, columns=wanted,
     )
     # Ribbon first: a 1-year change needs rows the requested window may not span.
     performance = _period_performance(df['date'].tolist(), df['adjClose'].tolist())
+    internals = _latest_internals(df)
     df = _trim_to_years(df, years)
 
     series_cols = [c for c in PRICE_COLUMNS if c in df.columns]
@@ -284,10 +290,14 @@ def get_index_series(slug, frequency='daily', years=DEFAULT_YEARS):
         'dates': df['date'].tolist(),
         'series': series,
         'performance': performance,
+        'internals': internals,
         'as_of': df['date'].iloc[-1] if not df.empty else None,
         'peers': get_index_peers(slug),
         'last_updated': timezone.now().isoformat(),
     }
+    # This payload is inlined into the page by getServerSideProps, so a blob
+    # carrying NaN or inf costs the chart and the header rather than one panel.
+    payload = json_safe(payload)
     cache.set(cache_key, gzip.compress(json.dumps(payload).encode('utf-8')), timeout=CACHE_TTL)
     return payload
 
@@ -543,3 +553,231 @@ def get_index_quotes(slug):
     }
     cache.set(cache_key, gzip.compress(json.dumps(payload).encode('utf-8')), timeout=CACHE_TTL)
     return payload
+
+
+# --- Sector contribution -----------------------------------------------------
+#
+# An index's return is the weighted sum of its constituents' returns, so a
+# sector's *contribution* is its members' weights times their returns, in
+# percentage points of index return. This is deliberately a different question
+# from factor_tools._sector_pack(), which equal-weights within a sector and so
+# answers "how did the typical stock in this sector do" -- the two panels can
+# disagree about which sector led and both be right.
+#
+# Weights come from the constituents JSON, returns from factor_metrics. The two
+# carry their own as_of dates (2026-08-01 and 2026-08-28 in production, four
+# weeks apart), so both are reported rather than collapsed into one.
+
+SECTOR_WINDOWS = ('ytd', '1M')
+
+
+def _finite(value):
+    """float() or None -- NaN *and* ±inf both become None.
+
+    The `v != v` idiom used by _risk_records catches NaN only: inf compares
+    equal to itself and sails through to 500 at DRF render time, after the view
+    has already returned 200. See json_safe's docstring in CorePerformanceTools
+    for the incident that established this.
+    """
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return None
+    return value if np.isfinite(value) else None
+
+
+def _empty_window():
+    return {'contribution': [], 'index_return_pp': None,
+            'breadth': {'positive': 0, 'total': 0, 'pct': None}}
+
+
+def _contribution_for_window(merged, window):
+    """One window's sector contributions, weights renormalised over the names
+    that actually have a return for *this* window."""
+    if merged.empty or window not in merged.columns:
+        return _empty_window()
+
+    frame = merged[['weightPercentage', 'sector', window]].copy()
+    frame[window] = pd.to_numeric(frame[window], errors='coerce')
+    frame['weightPercentage'] = pd.to_numeric(frame['weightPercentage'], errors='coerce')
+    # Drop non-finite on either side: a name with no return for this window
+    # cannot contribute, and must not dilute the weights of those that can.
+    frame = frame[np.isfinite(frame[window]) & np.isfinite(frame['weightPercentage'])]
+    if frame.empty:
+        return _empty_window()
+
+    total_weight = frame['weightPercentage'].sum()
+    if not np.isfinite(total_weight) or total_weight <= 0:
+        return _empty_window()
+
+    frame['_w'] = frame['weightPercentage'] / total_weight
+    frame['_contrib'] = frame['_w'] * frame[window]
+
+    records = []
+    for sector, group in frame.groupby('sector', sort=True):
+        records.append({
+            'sector': str(sector),
+            'weight_pct': _finite(round(group['_w'].sum() * 100, 6)),
+            'contribution_pp': _finite(round(group['_contrib'].sum(), 6)),
+            'average_return': _finite(round(group[window].mean(), 6)),
+            'count': int(len(group)),
+        })
+    # Largest positive contribution first; a None contribution sorts last.
+    records.sort(key=lambda r: (r['contribution_pp'] is None,
+                                -(r['contribution_pp'] or 0.0)))
+
+    positive = int((frame[window] > 0).sum())
+    count = int(len(frame))
+    return {
+        'contribution': records,
+        'index_return_pp': _finite(round(frame['_contrib'].sum(), 6)),
+        'breadth': {
+            'positive': positive,
+            'total': count,
+            'pct': _finite(round(positive / count * 100, 6)) if count else None,
+        },
+    }
+
+
+def _first_str(frame, column):
+    if column in frame.columns and not frame.empty:
+        value = frame[column].iloc[0]
+        return None if value is None else str(value)[:10]
+    return None
+
+
+def _sector_contribution(constituents, metrics, windows=SECTOR_WINDOWS):
+    """Pure: a weights frame and a metrics frame in, a JSON-safe payload out.
+
+    No S3, no cache, no Django -- so the arithmetic is testable on hand-built
+    frames. See test_sector_contribution.py.
+    """
+    weights = constituents.copy()
+    weights['weightPercentage'] = pd.to_numeric(
+        weights.get('weightPercentage'), errors='coerce')
+
+    merged = weights.merge(metrics, left_on='asset', right_on='symbol', how='inner')
+
+    declared = weights['weightPercentage'].sum()
+    matched = merged['weightPercentage'].sum() if not merged.empty else 0.0
+    matched_pct = (matched / declared * 100) if np.isfinite(declared) and declared > 0 else None
+
+    return {
+        'weights_as_of': _first_str(constituents, 'updated'),
+        'returns_as_of': _first_str(metrics, 'as_of'),
+        'matched': {
+            'count': int(len(merged)),
+            'total': int(len(constituents)),
+            'weight_pct': _finite(round(matched_pct, 6)) if matched_pct is not None else None,
+        },
+        'windows': {w: _contribution_for_window(merged, w) for w in windows},
+    }
+
+
+def get_index_sector_contribution(slug, windows=SECTOR_WINDOWS):
+    """How much each sector moved the index, plus breadth, per window.
+
+    Weights come from the constituents JSON (keyed by constituent_key) and
+    returns from the factor_metrics snapshot (keyed by risk_key). The two keys
+    disagree for NASDAQ -- 'nasdaq' vs 'nas' -- and factor_metrics follows the
+    same short-name convention as contr_to_var because the same pipeline stage
+    writes both, so risk_key is the right one here. Using constituent_key would
+    404 on the NASDAQ page alone.
+    """
+    config = get_index_page_config(slug)
+
+    cache_key = f"index:sector_contribution:{config['risk_key']}:v1"
+    compressed = cache.get(cache_key)
+    if compressed:
+        return json.loads(gzip.decompress(compressed))
+
+    constituents = pd.DataFrame(
+        data_getter.get_index_constituents(config['constituent_key']))
+    if constituents.empty or 'asset' not in constituents.columns:
+        raise KeyError(f"No constituent list for '{slug}'.")
+
+    metrics = data_getter.load_factor_metrics(config['risk_key'])
+    if metrics.empty:
+        raise KeyError(f"No factor metrics for '{slug}'.")
+
+    payload = _sector_contribution(constituents, metrics, windows=windows)
+    payload.update({
+        'slug': slug,
+        'universe': config['risk_key'],
+        'windows_available': list(windows),
+        'last_updated': timezone.now().isoformat(),
+    })
+    # json_safe as well as _finite: _finite guards every value this module
+    # computes, but the payload is the thing that gets gzipped into Redis for
+    # 24h, and a poisoned blob 500s every request for its whole TTL.
+    payload = json_safe(payload)
+    cache.set(cache_key, gzip.compress(json.dumps(payload).encode('utf-8')), timeout=CACHE_TTL)
+    return payload
+
+
+# --- Index internals ---------------------------------------------------------
+#
+# 32 of the 51 columns in the price parquet describe the series' own behaviour
+# rather than its level: volatility, return-to-risk, and up/down day counts over
+# six windows. get_index_series already opens that parquet and reads seven
+# columns, so the strip costs one wider column pushdown and no extra S3 object.
+#
+# Only the latest row is taken. These are a snapshot, and six more full series
+# would bloat a payload that getServerSideProps inlines into the page HTML.
+
+# Explicit prefix/suffix rather than one f-string pattern: the parquet names the
+# short windows `30_day_volatility` but the long one `1_yr_volatility`, while the
+# day counts suffix the raw window (`number_of_up_days_30`, `..._1_yr`). Deriving
+# both from a single pattern silently yields None for the year window.
+INTERNALS_WINDOWS = (
+    {'key': '30', 'label': '30 day', 'prefix': '30_day', 'suffix': '30'},
+    {'key': '90', 'label': '90 day', 'prefix': '90_day', 'suffix': '90'},
+    {'key': '1_yr', 'label': '1 year', 'prefix': '1_yr', 'suffix': '1_yr'},
+)
+
+
+def _internals_columns():
+    """Columns the strip needs, for the parquet read's column pushdown."""
+    columns = []
+    for window in INTERNALS_WINDOWS:
+        columns += [
+            f"{window['prefix']}_volatility",
+            f"{window['prefix']}_return_to_risk",
+            f"number_of_up_days_{window['suffix']}",
+            f"number_of_down_days_{window['suffix']}",
+            f"up_down_days_{window['suffix']}",
+        ]
+    return columns
+
+
+def _int_or_none(value):
+    value = _finite(value)
+    return int(value) if value is not None else None
+
+
+def _latest_internals(df):
+    """The most recent row's internals, one entry per displayed window.
+
+    A window whose columns are entirely absent is dropped rather than returned
+    full of nulls, so the frontend can render what exists without special-casing.
+    """
+    if df is None or df.empty:
+        return []
+
+    row = df.iloc[-1]
+    entries = []
+    for window in INTERNALS_WINDOWS:
+        fields = {
+            # Annualised decimal -- 0.20 is 20% -- so the frontend scales it.
+            'volatility': _finite(row.get(f"{window['prefix']}_volatility")),
+            'return_to_risk': _finite(row.get(f"{window['prefix']}_return_to_risk")),
+            'up_days': _int_or_none(row.get(f"number_of_up_days_{window['suffix']}")),
+            'down_days': _int_or_none(row.get(f"number_of_down_days_{window['suffix']}")),
+            # A window with zero down days divides by zero. _finite catches the
+            # inf; see json_safe's docstring for the incident that named it.
+            'up_down_ratio': _finite(row.get(f"up_down_days_{window['suffix']}")),
+        }
+        if all(value is None for value in fields.values()):
+            continue
+        entries.append({'key': window['key'], 'label': window['label'], **fields})
+    return entries
