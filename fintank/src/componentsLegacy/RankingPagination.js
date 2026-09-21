@@ -1,4 +1,4 @@
-import React, {useState, useEffect} from "react"
+import React, {useState, useMemo} from "react"
 import Link from "next/link"
 import {
   Container,
@@ -50,22 +50,26 @@ const formatRankingMetric = (value, metricLabel) => {
 const RankingListPagination = ({dataProps, metric, bucket}) => {
   const [analysisLink, setAnalysisLink] = useState("/stock-data/[ticker]");
   const [linkAs, setLinkAs] = useState(`/stock-data/`)
-  const [currentItems, setCurrentItems] = useState([])
-  const [bucketRequest, setBucketRequest] = useState(bucket)
-  const [stocksShown, setStocksShown] = useState([])
 
-  useEffect(() => {
-    setStocksShown(dataProps)
-    setBucketRequest(bucket)
-    const stocksPerBucket = stocksShown[bucketRequest]
-    setCurrentItems(stocksPerBucket)
-    
-  }, [dataProps, bucket, stocksShown, bucketRequest])
-  
+  // dataProps is whatever the store holds, so it can be undefined (a ranking
+  // tab opened before its bucket exists) and `bucket` can be null until a tab
+  // is selected. Derive the rows instead of mirroring them into state — the
+  // old effect re-read its own `stocksShown` in the tick it set it, which both
+  // rendered a stale bucket and threw once dataProps came through undefined.
+  const currentItems = useMemo(() => {
+    const stocksPerBucket = dataProps && bucket ? dataProps[bucket] : null
+    return Array.isArray(stocksPerBucket) ? stocksPerBucket : []
+  }, [dataProps, bucket])
+
   return (
     <React.Fragment>
       <div className="list-group shadow mb-5">
-          {currentItems?.map((stock, index) => (
+          {currentItems.length === 0 && (
+            <div className="list-group-item p-4">
+              <p className="text-sm text-muted mb-0">No stocks in this bucket.</p>
+            </div>
+          )}
+          {currentItems.map((stock, index) => (
             <Link href={analysisLink} as={`${linkAs}${stock.symbol}`} passHref key={index}>
               <div
               key={index}
@@ -78,7 +82,7 @@ const RankingListPagination = ({dataProps, metric, bucket}) => {
                   </Col>
                   <Col xs="6" md="4" lg="4" className="align-self-center mb-3 mb-lg-0">
                   <h6 className="label-heading">Period Return</h6>
-                    <p className="text-sm fw-bold">{stock.return.toFixed(2)}%</p>
+                    <p className="text-sm fw-bold">{typeof stock.return === 'number' ? `${stock.return.toFixed(2)}%` : '—'}</p>
                   </Col>
                   <Col xs="6" md="4" lg="4" className="align-self-center mb-3 mb-lg-0">
                     <h6 className="label-heading">{metric}</h6>

@@ -1,9 +1,10 @@
-import React from "react"
+import React, { useMemo } from "react"
 import Layout from "@componentsLegacy/Layout"
 import { DjangoAuthProvider } from '@context/authContext';
 // import { AccountContextProvider } from "@context/accountContext";
 import { Provider } from "react-redux";
-import { wrapper, persistor } from "@/store";
+import { persistStore } from "redux-persist";
+import { wrapper } from "@/store";
 import { PersistGate } from 'redux-persist/integration/react'
 import "swiper/css/bundle"
 // swiper core styles
@@ -18,6 +19,11 @@ import "../scss/style.default.scss"
 
 const App = ({ Component, pageProps, ...rest }) => {
   const { store, props } = wrapper.useWrappedStore(rest);
+
+  // The persistor MUST be built from this exact store. It used to be created
+  // in store.js from a separate makeStore() call, so it persisted a store no
+  // component rendered from -- see the note there.
+  const persistor = useMemo(() => persistStore(store), [store]);
 
   return (
       <Provider store={store}>
