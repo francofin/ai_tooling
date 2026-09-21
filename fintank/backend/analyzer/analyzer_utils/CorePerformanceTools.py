@@ -423,14 +423,28 @@ def get_universe_profiles(universe: str):
         raw = df_filtered.where(pd.notna(df_filtered), other=None).to_dict(orient='records')
         records = json.loads(json.dumps(raw, default=str))
 
+    # Profiles carry NaN wherever the vendor left a field unpopulated -- TMNL in
+    # the ETF universe and SPCX in the Nasdaq 100 both report no market_cap. The
+    # DRF renderer rejects NaN, and it does so at render time, *after* this view
+    # has returned, i.e. outside its try/except -- so one bad float hard-500'd
+    # the whole 7,111-record ETF payload and rendered /universe/etfs as
+    # "0 Equities". Neither branch above catches it: the cached branch passes the
+    # float straight through, and .where(..., other=None) coerces None back to
+    # NaN on a float column. Normalise before the payload is built so the cached
+    # blob is valid JSON too.
+    records = json_safe(records)
+
     context = {
         'universe': universe,
         'count': len(records),
         'data': records,
         'last_updated': timezone.now().isoformat(),
     }
-    compressed = gzip.compress(json.dumps(context, default=str).encode('utf-8'))
-    cache.set(f"home:universe_profiles:{universe}:v1", compressed, timeout=86400)
+    # Only cache a populated result. An empty list means a constituent or profile
+    # read degraded; pinning that for 24h would outlive the outage that caused it.
+    if records:
+        compressed = gzip.compress(json.dumps(context, default=str).encode('utf-8'))
+        cache.set(f"home:universe_profiles:{universe}:v1", compressed, timeout=86400)
     return context
 
 
