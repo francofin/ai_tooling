@@ -16,6 +16,13 @@ eggs/
 .eggs/
 lib/
 lib64/
+# ...but `lib/` above comes from the Python packaging template and matches ANY
+# directory named lib at any depth, which silently excluded application source.
+# fintank/src/lib holds indexApi.js, which every /indexes/<slug> page imports --
+# the branch could not be built from a clean clone without it. Foundry's
+# dependency trees (fintank/stables/lib, advanced-defi-2024/foundry/lib) stay
+# ignored on purpose.
+!fintank/src/lib/
 parts/
 sdist/
 var/
@@ -205,3 +212,9 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+#Databases
+*.db
+
+# WSL/Windows download provenance metadata
+*:Zone.Identifier
