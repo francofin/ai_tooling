@@ -13,6 +13,7 @@ import { bindActionCreators } from "redux"
 import StockListPagination from "@componentsLegacy/StockPagination"
 import { useStockNames } from "@hooks/useStockNames"
 import { useUniverseProfiles } from "@hooks/useUniverseProfiles"
+import { tickerHref } from "@utils/stockApi"
 
 
 export function getAllPostIds() {
@@ -107,7 +108,16 @@ const Universe = (props) => {
   const returnQuery = (e) => {
     e.preventDefault();
 
-    router.push(`/stock-data/${searchTicker}`)
+    // `searchTicker` is only set by picking a suggestion, so fall back to the
+    // typed text rather than pushing a route with an empty segment. Funds go
+    // straight to /etf-data/ -- searching an ETF from this very page used to
+    // land on /stock-data/, which has no ETF profile and renders "not found".
+    const target = String(searchTicker || ticker || '').trim()
+    if (!target) return
+    const match = allStocks?.find(
+      (s) => s['symbol'].toLowerCase() === target.toLowerCase()
+    )
+    router.push(tickerHref(target, match?.is_etf))
   }
 
 

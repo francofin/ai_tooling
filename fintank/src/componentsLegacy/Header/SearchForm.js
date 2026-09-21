@@ -4,6 +4,7 @@ import { useStockNames } from "@hooks/useStockNames"
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome"
 import { faSearch, faTimes } from "@fortawesome/free-solid-svg-icons"
 import { useRouter } from "next/router"
+import { tickerHref } from "@utils/stockApi"
 export default function SearchForm({ id, className, childClassname }) {
   const [searchFocus, setSearchFocus] = useState(false)
   const [activeSuggestion, setActiveSuggestion] = useState(0)
@@ -14,16 +15,33 @@ export default function SearchForm({ id, className, childClassname }) {
   const onFocus = () => setSearchFocus(!searchFocus)
   const router = useRouter();
 
-  
+  const {data:stockNames} = useStockNames();
+  const allStocks = stockNames?.stocks
+
+  // Navigate to whatever is actually in the box. `searchTicker` is only set by
+  // picking a suggestion, so submitting a typed ticker used to push
+  // /stock-data/ with an empty segment.
+  const goToTicker = (symbol) => {
+    const target = String(symbol ?? '').trim()
+    if (!target) return
+    setShowSuggestions(false)
+    setFilteredSuggestions([])
+    setActiveSuggestion(0)
+    // Send funds to /etf-data/ directly -- /stock-data/ has no ETF profile and
+    // would bounce through a redirect. all-stock-names carries is_etf, so the
+    // lookup is local; a ticker that matches nothing still goes to /stock-data/,
+    // which resolves or 404s on its own.
+    const match = allStocks?.find(
+      (s) => s['symbol'].toLowerCase() === target.toLowerCase()
+    )
+    router.push(tickerHref(target, match?.is_etf))
+  }
+
   const returnQuery = (e) => {
     e.preventDefault();
 
-    router.push(`/stock-data/${searchTicker}`)
+    goToTicker(searchTicker || ticker)
   }
-
-
-  const {data:stockNames} = useStockNames();
-  const allStocks = stockNames?.stocks
 
 
   const onSearchChange = (e) => {
@@ -36,21 +54,29 @@ export default function SearchForm({ id, className, childClassname }) {
     );
 
 
-    // setActiveSuggestion(0)
+    // Reset the highlight on every keystroke: the list is rebuilt here, so a
+    // carried-over index can point past the end of the new, shorter list and
+    // make Enter select the wrong row.
+    setActiveSuggestion(0)
     setFilteredSuggestions(suggestionFilter)
     setShowSuggestions(true)
     setTicker(userInput)
   };
 
 
+  // Bound to the input, not to the suggestion list -- the list is a div that
+  // never takes focus, so none of these keys reached this handler before.
   const onKeySuggestDown = (e) => {
-    // const { activeSuggestion, filteredSuggestions } = this.state;
+    const suggestions = filteredSuggestions || []
 
     // User pressed the enter key
     if (e.keyCode === 13) {
-      setActiveSuggestion(0)
-      setShowSuggestions(false)
-      setTicker(filteredSuggestions[activeSuggestion])
+      // The form's onSubmit also fires on Enter; let the highlighted
+      // suggestion win while the list is open.
+      if (showSuggestions && suggestions[activeSuggestion]) {
+        e.preventDefault()
+        onSuggestionClick(suggestions[activeSuggestion]['symbol'])
+      }
     }
     // User pressed the up arrow
     else if (e.keyCode === 38) {
@@ -62,7 +88,7 @@ export default function SearchForm({ id, className, childClassname }) {
     }
     // User pressed the down arrow
     else if (e.keyCode === 40) {
-      if (activeSuggestion - 1 === filteredSuggestions.length) {
+      if (activeSuggestion >= suggestions.length - 1) {
         return;
       }
 
@@ -70,13 +96,13 @@ export default function SearchForm({ id, className, childClassname }) {
     }
   };
 
+  // Picking a suggestion has to navigate. It used to only fill the input and
+  // close the list, so a click looked like it did nothing at all.
   const onSuggestionClick = (item) => {
 
-    setActiveSuggestion(0)
-    setShowSuggestions(false)
-    setFilteredSuggestions([])
     setSearchTicker(item)
     setTicker(item)
+    goToTicker(item)
 
   };
 
@@ -85,7 +111,16 @@ export default function SearchForm({ id, className, childClassname }) {
     <ListGroup variant="flush" className="d-inline-block" style={{position:'absolute'}}>
       {filteredSuggestions?.map((suggestion, i) => {
         return(
-          <ListGroup.Item key={i} as="li" onClick={() => onSuggestionClick(suggestion['symbol'])}>
+          <ListGroup.Item
+            key={i}
+            as="li"
+            action
+            active={i === activeSuggestion}
+            // onMouseDown fires before the input's onBlur, so the selection
+            // cannot be torn down before the click lands.
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => onSuggestionClick(suggestion['symbol'])}
+          >
                 {suggestion['symbol']} - {suggestion['name']} - {suggestion['exchange']}
             </ListGroup.Item>
         )
@@ -126,6 +161,7 @@ export default function SearchForm({ id, className, childClassname }) {
           autoComplete="off"
           onFocus={onFocus}
           onChange ={(e) => onSearchChange(e)}
+          onKeyDown={(e) => onKeySuggestDown(e)}
           onBlur={() => setTimeout(() => onFocus(), 333)}
           
         />
@@ -136,7 +172,7 @@ export default function SearchForm({ id, className, childClassname }) {
       </div>
     </Form>
     {(showSuggestions && filteredSuggestions?.length < 40) ?
-      <div onKeyDown = {(e) => onKeySuggestDown(e)}s>
+      <div>
         {renderSuggestedList()}
       </div>:
       ""

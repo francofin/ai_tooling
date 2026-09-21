@@ -39,6 +39,15 @@ export const fetchEtfProfile = (symbol) =>
 export const fetchPrices = (symbol) =>
   request(`/stock-prices/${encodeURIComponent(symbol)}/`, 'prices');
 
+// Funds live on their own route: /stock-data/ reads the equity-only
+// long_profiles parquet and 404s for every ETF. stock-data/[ticker].js catches
+// that and redirects, so this is purely an optimisation -- callers holding a
+// record from all-stock-names (which carries is_etf) can route straight there
+// and skip the extra round trip. Unknown is_etf falls through to /stock-data/,
+// which still resolves funds correctly.
+export const tickerHref = (symbol, isEtf) =>
+  `/${isEtf ? 'etf-data' : 'stock-data'}/${encodeURIComponent(String(symbol ?? '').trim())}`;
+
 // Universe is resolved server-side, so callers only need the symbol.
 export const fetchStatements = (symbol, statementType) =>
   request(`/financial-statements/${encodeURIComponent(symbol)}/${statementType}/`, 'statements');

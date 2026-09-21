@@ -1,5 +1,6 @@
 import React from 'react';
 import { Row, Col, Badge } from 'react-bootstrap';
+import WatchlistButton from './WatchlistButton';
 
 const formatNumber = (value) => (value ? Intl.NumberFormat().format(value) : null);
 
@@ -24,9 +25,12 @@ const StockHeader = ({ profile, asOfDate }) => {
     <div className="text-block">
       <Row className="align-items-start">
         <Col lg="9">
-          <h1 className="mb-1">
-            {profile.name || profile.symbol}: {profile.symbol}
-          </h1>
+          <div className="d-flex flex-wrap align-items-center gap-3 mb-1">
+            <h1 className="mb-0">
+              {profile.name || profile.symbol}: {profile.symbol}
+            </h1>
+            <WatchlistButton symbol={profile.symbol} />
+          </div>
           <div className="text-muted text-uppercase mb-3">
             {[profile.exchange_short_name, profile.country].filter(Boolean).join(' · ')}
           </div>

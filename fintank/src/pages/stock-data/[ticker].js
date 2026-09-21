@@ -15,7 +15,7 @@ import PriceChart from '@componentsLegacy/StockDetail/PriceChart';
 import MomentumCharts from '@componentsLegacy/StockDetail/MomentumCharts';
 import StatementsSection from '@componentsLegacy/StockDetail/StatementsSection';
 import SectorNews from '@componentsLegacy/StockDetail/SectorNews';
-import { fetchProfile, fetchPrices } from '@utils/stockApi';
+import { fetchProfile, fetchEtfProfile, fetchPrices } from '@utils/stockApi';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
 
@@ -27,6 +27,25 @@ export async function getServerSideProps({ params, res }) {
     profile = await fetchProfile(ticker);
   } catch (error) {
     if (!error.isNotFound) throw error;
+
+    // ETFs have no row in the long_profiles parquet /stock-profile/ reads, so
+    // every fund 404s on this route even though /etf-data/ serves it fine.
+    // Resolve against the ETF store before giving up: the ways into this route
+    // are many (both search boxes, index movers, rankings, valuation tables,
+    // the homepage hero, plus existing bookmarks), so redirecting here fixes
+    // all of them at once rather than teaching each caller which route to pick.
+    try {
+      await fetchEtfProfile(ticker);
+      return {
+        redirect: {
+          destination: `/etf-data/${encodeURIComponent(ticker)}`,
+          permanent: false,
+        },
+      };
+    } catch (etfError) {
+      if (!etfError.isNotFound) throw etfError;
+    }
+
     // Signal a missing symbol with a 404 status but render our own state.
     // `notFound: true` would hand off to the App Router's not-found path,
     // which currently throws inside AppProviders and surfaces as a 500.
