@@ -1,5 +1,6 @@
 import useSWR from "swr"
 import axios from "axios"
+import { withIsLoading } from "./swrLoading"
 
 /**
  * Watchlist data for the profile dashboard.
@@ -21,7 +22,9 @@ const fetcher = async (url) => {
 }
 
 /** The signed-in user's watchlist: `[{ symbol, name, date_added }]`. */
-export const useWatchlist = () => useSWR("/api/watchlist/mywatchlist", fetcher, DAILY)
+const WATCHLIST_KEY = "/api/watchlist/mywatchlist"
+
+export const useWatchlist = () => withIsLoading(WATCHLIST_KEY, useSWR(WATCHLIST_KEY, fetcher, DAILY))
 
 /**
  * Price history and returns for one watchlist symbol.
@@ -29,9 +32,7 @@ export const useWatchlist = () => useSWR("/api/watchlist/mywatchlist", fetcher, 
  * A falsy symbol suspends the request — SWR treats a null key as "not ready" —
  * so nothing is fetched before the user has picked one.
  */
-export const useWatchlistPerformance = (symbol) =>
-  useSWR(
-    symbol ? `/api/watchlist/watchlistperformance/${encodeURIComponent(symbol)}` : null,
-    fetcher,
-    DAILY
-  )
+export const useWatchlistPerformance = (symbol) => {
+  const key = symbol ? `/api/watchlist/watchlistperformance/${encodeURIComponent(symbol)}` : null
+  return withIsLoading(key, useSWR(key, fetcher, DAILY))
+}

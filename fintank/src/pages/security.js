@@ -12,6 +12,7 @@ import {
   Form,
   Card,
   Breadcrumb,
+  Alert,
 } from "react-bootstrap"
 
 import data from "@data/user-security.json"
@@ -36,6 +37,64 @@ const UserSecurity = () => {
 
   const {logout, dispatch} = useContext(DjangoAuthContext);
   const router = useRouter();
+
+  const emptyPasswords = { old_password: "", new_password: "", new_password2: "" }
+  const [passwords, setPasswords] = React.useState(emptyPasswords)
+  const [passwordErrors, setPasswordErrors] = React.useState({})
+  const [passwordStatus, setPasswordStatus] = React.useState(null) // null | "saving" | "saved"
+
+  const onPasswordChange = (field) => (e) => {
+    setPasswords((p) => ({ ...p, [field]: e.target.value }))
+    setPasswordErrors((errs) => ({ ...errs, [field]: undefined, detail: undefined }))
+    setPasswordStatus(null)
+  }
+
+  const passwordError = (field) => {
+    const value = passwordErrors[field]
+    return Array.isArray(value) ? value.join(" ") : value
+  }
+
+  const submitPassword = async (e) => {
+    // Never let the browser submit this form natively: a GET would put the
+    // passwords in the URL, and so in history and server logs.
+    e.preventDefault()
+
+    const errors = {}
+    if (!passwords.old_password) errors.old_password = "Enter your current password."
+    if (!passwords.new_password) errors.new_password = "Enter a new password."
+    if (passwords.new_password !== passwords.new_password2) errors.new_password2 = "Passwords do not match."
+    if (Object.keys(errors).length) {
+      setPasswordErrors(errors)
+      return
+    }
+
+    setPasswordStatus("saving")
+    try {
+      const res = await fetch("/api/auth/changePassword", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(passwords),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (res.ok) {
+        setPasswords(emptyPasswords)
+        setPasswordErrors({})
+        setPasswordStatus("saved")
+        return
+      }
+      setPasswordStatus(null)
+      if (res.status === 401) {
+        setPasswordErrors({ detail: body.detail || "Your session has expired. Please log in again." })
+        return
+      }
+      setPasswordErrors(
+        Object.keys(body).length ? body : { detail: "Could not update your password. Please try again." }
+      )
+    } catch {
+      setPasswordStatus(null)
+      setPasswordErrors({ detail: "Could not reach the server. Please try again." })
+    }
+  }
 
   // Read off `navigator` only after mount — it does not exist during SSR, and
   // `userAgentData` is absent entirely in Firefox/Safari.
@@ -90,7 +149,7 @@ const UserSecurity = () => {
               <Row>
                 <Col sm="8">
                   <h6>Password</h6>
-                  <p className="text-sm text-muted">Last updated 3 years ago</p>
+                  <p className="text-sm text-muted">Change the password you use to log in.</p>
                 </Col>
                 <Col className="text-end">
                   <Button
@@ -103,7 +162,21 @@ const UserSecurity = () => {
                 </Col>
               </Row>
               <Collapse in={loginCollapse}>
-                <Form>
+                {/*
+                  No `name` attributes on these inputs: even if this script fails
+                  to load, a native submit then has nothing to put in a URL.
+                */}
+                <Form noValidate onSubmit={submitPassword} method="post" action="#">
+                  {passwordStatus === "saved" && (
+                    <Alert variant="success" className="mt-4 mb-0">
+                      Password updated. Use your new password next time you log in.
+                    </Alert>
+                  )}
+                  {passwordErrors.detail && (
+                    <Alert variant="danger" className="mt-4 mb-0">
+                      {passwordError("detail")}
+                    </Alert>
+                  )}
                   <Row className="mt-4">
                     <Col xs="12" className="mb-4">
                       <Form.Label htmlFor="password-current">
@@ -111,9 +184,15 @@ const UserSecurity = () => {
                       </Form.Label>
                       <Form.Control
                         type="password"
-                        name="password-current"
                         id="password-current"
+                        autoComplete="current-password"
+                        value={passwords.old_password}
+                        onChange={onPasswordChange("old_password")}
+                        isInvalid={!!passwordErrors.old_password}
                       />
+                      <Form.Control.Feedback type="invalid">
+                        {passwordError("old_password")}
+                      </Form.Control.Feedback>
                     </Col>
                     <Col md="6" className="mb-4">
                       <Form.Label htmlFor="password-new">
@@ -121,9 +200,15 @@ const UserSecurity = () => {
                       </Form.Label>
                       <Form.Control
                         type="password"
-                        name="password-new"
                         id="password-new"
+                        autoComplete="new-password"
+                        value={passwords.new_password}
+                        onChange={onPasswordChange("new_password")}
+                        isInvalid={!!passwordErrors.new_password}
                       />
+                      <Form.Control.Feedback type="invalid">
+                        {passwordError("new_password")}
+                      </Form.Control.Feedback>
                     </Col>
                     <Col md="6" className="mb-4">
                       <Form.Label htmlFor="password-confirm">
@@ -131,13 +216,19 @@ const UserSecurity = () => {
                       </Form.Label>
                       <Form.Control
                         type="password"
-                        name="password-confirm"
                         id="password-confirm"
+                        autoComplete="new-password"
+                        value={passwords.new_password2}
+                        onChange={onPasswordChange("new_password2")}
+                        isInvalid={!!passwordErrors.new_password2}
                       />
+                      <Form.Control.Feedback type="invalid">
+                        {passwordError("new_password2")}
+                      </Form.Control.Feedback>
                     </Col>
                   </Row>
-                  <Button type="submit" variant="outline-primary">
-                    Update Password
+                  <Button type="submit" variant="outline-primary" disabled={passwordStatus === "saving"}>
+                    {passwordStatus === "saving" ? "Updating…" : "Update Password"}
                   </Button>
                 </Form>
               </Collapse>

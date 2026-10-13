@@ -7,11 +7,17 @@ import { fetchStatements } from '@utils/stockApi';
  * request until the section is actually opened.
  */
 export const useFinancialStatements = (symbol, statementType, enabled = true) => {
-  const { data, error, isLoading } = useSWR(
-    enabled && symbol && statementType ? ['statements', symbol, statementType] : null,
-    ([, s, type]) => fetchStatements(s, type),
-    { revalidateOnFocus: false }
-  );
+  const key = enabled && symbol && statementType ? ['statements', symbol, statementType] : null;
+
+  // SWR here is 1.3.0: an array key is spread into the fetcher's arguments
+  // (fetcher('statements', symbol, type)), not passed as one array as in 2.x.
+  // Destructuring it as an array would read the characters of 'statements'.
+  // 1.3.0 also has no `isLoading`, so loading is derived, and only while the
+  // request is enabled -- a null key is idle, not loading.
+  const { data, error } = useSWR(key, (_, s, type) => fetchStatements(s, type), {
+    revalidateOnFocus: false,
+  });
+  const isLoading = key !== null && !data && !error;
 
   return {
     rows: data?.data || null,

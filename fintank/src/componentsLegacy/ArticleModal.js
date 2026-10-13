@@ -5,6 +5,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome"
 import { faAngleDoubleRight } from "@fortawesome/free-solid-svg-icons"
 import { faClock } from "@fortawesome/free-regular-svg-icons"
 import Image from "./CustomImage"
+import { formatArticleDate } from "@utils/newsDate"
 
 // News article content is raw HTML from a third-party API (and, once we extract
 // it, from arbitrary news sites), so it MUST be sanitized before rendering.
@@ -32,21 +33,13 @@ const normalize = (post) => ({
   body: post.content || post.text || post.description || post.snippet || "",
   source: post.provider?.[0]?.name || post.site || post.source || "",
   url: post.url || post.link || "",
-  date: post.datePublished || post.publishedDate || post.date || "",
+  date: formatArticleDate(post),
   image:
     post.image?.thumbnail?.contentUrl ||
     post.thumbnail ||
     (typeof post.image === "string" ? post.image : ""),
 })
 
-const formatDate = (value) => {
-  if (!value) return ""
-  const parsed = new Date(value)
-  // Relative strings like "18h" aren't parseable — show them as-is.
-  if (isNaN(parsed.getTime())) return value
-  const options = { year: "numeric", month: "long", day: "numeric" }
-  return parsed.toLocaleDateString(undefined, options)
-}
 
 // The feeds only give us a snippet, so once the modal opens we try to extract
 // the full story server-side. If the existing body is already long, it's
@@ -129,7 +122,7 @@ const ArticleModal = ({ post, onHide }) => {
             </span>
             <p className="text-gray-500 text-sm my-2">
               <FontAwesomeIcon icon={faClock} className="me-2" />
-              {formatDate(article.date)}
+              {article.date}
             </p>
             <div
               className="text-muted mt-3"

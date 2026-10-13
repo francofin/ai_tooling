@@ -15,6 +15,7 @@ urlpatterns = [
     path('universe-profiles/<str:universe>/', views.get_universe_profiles_task, name='universe_profiles'),
     path('stock-profile/<str:symbol>/', views.get_stock_long_profile, name='stock_long_profile'),
     path('stock-prices/<str:symbol>/', views.get_stock_price_data, name='stock_prices'),
+    path('stock-quote/<str:symbol>/', views.get_stock_quote, name='stock_quote'),
     path('stock-prices-monthly/<str:symbol>/', views.get_stock_price_data_monthly, name='stock_prices_monthly'),
     path('financial-statements/<str:symbol>/<str:universe>/<str:statement_type>/', views.get_financial_statements, name='financial_statements'),
     path('financial-statements/<str:symbol>/<str:statement_type>/', views.get_financial_statements_auto, name='financial_statements_auto'),

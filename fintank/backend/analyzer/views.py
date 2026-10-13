@@ -252,11 +252,11 @@ def get_economic_data_task(request):
 
 @api_view(['GET'])
 def get_universe_profiles_task(request, universe):
-    from .analyzer_utils.CorePerformanceTools import UNIVERSE_PROFILE_SLUGS
+    from .analyzer_utils.CorePerformanceTools import UNIVERSE_PROFILE_SLUGS, UNIVERSE_PROFILES_CACHE_KEY
     if universe not in UNIVERSE_PROFILE_SLUGS:
         return Response({"error": f"Unknown universe '{universe}'"}, status=status.HTTP_400_BAD_REQUEST)
 
-    cache_key = f"home:universe_profiles:{universe}:v1"
+    cache_key = UNIVERSE_PROFILES_CACHE_KEY.format(universe=universe)
 
     try:
         compressed = cache.get(cache_key)
@@ -337,6 +337,20 @@ def get_stock_long_profile(request, symbol):
 
 
 @api_view(['GET'])
+def get_stock_quote(request, symbol):
+    from .analyzer_utils.stock_quote import get_stock_quote as _getter, QuoteUnavailable
+    try:
+        payload = _getter(symbol)
+        return Response(payload, status=status.HTTP_200_OK)
+    except KeyError:
+        return Response({"detail": f"No quote for '{symbol}'"}, status=status.HTTP_404_NOT_FOUND)
+    except QuoteUnavailable as e:
+        return Response({"detail": str(e)}, status=status.HTTP_502_BAD_GATEWAY)
+    except Exception as e:
+        return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
 def get_stock_price_data_monthly(request, symbol):
     from .analyzer_utils.CorePerformanceTools import get_stock_price_data_monthly as _getter
     try:
@@ -366,11 +380,14 @@ def get_financial_statements(request, symbol, universe, statement_type):
 def get_financial_statements_auto(request, symbol, statement_type):
     """Statements without an explicit universe -- the backend resolves it."""
     from .analyzer_utils.CorePerformanceTools import get_financial_statements_resolved as _getter, VALID_STATEMENT_TYPES
+    from .analyzer_utils.universe_lookup import UniverseIndexUnavailable
     if statement_type not in VALID_STATEMENT_TYPES:
         return Response({"detail": f"Unknown statement_type '{statement_type}'"}, status=status.HTTP_400_BAD_REQUEST)
     try:
         payload = _getter(symbol, statement_type)
         return Response(payload, status=status.HTTP_200_OK)
+    except UniverseIndexUnavailable as e:
+        return Response({"detail": str(e)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
     except KeyError as e:
         return Response({"detail": str(e)}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:

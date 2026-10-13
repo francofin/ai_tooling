@@ -584,3 +584,502 @@ class CompanyProfileRenderTests(SimpleTestCase):
             _load_cached_json(poisoned),
             {'series': {'up_down_days_30': [1.0, None]}},
         )
+
+
+@override_settings(CACHES=LOCMEM_CACHE)
+class UniverseIndexCacheTests(SimpleTestCase):
+    """A degraded index build must not be cached for the full day."""
+
+    LISTS = {
+        'sp500': [{'asset': 'AAPL'}, {'asset': 'MSFT'}],
+        'nasdaq': [{'asset': 'AAPL'}],
+        'r2000': [], 'rmicro': [], 'tsx': [{'asset': 'SHOP.TO'}],
+        'tsx_small_cap': [], 'msci_eafe': [], 'msci_sm': [],
+    }
+
+    def setUp(self):
+        from unittest.mock import Mock
+        from django.core.cache import cache
+        from analyzer.analyzer_utils import universe_lookup
+
+        cache.clear()
+        self.lookup = universe_lookup
+        self.cache = cache
+        self.spy = Mock(wraps=cache)
+        patcher = patch.object(universe_lookup, 'cache', self.spy)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _constituents(self, failing=()):
+        def fetch(key):
+            if key in failing:
+                raise OSError(f"S3 read failed for {key}")
+            return self.LISTS[key]
+        return patch.object(self.lookup.data_getter, 'get_index_constituents',
+                            side_effect=fetch)
+
+    def _index_timeout(self):
+        timeouts = [c.kwargs['timeout'] for c in self.spy.set.call_args_list
+                    if c.args[0] == self.lookup.CACHE_KEY]
+        return timeouts[-1]
+
+    def _expire_index(self):
+        self.cache.delete(self.lookup.CACHE_KEY)
+        self.spy.set.reset_mock()
+
+    def test_a_complete_build_is_cached_for_a_day(self):
+        with self._constituents():
+            index = self.lookup.get_symbol_universe_index()
+
+        self.assertEqual(index['AAPL'], ['sp500', 'nas'])
+        self.assertEqual(self._index_timeout(), self.lookup.CACHE_TIMEOUT)
+
+    def test_a_complete_build_is_served_from_cache_without_s3(self):
+        with self._constituents() as fetch:
+            self.lookup.get_symbol_universe_index()
+            calls = fetch.call_count
+            self.lookup.get_symbol_universe_index()
+
+        self.assertEqual(fetch.call_count, calls)
+
+    def test_a_partial_build_is_retried_once_then_cached_for_a_day(self):
+        with self._constituents(failing={'nasdaq'}):
+            index = self.lookup.get_symbol_universe_index()
+            self.assertEqual(index['AAPL'], ['sp500'])
+            self.assertEqual(self._index_timeout(), self.lookup.PARTIAL_TIMEOUT)
+
+            self._expire_index()
+            self.lookup.get_symbol_universe_index()
+            self.assertEqual(self._index_timeout(), self.lookup.CACHE_TIMEOUT)
+
+    def test_a_partial_build_that_recovers_gets_a_full_ttl_and_resets_the_retry(self):
+        with self._constituents(failing={'nasdaq'}):
+            self.lookup.get_symbol_universe_index()
+        self._expire_index()
+        with self._constituents():
+            index = self.lookup.get_symbol_universe_index()
+
+        self.assertEqual(index['AAPL'], ['sp500', 'nas'])
+        self.assertEqual(self._index_timeout(), self.lookup.CACHE_TIMEOUT)
+        self.assertIsNone(self.cache.get(self.lookup.PARTIAL_RETRY_KEY))
+
+    def test_a_total_failure_is_not_cached_and_raises(self):
+        with self._constituents(failing=set(self.LISTS)):
+            with self.assertRaises(self.lookup.UniverseIndexUnavailable):
+                self.lookup.get_symbol_universe_index()
+
+        self.assertIsNone(self.cache.get(self.lookup.CACHE_KEY))
+
+    def test_a_total_failure_does_not_rehit_s3_on_every_request(self):
+        with self._constituents(failing=set(self.LISTS)) as fetch:
+            with self.assertRaises(self.lookup.UniverseIndexUnavailable):
+                self.lookup.get_symbol_universe_index()
+            calls = fetch.call_count
+            with self.assertRaises(self.lookup.UniverseIndexUnavailable):
+                self.lookup.get_symbol_universe_index()
+
+        self.assertEqual(fetch.call_count, calls)
+
+    def test_resolve_universes_keeps_priority_order(self):
+        with self._constituents():
+            self.assertEqual(self.lookup.resolve_universes('aapl'), ['sp500', 'nas'])
+            self.assertEqual(self.lookup.resolve_universes('ZZZZ'), [])
+
+
+@override_settings(CACHES=LOCMEM_CACHE)
+class ResolvedStatementsTests(SimpleTestCase):
+    """The candidate walk falls through real failures, not just absences."""
+
+    def setUp(self):
+        from django.core.cache import cache
+        from analyzer.analyzer_utils import CorePerformanceTools, universe_lookup
+
+        cache.clear()
+        self.tools = CorePerformanceTools
+        self.lookup = universe_lookup
+        self.calls = []
+
+    def _run(self, symbol, outcomes, candidates=('sp500', 'nas')):
+        """outcomes: universe -> exception to raise, or absent to succeed."""
+        def fetch(sym, universe, statement_type):
+            self.calls.append((sym, universe))
+            if universe in outcomes:
+                raise outcomes[universe]
+            return {'symbol': sym, 'universe': universe, 'data': []}
+
+        with patch.object(self.lookup, 'resolve_universes', return_value=list(candidates)), \
+             patch.object(self.tools, 'get_financial_statements', side_effect=fetch):
+            return self.tools.get_financial_statements_resolved(symbol, 'income_statements')
+
+    def test_the_first_candidate_with_data_wins(self):
+        payload = self._run('AAPL', {})
+
+        self.assertEqual(payload['universe'], 'sp500')
+        self.assertEqual(self.calls, [('AAPL', 'sp500')])
+
+    def test_an_absent_symbol_falls_through_to_the_next_candidate(self):
+        payload = self._run('AAPL', {'sp500': KeyError('absent')})
+
+        self.assertEqual(payload['universe'], 'nas')
+
+    def test_a_real_error_falls_through_to_the_next_candidate(self):
+        payload = self._run('AAPL', {'sp500': OSError('S3 timeout')})
+
+        self.assertEqual(payload['universe'], 'nas')
+
+    def test_a_failed_candidate_is_not_retried_within_the_window(self):
+        self._run('AAPL', {'sp500': OSError('S3 timeout')})
+        self.calls.clear()
+        payload = self._run('AAPL', {'sp500': OSError('S3 timeout')})
+
+        self.assertEqual(payload['universe'], 'nas')
+        self.assertEqual(self.calls, [('AAPL', 'nas')])
+
+    def test_the_failure_marker_does_not_affect_other_symbols(self):
+        self._run('AAPL', {'sp500': OSError('S3 timeout')})
+        self.calls.clear()
+        payload = self._run('MSFT', {})
+
+        self.assertEqual(payload['universe'], 'sp500')
+        self.assertEqual(self.calls, [('MSFT', 'sp500')])
+
+    def test_absent_everywhere_is_still_a_key_error(self):
+        with self.assertRaises(KeyError):
+            self._run('AAPL', {'sp500': KeyError('a'), 'nas': KeyError('b')})
+
+    def test_no_candidates_is_still_a_key_error(self):
+        with self.assertRaises(KeyError):
+            self._run('ZZZZ', {}, candidates=())
+
+    def test_a_real_error_with_no_fallback_is_not_reported_as_absent(self):
+        with self.assertRaises(RuntimeError) as ctx:
+            self._run('AAPL', {'sp500': OSError('S3 timeout'), 'nas': KeyError('b')})
+
+        self.assertNotIsInstance(ctx.exception, KeyError)
+        self.assertIn('S3 timeout', str(ctx.exception))
+
+
+@override_settings(CACHES=LOCMEM_CACHE)
+class StatementsEndpointTests(SimpleTestCase):
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+
+    def _get(self, **getter):
+        from django.test import Client
+        from analyzer.analyzer_utils import CorePerformanceTools
+        with patch.object(CorePerformanceTools, 'get_financial_statements_resolved', **getter):
+            return Client().get('/api/financial-statements/AAPL/income_statements/')
+
+    def test_success_is_200(self):
+        response = self._get(return_value={'symbol': 'AAPL', 'data': []})
+        self.assertEqual(response.status_code, 200)
+
+    def test_unknown_symbol_is_still_404(self):
+        response = self._get(side_effect=KeyError('absent'))
+        self.assertEqual(response.status_code, 404)
+
+    def test_an_unavailable_universe_index_is_503(self):
+        from analyzer.analyzer_utils.universe_lookup import UniverseIndexUnavailable
+        response = self._get(side_effect=UniverseIndexUnavailable('S3 down'))
+        self.assertEqual(response.status_code, 503)
+
+    def test_a_load_failure_is_500(self):
+        response = self._get(side_effect=RuntimeError('every candidate failed'))
+        self.assertEqual(response.status_code, 500)
+
+    def test_an_invalid_statement_type_is_still_400(self):
+        from django.test import Client
+        response = Client().get('/api/financial-statements/t/a/')
+        self.assertEqual(response.status_code, 400)
+
+    def test_infinite_values_in_a_statement_render_as_null(self):
+        import json as _json
+        from django.test import Client
+        from analyzer.analyzer_utils import CorePerformanceTools, universe_lookup
+        frame = pd.DataFrame({'symbol': ['AAPL'], 'date': ['2025-12-31'],
+                              'revenue': [np.nan], 'margin': [np.inf], 'eps': [1.5]})
+        with patch.object(universe_lookup, 'resolve_universes', return_value=['sp500']), \
+             patch.object(CorePerformanceTools.data_getter, 'load_financial_statements',
+                          return_value=frame):
+            response = Client().get('/api/financial-statements/AAPL/income_statements/')
+
+        self.assertEqual(response.status_code, 200)
+        row = _json.loads(response.content)['data'][0]
+        self.assertIsNone(row['revenue'])
+        self.assertIsNone(row['margin'])
+        self.assertEqual(row['eps'], 1.5)
+
+
+@override_settings(CACHES=LOCMEM_CACHE)
+class StockQuoteTests(SimpleTestCase):
+    """One FMP call per symbol per TTL, shared by every viewer."""
+
+    ROW = {
+        'symbol': 'ARX.TO', 'name': 'ARC Resources Ltd.', 'price': 33.91,
+        'changePercentage': 0.7128, 'change': 0.24, 'volume': 1814968,
+        'dayLow': 33.64, 'dayHigh': 34.16, 'yearLow': 21.14, 'yearHigh': 34.4,
+        'marketCap': 19208804549, 'priceAvg50': 32.5174, 'priceAvg200': 28.63255,
+        'exchange': 'TSX', 'open': 33.65, 'previousClose': 33.67,
+        'timestamp': 1788552001, 'unexpected': 'dropped',
+    }
+
+    class _Response:
+        def __init__(self, status_code=200, body=None, text=False):
+            self.status_code = status_code
+            self._body = body
+            self._text = text
+
+        def json(self):
+            if self._text:
+                raise ValueError('not json')
+            return self._body
+
+    def setUp(self):
+        from django.core.cache import cache
+        from analyzer.analyzer_utils import stock_quote
+
+        cache.clear()
+        self.cache = cache
+        self.sq = stock_quote
+        ttl = patch.object(stock_quote, '_quote_ttl', return_value=900)
+        ttl.start()
+        self.addCleanup(ttl.stop)
+
+    def _get(self, *responses, symbol='arx.to'):
+        with patch.object(self.sq.requests, 'get', side_effect=list(responses)) as get:
+            result = self.sq.get_stock_quote(symbol)
+        return result, get
+
+    def test_returns_all_quote_fields_and_nothing_else(self):
+        payload, _ = self._get(self._Response(body=[self.ROW]))
+
+        self.assertEqual(set(payload['quote']), set(self.sq.QUOTE_FIELDS))
+        self.assertEqual(payload['quote']['price'], 33.91)
+        self.assertFalse(payload['stale_cache'])
+
+    def test_requests_one_symbol_upper_cased(self):
+        _, get = self._get(self._Response(body=[self.ROW]))
+
+        self.assertEqual(get.call_args.kwargs['params']['symbol'], 'ARX.TO')
+
+    def test_a_second_viewer_reads_the_cache(self):
+        self._get(self._Response(body=[self.ROW]))
+        with patch.object(self.sq.requests, 'get') as get:
+            payload = self.sq.get_stock_quote('ARX.TO')
+
+        get.assert_not_called()
+        self.assertEqual(payload['quote']['symbol'], 'ARX.TO')
+
+    def test_an_empty_list_is_not_found_and_remembered(self):
+        with self.assertRaises(KeyError):
+            self._get(self._Response(body=[]), symbol='ZZZZ')
+        with patch.object(self.sq.requests, 'get') as get:
+            with self.assertRaises(KeyError):
+                self.sq.get_stock_quote('ZZZZ')
+        get.assert_not_called()
+
+    def test_provider_errors_are_unavailable_without_echoing_the_body(self):
+        cases = [
+            self._Response(401, {'Error Message': 'Invalid API KEY. apikey=secret'}),
+            self._Response(400, text=True),
+            self._Response(429, {'Error Message': 'Limit Reach'}),
+            self._Response(200, {'Error Message': 'apikey=secret'}),
+        ]
+        for response in cases:
+            self.cache.clear()
+            with self.assertRaises(self.sq.QuoteUnavailable) as ctx:
+                self._get(response)
+            self.assertNotIn('secret', str(ctx.exception))
+
+    def test_a_network_error_is_unavailable(self):
+        import requests as _requests
+        with patch.object(self.sq.requests, 'get', side_effect=_requests.ConnectionError('boom')):
+            with self.assertRaises(self.sq.QuoteUnavailable):
+                self.sq.get_stock_quote('ARX.TO')
+
+    def test_an_outage_serves_the_last_good_quote(self):
+        self._get(self._Response(body=[self.ROW]))
+        self.cache.delete(self.sq._keys('ARX.TO')['fresh'])
+
+        payload, _ = self._get(self._Response(503, {}))
+
+        self.assertTrue(payload['stale_cache'])
+        self.assertEqual(payload['quote']['price'], 33.91)
+
+    def test_a_concurrent_viewer_does_not_call_fmp(self):
+        self._get(self._Response(body=[self.ROW]))
+        keys = self.sq._keys('ARX.TO')
+        self.cache.delete(keys['fresh'])
+        self.cache.add(keys['lock'], 1)
+
+        with patch.object(self.sq.requests, 'get') as get:
+            payload = self.sq.get_stock_quote('ARX.TO')
+
+        get.assert_not_called()
+        self.assertTrue(payload['stale_cache'])
+        self.assertIsNotNone(self.cache.get(keys['lock']))
+
+    def test_the_lock_is_released_after_a_fetch(self):
+        self._get(self._Response(body=[self.ROW]))
+        self.assertIsNone(self.cache.get(self.sq._keys('ARX.TO')['lock']))
+
+    def test_non_finite_values_render_as_null(self):
+        payload, _ = self._get(self._Response(body=[dict(self.ROW, priceAvg200=float('inf'))]))
+        self.assertIsNone(payload['quote']['priceAvg200'])
+
+    def test_an_empty_body_for_a_known_symbol_serves_the_last_good_quote(self):
+        self._get(self._Response(body=[self.ROW]))
+        keys = self.sq._keys('ARX.TO')
+        self.cache.delete(keys['fresh'])
+
+        payload, _ = self._get(self._Response(body=[]))
+
+        self.assertTrue(payload['stale_cache'])
+        self.assertIsNone(self.cache.get(keys['missing']))
+
+    def test_a_waiter_with_nothing_to_serve_gives_up_without_calling_fmp(self):
+        keys = self.sq._keys('ARX.TO')
+        self.cache.add(keys['lock'], 1)
+
+        with patch.object(self.sq, 'LOCK_WAIT_SECONDS', 0.05), \
+             patch.object(self.sq.requests, 'get') as get:
+            with self.assertRaises(self.sq.QuoteUnavailable):
+                self.sq.get_stock_quote('ARX.TO')
+
+        get.assert_not_called()
+        self.assertIsNotNone(self.cache.get(keys['lock']))
+
+    def test_a_waiter_returns_the_holders_quote_once_it_lands(self):
+        keys = self.sq._keys('ARX.TO')
+        self.cache.add(keys['lock'], 1)
+        self.sq._store(keys['fresh'], {'quote': {'symbol': 'ARX.TO'}, 'stale_cache': False}, 900)
+
+        with patch.object(self.sq.requests, 'get') as get:
+            payload = self.sq.get_stock_quote('ARX.TO')
+
+        get.assert_not_called()
+        self.assertEqual(payload['quote']['symbol'], 'ARX.TO')
+
+    def test_a_failure_with_no_last_good_is_not_retried_within_the_minute(self):
+        with self.assertRaises(self.sq.QuoteUnavailable):
+            self._get(self._Response(503, {}))
+        with patch.object(self.sq.requests, 'get') as get:
+            with self.assertRaises(self.sq.QuoteUnavailable):
+                self.sq.get_stock_quote('ARX.TO')
+
+        get.assert_not_called()
+        self.assertIsNone(self.cache.get(self.sq._keys('ARX.TO')['lock']))
+
+    def test_a_cached_copy_with_infinity_heals_on_read(self):
+        keys = self.sq._keys('ARX.TO')
+        self.sq._store(keys['fresh'], {'quote': {'price': float('inf')}}, 900)
+
+        self.assertIsNone(self.sq.get_stock_quote('ARX.TO')['quote']['price'])
+
+
+class StockQuoteTtlTests(SimpleTestCase):
+
+    def _ttl(self, iso):
+        from datetime import datetime
+        from analyzer.analyzer_utils import stock_quote
+        return stock_quote._quote_ttl(datetime.fromisoformat(iso))
+
+    def test_fifteen_minutes_while_trading(self):
+        self.assertEqual(self._ttl('2026-10-13T11:00:00-04:00'), 900)
+
+    def test_fifteen_minutes_just_after_the_close(self):
+        self.assertEqual(self._ttl('2026-10-13T16:10:00-04:00'), 900)
+
+    def test_held_until_the_next_open_overnight(self):
+        # 17:00 Tuesday -> 09:30 Wednesday.
+        self.assertEqual(self._ttl('2026-10-13T17:00:00-04:00'), 16 * 3600 + 30 * 60)
+
+    def test_held_over_the_weekend(self):
+        # 12:00 Saturday -> 09:30 Monday.
+        self.assertEqual(self._ttl('2026-10-17T12:00:00-04:00'), 45 * 3600 + 30 * 60)
+
+    def test_held_over_an_nyse_holiday(self):
+        # Thanksgiving Thursday 2026-11-26 -> the half-day open on Friday.
+        self.assertEqual(self._ttl('2026-11-26T12:00:00-05:00'), 21 * 3600 + 30 * 60)
+
+    def test_held_across_the_dst_change(self):
+        # Friday 17:00 EDT -> Monday 09:30 EST; clocks fall back on 2026-11-01.
+        self.assertEqual(self._ttl('2026-10-30T17:00:00-04:00'), 65 * 3600 + 30 * 60)
+
+    def test_a_calendar_failure_falls_back_to_the_short_ttl(self):
+        from analyzer.analyzer_utils import stock_quote
+        with patch.object(stock_quote.NYSE, 'schedule', side_effect=RuntimeError('boom')):
+            self.assertEqual(self._ttl('2026-10-17T12:00:00-04:00'), stock_quote.OPEN_TTL)
+
+
+@override_settings(CACHES=LOCMEM_CACHE)
+class StockQuoteEndpointTests(SimpleTestCase):
+
+    def _get(self, **getter):
+        from django.test import Client
+        from analyzer.analyzer_utils import stock_quote
+        with patch.object(stock_quote, 'get_stock_quote', **getter):
+            return Client().get('/api/stock-quote/ARX.TO/')
+
+    def test_success_is_200(self):
+        self.assertEqual(self._get(return_value={'quote': {}}).status_code, 200)
+
+    def test_unknown_symbol_is_404(self):
+        self.assertEqual(self._get(side_effect=KeyError('x')).status_code, 404)
+
+    def test_provider_failure_is_502(self):
+        from analyzer.analyzer_utils.stock_quote import QuoteUnavailable
+        self.assertEqual(self._get(side_effect=QuoteUnavailable('x')).status_code, 502)
+
+    def test_an_unexpected_error_is_500(self):
+        self.assertEqual(self._get(side_effect=RuntimeError('x')).status_code, 500)
+
+
+@override_settings(CACHES=LOCMEM_CACHE)
+class UniverseProfilesColumnsTests(SimpleTestCase):
+    """Every universe carries the screener fields, and only the listed columns."""
+
+    PROFILES = {
+        'SPY': {'symbol': 'SPY', 'name': 'SPDR S&P 500', 'country': 'US', 'is_etf': True,
+                'market_cap': 5e11, 'currency': 'USD', 'volume_avg': 7e7,
+                'last_dividend': 6.8, 'ipo_date': '1993-01-29', 'ceo': 'n/a'},
+        '7203.T': {'symbol': '7203.T', 'name': 'Toyota', 'country': 'JP', 'is_etf': False,
+                   'market_cap': 4e13, 'currency': 'JPY', 'volume_avg': 2e7,
+                   'last_dividend': 90.0, 'ipo_date': '1949-05-16', 'no_of_employees': 380000,
+                   'ceo': 'n/a'},
+    }
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+
+    def _run(self, universe, constituents):
+        from analyzer.analyzer_utils import CorePerformanceTools as tools
+        from django.core.cache import cache
+        cache.set('company:profiles:v1', b'cached')
+        with patch.object(tools.data_getter, 'get_index_constituents', return_value=constituents), \
+             patch.object(tools.data_getter, 'file_decompressor', return_value=self.PROFILES):
+            return tools.get_universe_profiles(universe)
+
+    def test_records_carry_the_screener_fields(self):
+        from analyzer.analyzer_utils.CorePerformanceTools import UNIVERSE_PROFILE_SUBSET_COLS
+        record = self._run('msci_eafe', [{'asset': '7203.T'}])['data'][0]
+
+        self.assertEqual(set(record), set(UNIVERSE_PROFILE_SUBSET_COLS))
+        self.assertEqual(record['currency'], 'JPY')
+        self.assertEqual(record['no_of_employees'], 380000)
+        self.assertNotIn('ceo', record)
+
+    def test_etf_records_carry_them_too(self):
+        record = self._run('etfs', [{'symbol': 'SPY'}])['data'][0]
+
+        self.assertEqual(record['ipo_date'], '1993-01-29')
+        self.assertIsNone(record['no_of_employees'])
+
+    def test_the_payload_is_cached_under_the_new_key(self):
+        from django.core.cache import cache
+        self._run('etfs', [{'symbol': 'SPY'}])
+
+        self.assertIsNotNone(cache.get('home:universe_profiles:etfs:v3'))

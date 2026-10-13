@@ -1,5 +1,6 @@
 import useSWR from "swr"
 import axios from 'axios'
+import { withIsLoading } from "./swrLoading"
 
 
 const fetcher = async (url) => {
@@ -11,11 +12,8 @@ const fetcher = async (url) => {
 
 export const useUniverseProfiles = (slug) => {
 
-    const swrRes = useSWR(
-        slug ? `${process.env.NEXT_PUBLIC_FINTANK_API_URL}/universe-profiles/${slug}/` : null,
-        fetcher,
-        { revalidateOnFocus: false },
-    )
+    const key = slug ? `${process.env.NEXT_PUBLIC_FINTANK_API_URL}/universe-profiles/${slug}/` : null
+    const swrRes = useSWR(key, fetcher, { revalidateOnFocus: false })
 
-    return swrRes
+    return withIsLoading(key, swrRes)
 }

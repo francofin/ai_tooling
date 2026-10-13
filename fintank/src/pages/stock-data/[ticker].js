@@ -15,6 +15,7 @@ import PriceChart from '@componentsLegacy/StockDetail/PriceChart';
 import MomentumCharts from '@componentsLegacy/StockDetail/MomentumCharts';
 import StatementsSection from '@componentsLegacy/StockDetail/StatementsSection';
 import SectorNews from '@componentsLegacy/StockDetail/SectorNews';
+import QuoteCard from '@componentsLegacy/StockDetail/QuoteCard';
 import { fetchProfile, fetchEtfProfile, fetchPrices } from '@utils/stockApi';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
@@ -99,18 +100,45 @@ const StockDetail = ({ symbol, profile, dates, series, asOfDate, unknownSymbol }
       <Container className="py-5">
         <Row>
           <Col lg="10" className="mx-auto">
-            <StockHeader profile={profile} asOfDate={asOfDate} />
+            {/*
+              Top region: header + price chart on the left, quote sidebar on the
+              right. The wrapper carries the section divider the chart's own
+              .text-block loses once it becomes :last-of-type in its column;
+              pb-0 keeps the spacing what it was before the split.
+            */}
+            <div className="text-block pb-0">
+              <Row>
+                <Col lg={8}>
+                  <StockHeader profile={profile} asOfDate={asOfDate} />
 
-            {series ? (
-              <>
-                <PriceChart dates={dates} series={series} />
-                <MomentumCharts dates={dates} series={series} />
-              </>
-            ) : (
-              <div className="text-block">
-                <p className="text-muted">No price history available for {symbol}.</p>
-              </div>
-            )}
+                  {/*
+                    Below lg the columns stack, which would push the quote under
+                    the chart. Render it here instead so it sits right after the
+                    header. SWR dedupes the shared key, so this is one request.
+                  */}
+                  <div className="d-lg-none pt-4">
+                    <QuoteCard symbol={symbol} currency={profile.currency} />
+                  </div>
+
+                  {series ? (
+                    <PriceChart dates={dates} series={series} />
+                  ) : (
+                    <div className="text-block">
+                      <p className="text-muted">No price history available for {symbol}.</p>
+                    </div>
+                  )}
+                </Col>
+
+                <Col lg={4} className="d-none d-lg-block">
+                  {/* Clears the fixed navbar; same offset as IndexDetail/MoversPanel. */}
+                  <div className="sticky-top" style={{ top: '100px' }}>
+                    <QuoteCard symbol={symbol} currency={profile.currency} />
+                  </div>
+                </Col>
+              </Row>
+            </div>
+
+            {series && <MomentumCharts dates={dates} series={series} />}
 
             <StatementsSection symbol={symbol} />
             <SectorNews sector={profile.sector} />

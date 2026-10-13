@@ -232,30 +232,40 @@
     "title":"Equities",
     "dropdown": [
       {
-        "title": "S&P 500 Stocks",
+        "title": "S&P 500 Equities",
         "link": "/universe/sp500"
       },
       {
-        "title": "Nasdaq Stocks",
+        "title": "Nasdaq Equities",
         "link": "/universe/nasdaq"
       },
       {
-        "title": "Dow Jones",
-        "link": "/universe/dj"
+        "title": "Russell 2000 Equities",
+        "link": "/universe/r2000"
       },
       {
-        "title": "Canadian Equities",
+        "title": "Russell Micro Cap Equities",
+        "link": "/universe/rmicro"
+      },
+      {
+        "title": "S&P/TSX Equities",
         "link": "/universe/tsx"
       },
       {
-        "title": "European Equities",
-        "link": "/euro",
-        "new": true
+        "title": "S&P/TSX Small Cap Equities",
+        "link": "/universe/tsx_small_cap"
+      },
+      {
+        "title": "MSCI EAFE Equities",
+        "link": "/universe/msci_eafe"
+      },
+      {
+        "title": "MSCI EAFE Small Cap Equities",
+        "link": "/universe/msci_sm"
       },
       {
         "title": "ETFs",
-        "link": "/universe/etfs",
-        "new": true
+        "link": "/universe/etfs"
       }
     ]
   },
@@ -284,12 +294,6 @@
   {
     "title": "Log In",
     "link": "/login",
-    "button": true,
-    "hideToLoggedUser": true
-  },
-  {
-    "title": "Connect Wallet",
-    "link": "/wallet-account",
     "button": true,
     "hideToLoggedUser": true
   }

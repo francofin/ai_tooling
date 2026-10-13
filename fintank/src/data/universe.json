@@ -32,16 +32,6 @@
       "img": "img/photo/photo-1522771739844-6a9f6d5f14af.jpg"
     },
     {
-      "id": "4",
-      "title": "European Equities",
-      "slug": "eurostocks",
-      "category": "Travel",
-      "date": "January 16, 2016",
-      "content": "Vestibulum tortor quam, feugiat vitae, ultricies eget, tempor sit amet, ante.  Mauris placerat eleif...",
-      "link": "post",
-      "img": "img/photo/photo-1482463084673-98272196658a.jpg"
-    },
-    {
       "id": "5",
       "title": "ETF Listings",
       "slug": "etfs",
@@ -82,14 +72,59 @@
       "img": "img/photo/photo-1514890547357-a9ee288728e0.jpg"
     },
     {
-      "id": "8",
-      "title": "Dow Jones Industrial Average",
-      "slug": "dj",
-      "category": "Guides",
+      "id": "9",
+      "title": "Russell 2000 Equities",
+      "slug": "r2000",
+      "subtitle": "Featured",
+      "category": "Travel",
       "date": "January 16, 2016",
-      "content": "Pellentesque habitant morbi tristique senectus et netus et malesuada fames ac turpis egestas. Vestib...",
+      "content": "Is am hastily invited settled at limited civilly fortune me. Really spring in extent an by. Judge but built party world...",
       "link": "post",
-      "img": "img/photo/photo-1514890547357-a9ee288728e0.jpg"
+      "img": "img/photo/photo-1467987506553-8f3916508521.jpg"
+    },
+    {
+      "id": "10",
+      "title": "Russell Micro Cap Equities",
+      "slug": "rmicro",
+      "subtitle": "Featured",
+      "category": "Travel",
+      "date": "January 16, 2016",
+      "content": "Is am hastily invited settled at limited civilly fortune me. Really spring in extent an by. Judge but built party world...",
+      "link": "post",
+      "img": "img/photo/photo-1467987506553-8f3916508521.jpg"
+    },
+    {
+      "id": "11",
+      "title": "S&P/TSX Small Cap Equities",
+      "slug": "tsx_small_cap",
+      "subtitle": "Featured",
+      "category": "Travel",
+      "date": "January 16, 2016",
+      "content": "Is am hastily invited settled at limited civilly fortune me. Really spring in extent an by. Judge but built party world...",
+      "link": "post",
+      "img": "img/photo/photo-1467987506553-8f3916508521.jpg"
+    },
+    {
+      "id": "12",
+      "title": "MSCI EAFE Equities",
+      "slug": "msci_eafe",
+      "subtitle": "Featured",
+      "category": "Travel",
+      "date": "January 16, 2016",
+      "content": "Is am hastily invited settled at limited civilly fortune me. Really spring in extent an by. Judge but built party world...",
+      "link": "post",
+      "img": "img/photo/photo-1467987506553-8f3916508521.jpg"
+    },
+    {
+      "id": "13",
+      "title": "MSCI EAFE Small Cap Equities",
+      "slug": "msci_sm",
+      "subtitle": "Featured",
+      "category": "Travel",
+      "date": "January 16, 2016",
+      "content": "Is am hastily invited settled at limited civilly fortune me. Really spring in extent an by. Judge but built party world...",
+      "link": "post",
+      "img": "img/photo/photo-1467987506553-8f3916508521.jpg"
     }
   ]
 }

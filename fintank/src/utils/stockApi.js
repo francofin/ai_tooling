@@ -39,6 +39,13 @@ export const fetchEtfProfile = (symbol) =>
 export const fetchPrices = (symbol) =>
   request(`/stock-prices/${encodeURIComponent(symbol)}/`, 'prices');
 
+// Delayed quote, cached per symbol server-side (15 min while the market is
+// open, until the next open when closed), so polling it costs no extra FMP
+// calls. 404 unknown symbol, 502 provider down. `stale_cache: true` means the
+// provider failed and the backend served its last good copy.
+export const fetchQuote = (symbol) =>
+  request(`/stock-quote/${encodeURIComponent(symbol)}/`, 'quote');
+
 // Funds live on their own route: /stock-data/ reads the equity-only
 // long_profiles parquet and 404s for every ETF. stock-data/[ticker].js catches
 // that and redirects, so this is purely an optimisation -- callers holding a

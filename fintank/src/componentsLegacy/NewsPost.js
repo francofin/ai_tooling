@@ -1,5 +1,6 @@
 import React from "react"
 import Image from "./CustomImage"
+import { formatArticleDate } from "@utils/newsDate"
 
 import { Card, Button } from "react-bootstrap"
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome"
@@ -11,10 +12,6 @@ const NewsPost = (props) => {
   const onOpen = props.onOpen
   const articleUrl = post.url || post.link
 
-  const adjustTimeStamp = (date) => {
-    const options = { year: "numeric", month: "long", day: "numeric"}
-    return new Date(date).toLocaleDateString(undefined, options)
-  }
 
   // Content is raw HTML from the news API; strip tags so the plain-text teaser
   // never shows tag fragments like "<strong>" or "li>".
@@ -50,7 +47,7 @@ const NewsPost = (props) => {
         </h5>
         <p className="text-gray-500 text-sm my-3">
           <FontAwesomeIcon icon={faClock} className="me-2" />
-          {adjustTimeStamp(post.date)}
+          {formatArticleDate(post)}
         </p>
         <p className="my-2 text-muted text-sm">{stripHtml(post.content).substring(0, 115) + "..."}</p>
         <a href={articleUrl} target="_blank" rel="noopener noreferrer" onClick={handleOpen}>

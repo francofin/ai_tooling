@@ -10,11 +10,13 @@ import { fetcher, indexQuotesUrl } from "@/lib/indexApi"
  * cache and picks up the new batch when it does not.
  */
 export const useIndexQuotes = (slug) => {
-  const { data, error, isLoading } = useSWR(
-    slug ? indexQuotesUrl(slug) : null,
-    fetcher,
-    { revalidateOnFocus: false, refreshInterval: 300000 }
-  )
+  const key = slug ? indexQuotesUrl(slug) : null
+  const { data, error } = useSWR(key, fetcher, {
+    revalidateOnFocus: false,
+    refreshInterval: 300000,
+  })
+  // SWR 1.3.0 has no `isLoading`; derive it. A null key is idle, not loading.
+  const isLoading = key !== null && !data && !error
 
   return { quotes: data, error, isLoading }
 }

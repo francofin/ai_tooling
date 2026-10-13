@@ -8,6 +8,7 @@ import ArticleModal from "@componentsLegacy/ArticleModal"
 import Discover from "@componentsLegacy/Discover"
 import Brands from "@componentsLegacy/Brands"
 import data from "@data/news.json"
+import { formatArticleDate } from "@utils/newsDate"
 import geoJSON from "@data/restaurants-geojson.json"
 import Image from "@componentsLegacy/CustomImage"
 import topics from "@data/topic.json"
@@ -110,10 +111,6 @@ const News = (props) => {
     }, [imagesForBanner])
 
 
-    const adjustTimeStamp = (date) => {
-        const options = { year: "numeric", month: "long", day: "numeric"}
-        return new Date(date).toLocaleDateString(undefined, options)
-      }
 
 
   return (
@@ -244,7 +241,7 @@ const News = (props) => {
                     <p className="text-sm mb-0" dangerouslySetInnerHTML ={{__html: `${message.description || message.text || message.snippet || ''}`}} />
                   </Col>
                   <Col md="4" className="text-end py-3">
-                    <p className="text-sm">{adjustTimeStamp(message.datePublished || message.publishedDate || message.date)}</p>
+                    <p className="text-sm">{formatArticleDate(message)}</p>
                   </Col>
                   <Link legacyBehavior href={message.url || message.link}>
                     <a className="stretched-link" target="_blank" onClick={(e) => handleOpenArticle(e, message)}></a>

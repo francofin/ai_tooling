@@ -8,7 +8,7 @@ from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from rest_framework.response import Response
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
-from .getNews import GetNewsArticles
+from .getNews import GetNewsArticles, CACHE_KEY
 
 all_news_articles = GetNewsArticles()
 
@@ -16,7 +16,7 @@ all_news_articles = GetNewsArticles()
 @permission_classes([AllowAny])
 def get_articles(request, item):
 
-    cache_key = f"home:news_articles:{item}:v1"
+    cache_key = CACHE_KEY.format(item=item)
     compressed = cache.get(cache_key)
 
     if compressed:

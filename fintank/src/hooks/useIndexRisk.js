@@ -9,10 +9,10 @@ import { fetcher, indexRiskUrl } from "@/lib/indexApi"
  * so there is nothing to revalidate within a session.
  */
 export const useIndexRisk = (slug, options) => {
-  const { data, error, isLoading } = useSWRImmutable(
-    slug ? indexRiskUrl(slug, options) : null,
-    fetcher
-  )
+  const key = slug ? indexRiskUrl(slug, options) : null
+  const { data, error } = useSWRImmutable(key, fetcher)
+  // SWR 1.3.0 has no `isLoading`; derive it. A null key is idle, not loading.
+  const isLoading = key !== null && !data && !error
 
   return { risk: data, error, isLoading }
 }

@@ -2,6 +2,7 @@ import React from 'react';
 import useSWR from 'swr';
 import { Row, Col, Card, Spinner } from 'react-bootstrap';
 import { fetchSectorNews, sectorNewsCategory } from '@utils/stockApi';
+import { formatArticleDate } from '@utils/newsDate';
 
 /**
  * The news feed is organised by topic, not by ticker, so this is the stock's
@@ -15,9 +16,11 @@ const SectorNews = ({ sector }) => {
   // first argument here therefore indexed into the *string* 'sector-news' and
   // requested /get_articles/e/, which 404s -- silently, because the error
   // branch below renders null. Take the second argument instead.
-  const { data, error, isLoading } = useSWR(['sector-news', category], (_, c) => fetchSectorNews(c), {
+  const { data, error } = useSWR(['sector-news', category], (_, c) => fetchSectorNews(c), {
     revalidateOnFocus: false,
   });
+  // swr@1 has no `isLoading` either; derive it.
+  const isLoading = !data && !error;
 
   if (error) return null;
 
@@ -50,7 +53,7 @@ const SectorNews = ({ sector }) => {
                 </Card.Title>
                 <Card.Text className="text-muted text-sm">{article.snippet}</Card.Text>
                 <div className="text-muted text-sm">
-                  {[article.source, article.date].filter(Boolean).join(' · ')}
+                  {[article.source, formatArticleDate(article)].filter(Boolean).join(' · ')}
                 </div>
               </Card.Body>
             </Card>

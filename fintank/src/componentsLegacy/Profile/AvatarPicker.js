@@ -22,11 +22,12 @@ const fetcher = async (url) => {
  */
 const AvatarPicker = ({ show, onHide, current, onSaved }) => {
   // Only fetch once the modal has been opened at least once.
-  const { data: presets, error: loadError, isLoading } = useSWR(
-    show ? "/api/auth/avatar" : null,
-    fetcher,
-    { revalidateOnFocus: false }
-  )
+  const avatarKey = show ? "/api/auth/avatar" : null
+  const { data: presets, error: loadError } = useSWR(avatarKey, fetcher, {
+    revalidateOnFocus: false,
+  })
+  // SWR 1.3.0 has no `isLoading`; derive it. A null key is idle, not loading.
+  const isLoading = avatarKey !== null && !presets && !loadError
 
   const [saving, setSaving] = useState(null)
   const [saveError, setSaveError] = useState(null)

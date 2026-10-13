@@ -9,10 +9,10 @@ import { fetcher, indexComparisonUrl } from "@/lib/indexApi"
  * cannot have changed. Switching peers changes the key, which is the fetch.
  */
 export const useIndexComparison = (slug, peerKey, options) => {
-  const { data, error, isLoading } = useSWRImmutable(
-    slug && peerKey ? indexComparisonUrl(slug, peerKey, options) : null,
-    fetcher
-  )
+  const key = slug && peerKey ? indexComparisonUrl(slug, peerKey, options) : null
+  const { data, error } = useSWRImmutable(key, fetcher)
+  // SWR 1.3.0 has no `isLoading`; derive it. A null key is idle, not loading.
+  const isLoading = key !== null && !data && !error
 
   return { comparison: data, error, isLoading }
 }

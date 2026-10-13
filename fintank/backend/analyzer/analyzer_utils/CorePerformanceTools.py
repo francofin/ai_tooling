@@ -1,4 +1,5 @@
 from datetime import datetime
+import logging
 import math
 import numbers
 import pandas as pd
@@ -15,6 +16,8 @@ from utils.IndexFileMappers import IndexFileMappers
 from utils.StockCalculations import GetData
 from stockuploader.models import Stock
 from analyzer.serializers import StockSerializer
+
+logger = logging.getLogger(__name__)
 
 data_getter = GetData()
 
@@ -45,7 +48,12 @@ UNIVERSE_PROFILE_SUBSET_COLS = [
     'symbol', 'name', 'sector', 'industry',
     'market_cap', 'country', 'beta',
     'exchange_short_name', 'is_etf', 'last_range',
+    # Screener fields. market_cap and last_dividend are in `currency` -- the
+    # listing currency, not USD -- so the screener only compares them within one.
+    'currency', 'volume_avg', 'last_dividend', 'ipo_date', 'no_of_employees',
 ]
+
+UNIVERSE_PROFILES_CACHE_KEY = "home:universe_profiles:{universe}:v3"
 
 
 def get_all_stock_names():
@@ -155,11 +163,11 @@ def get_company_profiles():
 LONG_PROFILE_FIELDS = [
     'symbol', 'name', 'isin', 'cusip', 'exchange_short_name',
     'sector', 'country', 'no_of_employees', 'description',
-    'beta', 'market_cap', 'website', 'ceo', 'image',
+    'beta', 'market_cap', 'website', 'ceo', 'image', 'currency',
 ]
 
 def get_stock_long_profile(symbol: str) -> dict:
-    cache_key = f"stock:long_profile:{symbol.upper()}:v1"
+    cache_key = f"stock:long_profile:{symbol.upper()}:v2"
     compressed = cache.get(cache_key)
     if compressed:
         return _load_cached_json(compressed)
@@ -268,6 +276,7 @@ def get_stock_price_data_monthly(symbol: str) -> dict:
 
 VALID_UNIVERSES = {'sp500', 'nas', 'r2000', 'rmicro', 'tsx', 'tsx_small_cap', 'msci_eafe', 'msci_sm'}
 VALID_STATEMENT_TYPES = {'income_statements', 'balance_sheet_statements', 'cash_flow_statements'}
+STATEMENT_FAILURE_TIMEOUT = 60
 
 def get_financial_statements(symbol: str, universe: str, statement_type: str) -> dict:
     if universe not in VALID_UNIVERSES:
@@ -284,9 +293,9 @@ def get_financial_statements(symbol: str, universe: str, statement_type: str) ->
     drop_cols = {'link', 'final_link', 'cik', 'accepted_date'}
     df = df.drop(columns=[c for c in drop_cols if c in df.columns])
 
-    records = []
-    for _, row in df.iterrows():
-        records.append({k: (None if (isinstance(v, float) and v != v) else v) for k, v in row.items()})
+    # json_safe, not a bare NaN check: ratio columns can go to ±inf on a zero
+    # denominator, which would be cached and then 500 every render for 24h.
+    records = json_safe([dict(row) for _, row in df.iterrows()])
 
     payload = {'symbol': symbol.upper(), 'universe': universe, 'statement_type': statement_type, 'data': records}
     cache.set(cache_key, gzip.compress(json.dumps(payload).encode('utf-8')), timeout=86400)
@@ -307,12 +316,31 @@ def get_financial_statements_resolved(symbol: str, statement_type: str) -> dict:
     if not candidates:
         raise KeyError(f"Symbol '{symbol}' is not in any known universe.")
 
+    # A real failure on one candidate (an S3 error, an unreadable parquet) falls
+    # through to the next rather than masking a universe that has the data.
+    # The failure is remembered briefly so a broken earlier candidate is not
+    # re-read on every request. The marker is per symbol, not per file, so a
+    # failure specific to one symbol cannot knock out its neighbours.
+    errors = []
     for universe in candidates:
+        failed_key = f"stock:statements:failed:{statement_type}:{universe}:{symbol.upper()}:v1"
+        if cache.get(failed_key):
+            errors.append(f"{universe}: failed within the last {STATEMENT_FAILURE_TIMEOUT}s")
+            continue
         try:
             return get_financial_statements(symbol, universe, statement_type)
         except KeyError:
             continue
+        except Exception as exc:
+            logger.warning("Statements: %s %s from %s failed: %r",
+                           symbol, statement_type, universe, exc)
+            cache.set(failed_key, 1, timeout=STATEMENT_FAILURE_TIMEOUT)
+            errors.append(f"{universe}: {exc!r}")
 
+    if errors:
+        raise RuntimeError(
+            f"Could not load {statement_type} for '{symbol}': {'; '.join(errors)}"
+        )
     raise KeyError(
         f"Symbol '{symbol}' found in {candidates} but has no {statement_type} data."
     )
@@ -407,18 +435,19 @@ def get_universe_profiles(universe: str):
     constituents = data_getter.get_index_constituents(universe)
     symbol_key = 'symbol' if universe == 'etfs' else 'asset'
     symbols = {row[symbol_key] for row in constituents if row.get(symbol_key)}
+    cols = UNIVERSE_PROFILE_SUBSET_COLS
 
     compressed_profiles = cache.get("company:profiles:v1")
     if compressed_profiles:
         all_profiles = data_getter.file_decompressor(compressed_profiles)
         records = [
-            {col: profile.get(col) for col in UNIVERSE_PROFILE_SUBSET_COLS}
+            {col: profile.get(col) for col in cols}
             for sym, profile in all_profiles.items()
             if sym in symbols
         ]
     else:
         df = data_getter.load_parquet_stock_profiles()
-        available_cols = [c for c in UNIVERSE_PROFILE_SUBSET_COLS if c in df.columns]
+        available_cols = [c for c in cols if c in df.columns]
         df_filtered = df[df['symbol'].isin(symbols)][available_cols]
         raw = df_filtered.where(pd.notna(df_filtered), other=None).to_dict(orient='records')
         records = json.loads(json.dumps(raw, default=str))
@@ -444,7 +473,7 @@ def get_universe_profiles(universe: str):
     # read degraded; pinning that for 24h would outlive the outage that caused it.
     if records:
         compressed = gzip.compress(json.dumps(context, default=str).encode('utf-8'))
-        cache.set(f"home:universe_profiles:{universe}:v1", compressed, timeout=86400)
+        cache.set(UNIVERSE_PROFILES_CACHE_KEY.format(universe=universe), compressed, timeout=86400)
     return context
 
 

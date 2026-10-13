@@ -2,41 +2,40 @@ import React, { useState } from 'react';
 import { Nav, Table, Spinner, Alert, Button } from 'react-bootstrap';
 import { useFinancialStatements } from '@hooks/useFinancialStatements';
 import { STATEMENT_TYPES } from '@utils/stockApi';
+import { SECTIONS, formatValue, humanise } from '@utils/statementFields';
+import StatementsChart from './StatementsChart';
 
-// The parquets carry ~60 columns; these are the ones worth a headline table.
-const COLUMNS = {
-  income_statements: [
-    ['revenue', 'Revenue'],
-    ['gross_profit', 'Gross Profit'],
-    ['operating_income', 'Operating Income'],
-    ['net_income', 'Net Income'],
-    ['eps_diluted', 'EPS (diluted)'],
-  ],
-  balance_sheet_statements: [
-    ['total_assets', 'Total Assets'],
-    ['total_liabilities', 'Total Liabilities'],
-    ['total_stockholders_equity', 'Equity'],
-    ['total_debt', 'Total Debt'],
-    ['net_debt', 'Net Debt'],
-  ],
-  cash_flow_statements: [
-    ['operating_cash_flow', 'Operating Cash Flow'],
-    ['capital_expenditure', 'CapEx'],
-    ['free_cash_flow', 'Free Cash Flow'],
-    ['net_income', 'Net Income'],
-  ],
-};
+// Filing details shown on every statement, ahead of the figures.
+const FILING_ROWS = [
+  ['reported_currency', 'Reported Currency'],
+  ['filing_date', 'Filing Date'],
+  ['calendar_year', 'Calendar Year'],
+];
+
+// Rendered as headers or above, never as rows of their own.
+const HEADER_KEYS = new Set(['symbol', 'date', 'period']);
 
 const PERIODS_SHOWN = 12;
 
-const formatValue = (value, key) => {
-  if (value === null || value === undefined) return '—';
-  if (key === 'eps_diluted') return Number(value).toFixed(2);
-  const abs = Math.abs(value);
-  if (abs >= 1e9) return `${(value / 1e9).toFixed(2)}B`;
-  if (abs >= 1e6) return `${(value / 1e6).toFixed(1)}M`;
-  return Intl.NumberFormat().format(value);
+// The explicit sections, plus any column the parquet gains later so the table
+// keeps showing every field without a code change.
+const buildSections = (type, rows) => {
+  const sections = [['Filing', FILING_ROWS], ...(SECTIONS[type] || [])];
+  const known = new Set(sections.flatMap(([, fields]) => fields.map(([key]) => key)));
+  const extra = new Set();
+  rows.forEach((row) =>
+    Object.keys(row).forEach((key) => {
+      // `__index_level_0__` and friends are parquet bookkeeping, not data.
+      if (!known.has(key) && !HEADER_KEYS.has(key) && !key.startsWith('__')) extra.add(key);
+    })
+  );
+  if (extra.size) {
+    sections.push(['Other', [...extra].sort().map((key) => [key, humanise(key)])]);
+  }
+  return sections;
 };
+
+const stickyCell = { position: 'sticky', left: 0, zIndex: 1, background: 'var(--bs-body-bg, #fff)' };
 
 const StatementsSection = ({ symbol }) => {
   const [opened, setOpened] = useState(false);
@@ -54,8 +53,9 @@ const StatementsSection = ({ symbol }) => {
     );
   }
 
-  const columns = COLUMNS[activeType] || [];
   const periods = rows ? rows.slice(0, PERIODS_SHOWN) : [];
+  const sections = buildSections(activeType, periods);
+  const currency = periods.find((row) => row.reported_currency)?.reported_currency;
 
   return (
     <div className="text-block">
@@ -63,6 +63,11 @@ const StatementsSection = ({ symbol }) => {
         Financial Statements
         {universe && <small className="text-muted fw-light ms-2">({universe})</small>}
       </h4>
+      {currency && periods.length > 0 && (
+        <p className="text-muted text-sm mb-2">
+          Figures in {currency}. Margins are percentages; EPS is per share; share counts are units.
+        </p>
+      )}
 
       <Nav variant="tabs" activeKey={activeType} className="mb-3">
         {STATEMENT_TYPES.map((type) => (
@@ -89,7 +94,7 @@ const StatementsSection = ({ symbol }) => {
           <Table hover size="sm" className="align-middle">
             <thead>
               <tr>
-                <th>Metric</th>
+                <th style={stickyCell}>Metric</th>
                 {periods.map((row) => (
                   <th key={`${row.date}-${row.period}`} className="text-end text-nowrap">
                     {row.date}
@@ -99,15 +104,24 @@ const StatementsSection = ({ symbol }) => {
               </tr>
             </thead>
             <tbody>
-              {columns.map(([key, label]) => (
-                <tr key={key}>
-                  <td className="text-nowrap">{label}</td>
-                  {periods.map((row) => (
-                    <td key={`${key}-${row.date}`} className="text-end text-nowrap">
-                      {formatValue(row[key], key)}
-                    </td>
+              {sections.map(([title, fields]) => (
+                <React.Fragment key={title}>
+                  <tr className="table-light">
+                    <th colSpan={periods.length + 1} className="text-uppercase text-xs" style={stickyCell}>
+                      {title}
+                    </th>
+                  </tr>
+                  {fields.map(([key, label]) => (
+                    <tr key={key}>
+                      <td className="text-nowrap" style={stickyCell}>{label}</td>
+                      {periods.map((row) => (
+                        <td key={`${key}-${row.date}-${row.period}`} className="text-end text-nowrap">
+                          {formatValue(row[key], key)}
+                        </td>
+                      ))}
+                    </tr>
                   ))}
-                </tr>
+                </React.Fragment>
               ))}
             </tbody>
           </Table>
@@ -117,6 +131,8 @@ const StatementsSection = ({ symbol }) => {
       {!isLoading && !error && periods.length === 0 && (
         <p className="text-muted">No statement data returned for {symbol}.</p>
       )}
+
+      <StatementsChart symbol={symbol} />
     </div>
   );
 };

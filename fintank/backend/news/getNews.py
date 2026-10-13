@@ -1,3 +1,6 @@
+import re
+from datetime import datetime, timedelta, timezone
+
 import requests
 import json
 from django.conf import settings
@@ -5,6 +8,56 @@ import boto3
 import gzip
 import s3fs
 from django.core.cache import cache
+
+CACHE_KEY = "home:news_articles:{item}:v2"
+
+# The scraped topic feeds carry ages ("2h", "1d") relative to when the feed was
+# written, not dates. Anchored to the file's S3 write time they become real
+# timestamps; left alone they render as "Invalid Date" (or a stale "2h").
+_RELATIVE_AGE = re.compile(r"^\s*(\d+)\s*(s|m|h|d|w|mo|y)\s*$", re.IGNORECASE)
+_AGE_UNITS = {
+    's': timedelta(seconds=1), 'm': timedelta(minutes=1), 'h': timedelta(hours=1),
+    'd': timedelta(days=1), 'w': timedelta(weeks=1), 'mo': timedelta(days=30), 'y': timedelta(days=365),
+}
+_TIMESTAMP_FORMATS = ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%fZ",
+                      "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%d")
+
+
+def published_at(article, scraped_at):
+    """ISO 8601 publish time for an article, or None when it cannot be told.
+
+    FMP feeds give `publishedDate`/`date` as "2026-09-18 21:00:16" with no zone;
+    those stay zoneless (the page only shows the day). Relative ages resolve
+    against `scraped_at` and come back in UTC.
+    """
+    raw = article.get('publishedDate') or article.get('datePublished') or article.get('date')
+    if not raw or not isinstance(raw, str):
+        return None
+
+    age = _RELATIVE_AGE.match(raw)
+    if age:
+        if scraped_at is None:
+            return None
+        amount, unit = int(age.group(1)), age.group(2).lower()
+        moment = scraped_at - amount * _AGE_UNITS[unit]
+        return moment.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    for fmt in _TIMESTAMP_FORMATS:
+        try:
+            parsed = datetime.strptime(raw.strip(), fmt)
+        except ValueError:
+            continue
+        stamp = parsed.strftime("%Y-%m-%dT%H:%M:%S")
+        return stamp + "Z" if raw.strip().endswith("Z") else stamp
+    return None
+
+
+def with_published_at(articles, scraped_at):
+    if not isinstance(articles, list):
+        return articles
+    return [dict(a, published_at=published_at(a, scraped_at)) if isinstance(a, dict) else a
+            for a in articles]
+
 
 class GetNewsArticles:
 
@@ -53,7 +106,17 @@ class GetNewsArticles:
         path = f"s3://{bucket}/{key}"
         raw_data = self.fs.open(path).read()
         articles = json.loads(raw_data)
-        return articles
+        return with_published_at(articles, self._written_at(path))
+
+    def _written_at(self, path):
+        """When the feed file was last written -- the anchor for relative ages."""
+        try:
+            modified = self.fs.info(path).get('LastModified')
+        except Exception:
+            return None
+        if isinstance(modified, datetime):
+            return modified if modified.tzinfo else modified.replace(tzinfo=timezone.utc)
+        return None
     
     def get_articles(self, item):
         search_term = self.file_names[item]
@@ -63,7 +126,7 @@ class GetNewsArticles:
     def cache_single_article(self, item):
         data = self.get_news_articles(self.file_names[item])
         compressed = self.compress_series(data)
-        cache.set(f"home:news_articles:{item}:v1", compressed, timeout=86400)
+        cache.set(CACHE_KEY.format(item=item), compressed, timeout=86400)
         return compressed
 
     def cache_all_articles(self):
@@ -71,7 +134,7 @@ class GetNewsArticles:
             data = self.get_news_articles(self.file_names[key])
             compressed_news = self.compress_series(data)
             cache.set(
-                f"home:news_articles:{key}:v1",
+                CACHE_KEY.format(item=key),
                 compressed_news,
                 timeout=86400  # 24 hours
             )

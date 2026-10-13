@@ -1,60 +1,93 @@
 {
     "title": "F.A.Q.s",
     "subtitle": "Frequently asked questions",
-    "content": "As we continue to learn, grow and become more knowledegable on all things finance, here are a few simple definitions and thoughts to get you started, motivated and integrated with the professionals.",
+    "content": "Where Fintank's data comes from, how current it is, and what you can do on the site.",
     "questionGroups": [
+        {
+            "title": "About Fintank",
+            "questions": [
+                {
+                    "title": "What is Fintank?",
+                    "content": "Fintank is a research and analysis platform built for retail investors. It brings market data, company and fund profiles, financial statements, screeners and quantitative tools together in one place, so you can research equities and ETFs and discover new ideas for your portfolio."
+                },
+                {
+                    "title": "What can I do on Fintank?",
+                    "content": "Browse and screen stock universes and the ETF universe; open any stock or ETF for a delayed quote, price history with moving averages, momentum charts and (for stocks) quarterly financial statements you can table and chart; follow index pages, factor performance and capital-markets data; compare charts side by side; keep a watchlist; backtest a portfolio; and read market news and Fintank research posts."
+                },
+                {
+                    "title": "Is Fintank investment advice?",
+                    "content": "No. Everything on Fintank is for research and educational purposes only. Nothing on the site is a recommendation to buy, sell or hold any security. Do your own due diligence, and consider speaking with a licensed advisor before making investment decisions."
+                },
+                {
+                    "title": "Can I trade on Fintank?",
+                    "content": "No. Fintank is not a brokerage or trading platform and cannot place buy, sell or hold orders. It provides research and quantitative tools only."
+                }
+            ]
+        },
         {
             "title": "Data Sources",
             "questions": [
                 {
-                    "title": "Where Does Fintank Get Its Data From?",
-                    "content": "Fintank was created with the retail investor in mind, providing them with tools and the equipment for the investment world. Our data is sourced from Financial Modelling Prep, link found at <a href='https://site.financialmodelingprep.com/'>Financial Modelling Prep</a> ."
+                    "title": "Where does Fintank get its data?",
+                    "content": "Market and company data comes from <a href='https://site.financialmodelingprep.com/' target='_blank' rel='noreferrer'>Financial Modeling Prep</a>: prices and quotes, company and ETF profiles, financial statements, index constituents and market news. Economic data on the capital-markets pages comes from <a href='https://fred.stlouisfed.org/' target='_blank' rel='noreferrer'>FRED</a> (Federal Reserve Bank of St. Louis)."
                 },
                 {
-                    "title": "How Does Fintank Verify Its Data ?",
-                    "content": "While there are many different data sources for financial data all with different methodologies for measuring and calculating many of the metrics available, Fintank compares its data from its providers with other data sources to ensure that data is in line with estimates of the wider investment community. "
+                    "title": "What does Fintank calculate itself?",
+                    "content": "Fintank cleans and stores the raw data, then calculates its own analytics from it: returns, moving averages, momentum indicators, factor rankings, index statistics and portfolio backtests. These are Fintank's calculations, so they can differ slightly from figures published elsewhere that use other methodologies."
                 },
                 {
-                    "title": "Raw Data Source",
-                    "content": "Fintank gets its raw data from financialmodellingprep. Data cleaned, scrubbed and organized by the sole operator of Fintank. As a local enterprise, we are continuously expanding our resources to better serve you."
+                    "title": "Which markets are covered?",
+                    "content": "Stocks in the S&amp;P 500, Nasdaq, Russell 2000, Russell Microcap, S&amp;P/TSX, S&amp;P/TSX Small Cap, MSCI EAFE and MSCI EAFE Small Cap universes (roughly 6,400 companies), plus about 7,100 US- and Canadian-listed ETFs."
                 },
                 {
-                    "title": "Missing Data Sources",
-                    "content": "Fintank does its best to ensure its data sources are up to date. We run weekly tasks to ensure that data is continuously updated and refreshed to ensure you consistently have accurate resources. In our experience, Equities in EMEA and Emerging Markets may be slightly inconsistent and constantly changing as market conditions change."
+                    "title": "How current is the data?",
+                    "content": "Quotes are delayed (US exchanges by about 15 minutes; other exchanges may be delayed further) and refresh at most every 15 minutes while US markets are open. Outside market hours the last quote is shown until the next open. Price history is shown up to the \"Data as of\" date on each page, company and ETF profiles refresh daily, and financial statements update as companies report each quarter."
                 },
                 {
-                    "title": "Return Calculations",
-                    "content": "Fintank calculates its data for returns and spreads internally and is based on data provided through the Application Programming Interfaces (APIs)."
+                    "title": "Why is a quote marked \"Stale\"?",
+                    "content": "A quote is marked stale when its last trade is more than three days old. That usually means trading was halted, the exchange was closed for a holiday, or the data provider has not received a recent trade for that listing."
+                },
+                {
+                    "title": "What currency are prices and market caps in?",
+                    "content": "Each listing's own currency: Canadian listings in CAD, Japanese listings in JPY, and so on. London prices are quoted in pence (GBp), while their market caps are in pounds. Because of this, the screeners only filter by market cap or AUM within a single currency, and sorting by size ranks companies within each currency rather than comparing yen with dollars."
+                },
+                {
+                    "title": "How do the financial statements work?",
+                    "content": "Income statements, balance sheets and cash-flow statements are quarterly figures as reported by each company, in its reporting currency. Margins are shown as percentages and EPS per share. Every reported field is shown in the table, and you can chart any of them, mixing fields across statements, under the table."
+                },
+                {
+                    "title": "Why is some data missing?",
+                    "content": "Not every field is reported for every company or fund, and coverage is thinner for small caps and some international listings. Where a value is not available, Fintank shows a dash rather than a guess. Fintank checks its data against other sources, but providers can differ in methodology, so small differences from other sites are normal."
                 }
             ]
         },
         {
-            "title": "News and Media Sources",
+            "title": "News and Research",
             "questions": [
                 {
-                    "title": "News and Updates",
-                    "content": "Finatnk sources its news from two different Application Programming Interfaces (APIs). News is sourced from the Bing search engine for the presented topics as well as from Financial Modelling Prep for stock and market updates."
+                    "title": "Where does the news come from?",
+                    "content": "Market, stock, crypto and forex news comes from Financial Modeling Prep. The topic pages (economy, energy, technology, regional markets and more) are built from news search results for each topic. Fintank does not write these articles; each one links to its original publisher. Topic feeds report an article's age rather than its date, so the dates shown there are calculated from when the feed was collected."
                 },
                 {
-                    "title": "Does Fintank Post Any Opinion Articles",
-                    "content": "As Fintank continues to grow, Research articles, knowledge topics and opinion pieces will be posted to enhance and support the broad investment community. Currently, Fintank only maintains our proprietary quantitative analysis tools and continues to develop these."
+                    "title": "Does Fintank publish its own research?",
+                    "content": "Yes. Fintank research posts cover markets, companies and investing topics, alongside the quantitative tools on the site. Research posts are opinion and analysis, not investment advice."
                 },
                 {
-                    "title": "Does Fintank Allow Advertisers?",
-                    "content": "Please feel free to inquire as to using our platform as a tool to advertise, Fintank currently has limited online real estate for advertisers as we prefer to take an investor and market first approach to use our platform for stock and market news and analysis. As we continue to grow, we encourage advertisers and sponsors, this is a crucial part of the market which spreads the message of the latest technologies and innovations for Small and Medium enterprises alike."
+                    "title": "Does Fintank allow advertisers?",
+                    "content": "Fintank takes an investor-first approach and currently has limited space for advertising. If you are interested in advertising or sponsorship, please get in touch."
                 }
             ]
         },
         {
-            "title": "Use of user related data",
+            "title": "Accounts and Your Data",
             "questions": [
                 {
-                    "title": "Does Fintank track any user related information?",
-                    "content": "Fintank's stock user model, does not track data at the individuals user level, but aggregate user level and will publish stock and ownership reports quarterly and annually, as to stock count ownership, viewership and average length of time in a users portfolio. Diligence is a community wide effort."
+                    "title": "Do I need an account?",
+                    "content": "No account is needed to browse market data, screeners, stock and ETF pages, or news. You need an account for personal features: your watchlist, your profile and portfolio backtests. Free accounts include a limited number of backtests."
                 },
                 {
-                    "title": "Does Fintank provide a trading platform for individuals to place buy, sell or hold orders.",
-                    "content": "Fintank is not an online trading platform. We are working tirelessly to create an all encompassing digital platform, that allows you to fully manage your portfolio, but currently, we provide purely research and quantitative tools to discover new equities for your portfolio."
+                    "title": "What does Fintank store about me?",
+                    "content": "Only what the account features need to work: your account and profile details, your watchlist, and the backtests you run. Fintank does not hold brokerage accounts or execute trades on your behalf."
                 }
             ]
         }

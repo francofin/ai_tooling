@@ -4,6 +4,15 @@ import ReactPaginate from "react-paginate";
 import Link from "next/link"
 import { useRouter } from "next/router"
 
+// Market cap is in the listing currency: Toyota's is yen. Only dollar listings
+// (or records with no currency, as before) get a "$"; London's GBp prices
+// still report market cap in pounds.
+const formatCap = (value, currency) => {
+  const billions = (value / 10 ** 9).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+  if (!currency || currency === "USD") return `$${billions}B`
+  return `${billions}B ${currency === "GBp" ? "GBP" : currency}`
+}
+
 const StockListPagination = ({ itemsPerPage, dataProps }) => {
   const [itemOffset, setItemOffset] = useState(0);
   const [analysisLink, setAnalysisLink] = useState("/stock-data/[ticker]");
@@ -32,6 +41,12 @@ const StockListPagination = ({ itemsPerPage, dataProps }) => {
     setStocksShown(dataProps)
     setCurrentItems(stocksShown.slice(itemOffset, endOffset))
   }, [dataProps, endOffset, itemOffset, stocksShown])
+
+  // A new list (a sector pick, an ETF screen) starts on page one; otherwise a
+  // narrowed result could leave the offset past its end and show nothing.
+  useEffect(() => {
+    setItemOffset(0)
+  }, [dataProps])
 
   useEffect(() => {
     switch(router.query.slug){
@@ -149,11 +164,11 @@ const StockListPagination = ({ itemsPerPage, dataProps }) => {
                         <div style={valueStyle}>{displayValue(stock.last_range)}</div>
                       </Col>
                       <Col xs="6" md="3" className="py-2">
-                        <div style={labelStyle}>Market Cap</div>
+                        <div style={labelStyle}>{stock.is_etf ? "AUM" : "Market Cap"}</div>
                         <div style={valueStyle}>
                           {stock.market_cap === null || stock.market_cap === undefined
                             ? "-"
-                            : `$${((stock.market_cap)/10**9).toFixed(2).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")}B`}
+                            : formatCap(stock.market_cap, stock.currency)}
                         </div>
                       </Col>
                     </Row>
@@ -168,6 +183,7 @@ const StockListPagination = ({ itemsPerPage, dataProps }) => {
         breakLabel="..."
         nextLabel="›"
         onPageChange={handlePageClick}
+        forcePage={pageCount ? Math.floor(itemOffset / itemsPerPage) : undefined}
         pageRangeDisplayed={5}
         marginPagesDisplayed={1}
         pageCount={pageCount}
