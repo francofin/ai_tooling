@@ -128,7 +128,7 @@ const UserSecurity = () => {
   // console.log(navigator)
 
   return (
-    <section className="py-5">
+    <section className="account-page py-5">
       <Container>
         <Breadcrumb listProps={{ className: "ps-0 justify-content-start" }}>
           <Breadcrumb.Item linkAs={Link} href="/">

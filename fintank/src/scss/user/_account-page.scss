@@ -1,0 +1,125 @@
+// Account pages — /user-account, /personal-info and /security.
+//
+// Same idea as `.profile-page`: a fixed-cover photo under a dark overlay, with
+// light type and translucent glass cards on top. Kept as its own scope rather
+// than reusing `.profile-page`, which also carries HUD shims and widget styles
+// these pages don't use.
+//
+// The photo is bright at the horizon, so the overlay is what keeps the light
+// text legible — don't drop one without the other.
+
+.account-page {
+	--#{$prefix}border-color: #{rgba($white, 0.12)};
+
+	position: relative;
+	min-height: 100vh;
+	color: rgba($white, 0.85);
+	background-color: #0a0a14;
+	background-image: url('/images/security_page/golden_city.png');
+	background-size: cover;
+	background-position: center;
+	background-repeat: no-repeat;
+	background-attachment: fixed;
+
+	&::before {
+		content: '';
+		position: absolute;
+		inset: 0;
+		background: linear-gradient(rgba(5, 5, 15, 0.72), rgba(5, 5, 15, 0.82));
+		pointer-events: none;
+	}
+
+	& > * {
+		position: relative;
+		z-index: 1;
+	}
+
+	// --- Type ----------------------------------------------------------------
+
+	& h1, & h2, & h3, & h4, & h5, & h6,
+	& strong {
+		color: $white;
+	}
+
+	// The theme's light-page greys would be near-black on the overlay.
+	// `.text-muted` and `.text-dark` are `!important` utilities, so the
+	// overrides need the flag too.
+	& .text-muted {
+		color: rgba($white, 0.72) !important;
+	}
+	& .text-dark {
+		color: $white !important;
+	}
+	& .form-label {
+		color: rgba($white, 0.82);
+	}
+	& .form-text {
+		color: rgba($white, 0.72);
+	}
+
+	& .breadcrumb {
+		--#{$prefix}breadcrumb-divider-color: #{rgba($white, 0.6)};
+		--#{$prefix}breadcrumb-item-active-color: #{rgba($white, 0.72)};
+
+		& a {
+			color: rgba($white, 0.9);
+
+			&:hover,
+			&:focus-visible {
+				color: $primary;
+			}
+		}
+	}
+
+	// The section dividers between blocks of settings.
+	& .text-block {
+		border-bottom-color: rgba($white, 0.12);
+	}
+
+	// --- Glass surfaces ------------------------------------------------------
+
+	& .card {
+		--#{$prefix}card-bg: #{rgba($white, 0.06)};
+		--#{$prefix}card-border-color: #{rgba($white, 0.12)};
+		--#{$prefix}card-color: #{rgba($white, 0.85)};
+		--#{$prefix}card-cap-color: #{$white};
+
+		backdrop-filter: blur(12px);
+		-webkit-backdrop-filter: blur(12px);
+	}
+
+	// The sidebar card headers are a pale primary tint meant for a white page;
+	// on glass they'd glare, so they become a translucent tint of the same hue.
+	& .card-header.bg-primary-light {
+		background-color: rgba($primary, 0.18) !important;
+	}
+
+	// --- Forms ---------------------------------------------------------------
+
+	& .form-control,
+	& .form-select {
+		color: rgba($white, 0.9);
+		background-color: rgba($white, 0.08);
+		border-color: rgba($white, 0.15);
+
+		&::placeholder {
+			color: rgba($white, 0.45);
+		}
+
+		&:focus {
+			color: $white;
+			background-color: rgba($white, 0.12);
+			border-color: rgba($primary, 0.6);
+		}
+
+		&:disabled {
+			background-color: rgba($white, 0.04);
+		}
+
+		// The open dropdown is drawn by the browser on a light background.
+		& option {
+			color: $body-color;
+			background-color: $white;
+		}
+	}
+}
