@@ -13,7 +13,6 @@ import {
   Row,
 } from "react-bootstrap"
 import axios from "axios"
-import useProfileUser from "@componentsLegacy/Profile/useProfileUser"
 import useSubscription from "@hooks/useSubscription"
 import {
   formatAmount,
@@ -47,9 +46,8 @@ const Spinner = () => (
 
 const Subscription = () => {
   const router = useRouter()
-  const { user, loading: userLoading } = useProfileUser()
   const checkout = router.query.checkout
-  const { subscription, loading, error, pollExpired } = useSubscription({
+  const { subscription, loading, error, unauthorized, pollExpired } = useSubscription({
     poll: checkout === "success",
   })
   const [billingInterval, setBillingInterval] = useState("year")
@@ -57,8 +55,8 @@ const Subscription = () => {
   const [actionError, setActionError] = useState(null)
 
   useEffect(() => {
-    if (!userLoading && !user) router.replace("/login")
-  }, [userLoading, user, router])
+    if (unauthorized) router.replace("/login")
+  }, [unauthorized, router])
 
   // Sends the browser to a Stripe-hosted page (checkout or portal).
   const goToStripe = async (action, body) => {
@@ -107,7 +105,7 @@ const Subscription = () => {
             )}
             {(error || actionError) && <Alert variant="danger">{actionError || error}</Alert>}
 
-            {userLoading || loading || confirming ? (
+            {loading || confirming ? (
               <>
                 <Spinner />
                 {confirming && <p className="text-center text-muted">Confirming your payment…</p>}

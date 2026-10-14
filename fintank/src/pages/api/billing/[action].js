@@ -13,11 +13,16 @@ const ROUTES = {
   portal: 'POST',
 }
 
+function isPlainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
 export default async function handler(req, res) {
-  const method = ROUTES[req.query.action]
-  if (!method) {
+  const { action } = req.query
+  if (!Object.prototype.hasOwnProperty.call(ROUTES, action)) {
     return res.status(404).json({ detail: 'Not found.' })
   }
+  const method = ROUTES[action]
   if (req.method !== method) {
     res.setHeader('Allow', method)
     return res.status(405).json({ detail: `${req.method} is not supported here.` })
@@ -31,12 +36,20 @@ export default async function handler(req, res) {
   try {
     const response = await axios({
       method,
-      url: `${process.env.NEXT_PUBLIC_FINTANK_API_URL}/billing/${req.query.action}/`,
+      url: `${process.env.NEXT_PUBLIC_FINTANK_API_URL}/billing/${action}/`,
       data: method === 'POST' ? req.body || {} : undefined,
       headers: { Authorization: `Bearer ${access}`, 'Content-Type': 'application/json' },
       // 400/409/502/503 carry a `detail` the page shows, so pass them through.
       validateStatus: () => true,
     })
+    // Django is expected to answer JSON. If something in front of it (a proxy,
+    // an unhandled 500) returns HTML or another non-object body, don't forward
+    // that through as if it were a billing `detail`.
+    if (!isPlainObject(response.data)) {
+      return res.status(response.status).json({
+        detail: 'Billing is unreachable right now. Please try again.',
+      })
+    }
     return res.status(response.status).json(response.data)
   } catch {
     return res.status(502).json({ detail: 'Billing is unreachable right now. Please try again.' })

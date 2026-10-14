@@ -15,11 +15,16 @@ const POLL_FOR_MS = 20000
  * `subscription` never changes), the wall-clock check below still fires on
  * every tick and flips `pollExpired` once ~20 s have elapsed, so the page
  * can't be left spinning forever on a broken backend.
+ *
+ * `unauthorized` is true once a GET has come back 401 (the proxy returns 401
+ * when the session cookie is missing/expired) -- the page is the one that
+ * decides to redirect to /login on it. Polling stops as soon as it's set.
  */
 export const useSubscription = ({ poll = false } = {}) => {
   const [subscription, setSubscription] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [unauthorized, setUnauthorized] = useState(false)
   const [pollExpired, setPollExpired] = useState(false)
   const startedAt = useRef(Date.now())
   const isPro = subscription?.tier === 'pro'
@@ -31,7 +36,11 @@ export const useSubscription = ({ poll = false } = {}) => {
       setError(null)
       return data
     } catch (err) {
-      setError(err.response?.data?.detail || 'Could not load your subscription.')
+      if (err.response?.status === 401) {
+        setUnauthorized(true)
+      } else {
+        setError(err.response?.data?.detail || 'Could not load your subscription.')
+      }
       return null
     } finally {
       setLoading(false)
@@ -43,7 +52,7 @@ export const useSubscription = ({ poll = false } = {}) => {
   }, [reload])
 
   useEffect(() => {
-    if (!poll || isPro || pollExpired) return undefined
+    if (!poll || isPro || pollExpired || unauthorized) return undefined
     const interval = setInterval(async () => {
       await reload()
       if (Date.now() - startedAt.current >= POLL_FOR_MS) {
@@ -51,9 +60,9 @@ export const useSubscription = ({ poll = false } = {}) => {
       }
     }, POLL_EVERY_MS)
     return () => clearInterval(interval)
-  }, [poll, isPro, pollExpired, reload])
+  }, [poll, isPro, pollExpired, unauthorized, reload])
 
-  return { subscription, loading, error, pollExpired, reload }
+  return { subscription, loading, error, unauthorized, pollExpired, reload }
 }
 
 export default useSubscription
