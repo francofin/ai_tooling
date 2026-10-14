@@ -15,6 +15,12 @@
             "content": "Update your password and secure your account"
         },
         {
+            "title": "Subscription",
+            "link": "/subscription",
+            "icon": "pay-by-card-1",
+            "content": "See your plan, upgrade to Pro, or manage and cancel your subscription"
+        },
+        {
             "title": "Portfolio",
             "link": "/profile",
             "icon": "diary-1",
