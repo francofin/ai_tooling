@@ -54,6 +54,20 @@ class ToStateTests(SimpleTestCase):
         self.assertIsNone(state.current_period_end)
         self.assertIsNone(state.interval)
 
+    def test_cancel_at_marks_cancelled_and_becomes_the_period_end(self):
+        # Flexible billing mode (API 2026-09-30.endive): the portal's "cancel
+        # at period end" sets `cancel_at`, not `cancel_at_period_end`.
+        obj = stripe.Subscription.construct_from(
+            dict(SUB, cancel_at_period_end=False, cancel_at=1800000000), 'sk_test_x')
+        state = gateway.to_state(obj)
+        self.assertTrue(state.cancel_at_period_end)
+        self.assertEqual(state.current_period_end, datetime(2027, 1, 15, 8, 0, tzinfo=timezone.utc))
+
+    def test_cancel_at_none_leaves_existing_behaviour_unchanged(self):
+        state = gateway.to_state(dict(SUB, cancel_at=None))
+        self.assertEqual(state.current_period_end, datetime(2026, 10, 13, tzinfo=timezone.utc))
+        self.assertFalse(state.cancel_at_period_end)
+
 
 class ConfigTests(SimpleTestCase):
 
@@ -116,6 +130,21 @@ class CallTests(SimpleTestCase):
 
         self.assertEqual(gateway.price_amount('month'), {'amount': 999, 'currency': 'usd'})
         client.v1.prices.retrieve.assert_called_once_with('price_m')
+        # Retries off: a slow Stripe must not stall the subscription page.
+        gateway.stripe.StripeClient.assert_called_once_with('sk_test_x', max_network_retries=0)
+
+    def test_retrieve_subscription_fetches_and_converts(self):
+        client = self._client()
+        client.v1.subscriptions.retrieve.return_value = stripe.Subscription.construct_from(
+            SUB, 'sk_test_x')
+
+        state = gateway.retrieve_subscription('sub_1')
+
+        client.v1.subscriptions.retrieve.assert_called_once_with('sub_1')
+        gateway.stripe.StripeClient.assert_called_once_with('sk_test_x')
+        self.assertEqual(state.id, 'sub_1')
+        self.assertEqual(state.interval, 'year')
+        self.assertEqual(state.current_period_end, datetime(2026, 10, 13, tzinfo=timezone.utc))
 
     def test_stripe_errors_become_stripe_unavailable(self):
         client = self._client()

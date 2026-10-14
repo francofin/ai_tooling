@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timezone
 from unittest.mock import patch
 
@@ -7,7 +8,7 @@ from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from billing import gateway, plans
-from billing.tests.test_gateway import CONFIGURED
+from billing.tests.test_gateway import CONFIGURED, signed
 from billing.tests.test_profile_fields import make_user
 from users.models import UserProfile
 
@@ -61,6 +62,18 @@ class SubscriptionViewTests(ViewTestCase):
             data = self.client.get('/api/billing/subscription/').json()
         self.assertIsNone(data['plans'])
         self.assertIsNone(cache.get(plans.PLANS_CACHE_KEY))
+
+    def test_plans_failure_is_cached_briefly_so_stripe_is_not_hammered(self):
+        with patch('billing.plans.gateway.price_amount', side_effect=gateway.StripeUnavailable('x')), \
+             self.assertLogs('billing.plans', level='WARNING'):
+            self.client.get('/api/billing/subscription/')
+        self.assertIsNotNone(cache.get(plans.PLANS_UNAVAILABLE_KEY))
+
+        with patch('billing.plans.gateway.price_amount') as price:
+            data = self.client.get('/api/billing/subscription/').json()
+
+        self.assertIsNone(data['plans'])
+        price.assert_not_called()
 
     @override_settings(STRIPE_PRICE_PRO_MONTHLY=None)
     def test_unconfigured_billing_still_shows_the_tier(self):
@@ -123,6 +136,14 @@ class PortalViewTests(ViewTestCase):
         self.assertEqual(response.json(), {'url': 'https://bp/x'})
         portal.assert_called_once_with('cus_1')
 
+    def test_stripe_failure_is_502(self):
+        self.set_profile(stripe_customer_id='cus_1')
+        with patch('billing.views.gateway.create_portal_url',
+                   side_effect=gateway.StripeUnavailable('x')), \
+             self.assertLogs('billing.views', level='WARNING'):
+            response = self.client.post('/api/billing/portal/')
+        self.assertEqual(response.status_code, 502)
+
 
 @override_settings(STRIPE_WEBHOOK_SECRET='whsec_test')
 class WebhookViewTests(ViewTestCase):
@@ -177,3 +198,27 @@ class WebhookViewTests(ViewTestCase):
 
     def test_get_is_not_allowed(self):
         self.assertEqual(APIClient().get('/api/billing/webhook/').status_code, 405)
+
+    def test_a_really_signed_webhook_updates_the_profile_through_django(self):
+        """End-to-end through real signature verification and raw-body
+        handling: only gateway.retrieve_subscription (the actual Stripe HTTP
+        call) is patched."""
+        self.set_profile(stripe_customer_id='cus_1')
+        payload = json.dumps({
+            'id': 'evt_1', 'object': 'event', 'type': 'customer.subscription.updated',
+            'data': {'object': {'id': 'sub_1'}},
+        }).encode()
+        state = gateway.SubscriptionState(
+            id='sub_1', customer_id='cus_1', status='active', interval='year',
+            current_period_end=datetime(2027, 10, 13, tzinfo=timezone.utc),
+            cancel_at_period_end=False)
+
+        with patch('billing.sync.gateway.retrieve_subscription', return_value=state) as retrieve:
+            response = self.post(payload, signed(payload, 'whsec_test'))
+
+        self.assertEqual(response.status_code, 200)
+        retrieve.assert_called_once_with('sub_1')
+        profile = UserProfile.objects.get(user=self.user)
+        self.assertEqual(profile.subscription_tier, 'pro')
+        self.assertEqual(profile.subscription_status, 'active')
+        self.assertEqual(profile.stripe_subscription_id, 'sub_1')
