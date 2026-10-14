@@ -20,9 +20,21 @@ class UserProfileInline(admin.StackedInline):
         "phone_number",
         "date_of_birth",
         "stripe_account_id",
+        ("subscription_tier", "subscription_status", "subscription_interval"),
+        ("current_period_end", "cancel_at_period_end"),
+        ("stripe_customer_id", "stripe_subscription_id"),
         ("created_at", "updated_at"),
     )
-    readonly_fields = ("created_at", "updated_at")
+    readonly_fields = (
+        "created_at",
+        "updated_at",
+        "subscription_status",
+        "subscription_interval",
+        "current_period_end",
+        "cancel_at_period_end",
+        "stripe_customer_id",
+        "stripe_subscription_id",
+    )
 
 
 @admin.register(CustomUser)
@@ -65,7 +77,17 @@ class UserProfileAdmin(admin.ModelAdmin):
     search_fields = ("user__username", "user__email", "company_email", "company_number")
     list_filter = ("updated_at",)
 
-    readonly_fields = ("created_at", "updated_at", "avatar_preview")
+    readonly_fields = (
+        "created_at",
+        "updated_at",
+        "avatar_preview",
+        "subscription_status",
+        "subscription_interval",
+        "current_period_end",
+        "cancel_at_period_end",
+        "stripe_customer_id",
+        "stripe_subscription_id",
+    )
     fields = (
         "user",
         ("preset_avatar", "avatar_upload"),
@@ -75,6 +97,9 @@ class UserProfileAdmin(admin.ModelAdmin):
         "phone_number",
         "date_of_birth",
         "stripe_account_id",
+        ("subscription_tier", "subscription_status", "subscription_interval"),
+        ("current_period_end", "cancel_at_period_end"),
+        ("stripe_customer_id", "stripe_subscription_id"),
         ("created_at", "updated_at"),
     )
 

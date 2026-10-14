@@ -36,6 +36,7 @@ dependencies = [
     "s3fs>=2024.1.0",
     "python-dotenv>=1.1.1",
     "requests>=2.32.5",
+    "stripe>=16.0,<17",
     "httpx>=0.28.1",
     "anthropic>=0.40.0",
     # fintank-specific

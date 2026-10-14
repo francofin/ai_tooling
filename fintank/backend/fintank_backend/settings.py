@@ -65,6 +65,7 @@ INSTALLED_APPS = [
     'stockuploader.apps.StockuploaderConfig',
     'analyzer.apps.AnalyzerConfig',
     'backtester.apps.BacktesterConfig',
+    'billing.apps.BillingConfig',
     'pages',
 ]
 
@@ -288,6 +289,14 @@ FMP_API_URL=os.getenv("FMP_URL")
 FMP_API=os.getenv("FMP_API")
 FMP_PRICE_URL=os.getenv("FMP_CLOUD_DATA_BASE_URL")
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
+
+# Billing (billing/). The endpoints answer 503 until all of these are set,
+# so a half-configured environment never charges anyone.
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
+STRIPE_PRICE_PRO_MONTHLY = os.getenv("STRIPE_PRICE_PRO_MONTHLY")
+STRIPE_PRICE_PRO_YEARLY = os.getenv("STRIPE_PRICE_PRO_YEARLY")
+# Where Stripe sends users back to, e.g. http://localhost:8020
+FRONTEND_URL = os.getenv("FRONTEND_URL")
 
 CLOUDINARY_CLOUD_NAME = os.getenv("CLOUDINARY_CLOUD_NAME")
 CLOUDINARY_API_KEY = os.getenv("CLOUDINARY_API_KEY")

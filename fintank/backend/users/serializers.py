@@ -79,6 +79,12 @@ class UserProfileSerializer(serializers.ModelSerializer):
             # the admin or, later, a Stripe webhook -- never from request.data.
             "subscription_tier": {"read_only": True},
             "backtest_quota_override": {"read_only": True},
+            "stripe_customer_id": {"read_only": True},
+            "stripe_subscription_id": {"read_only": True},
+            "subscription_status": {"read_only": True},
+            "subscription_interval": {"read_only": True},
+            "current_period_end": {"read_only": True},
+            "cancel_at_period_end": {"read_only": True},
         }
 
 

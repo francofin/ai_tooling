@@ -84,6 +84,15 @@ class UserProfile(models.Model):
     # without the guard any authenticated user could PATCH themselves to 'pro'.
     subscription_tier = models.CharField(max_length=20, default='free', db_index=True)
     backtest_quota_override = models.PositiveIntegerField(null=True, blank=True)
+    # Billing (billing/). Written only by the Stripe webhook -- read-only in
+    # UserProfileSerializer for the same reason as subscription_tier.
+    # stripe_account_id above is a Stripe *Connect* account, a different thing.
+    stripe_customer_id = models.CharField(max_length=255, null=True, blank=True, unique=True)
+    stripe_subscription_id = models.CharField(max_length=255, null=True, blank=True)
+    subscription_status = models.CharField(max_length=32, null=True, blank=True)
+    subscription_interval = models.CharField(max_length=8, null=True, blank=True)
+    current_period_end = models.DateTimeField(null=True, blank=True)
+    cancel_at_period_end = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
     
