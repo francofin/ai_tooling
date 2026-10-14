@@ -73,7 +73,8 @@ def _id(value):
     return value if isinstance(value, str) else value['id']
 
 
-def _get(obj, key):
+def field(obj, key):
+    """Read `key` from a dict or a Stripe object. None if absent."""
     try:
         return obj[key]
     except (KeyError, TypeError):
@@ -129,17 +130,17 @@ def parse_event(payload: bytes, signature: str, secret: str):
 
 
 def to_state(subscription) -> SubscriptionState:
-    items = _get(_get(subscription, 'items') or {}, 'data') or []
+    items = field(field(subscription, 'items') or {}, 'data') or []
     first = items[0] if items else {}
     # API 2025-03-31.basil moved the billing period onto the items.
-    period_end = _get(first, 'current_period_end') or _get(subscription, 'current_period_end')
-    recurring = _get(_get(first, 'price') or {}, 'recurring') or {}
+    period_end = field(first, 'current_period_end') or field(subscription, 'current_period_end')
+    recurring = field(field(first, 'price') or {}, 'recurring') or {}
     return SubscriptionState(
         id=subscription['id'],
         customer_id=_id(subscription['customer']),
         status=subscription['status'],
-        interval=_get(recurring, 'interval'),
+        interval=field(recurring, 'interval'),
         current_period_end=(datetime.fromtimestamp(period_end, tz=timezone.utc)
                             if period_end else None),
-        cancel_at_period_end=bool(_get(subscription, 'cancel_at_period_end')),
+        cancel_at_period_end=bool(field(subscription, 'cancel_at_period_end')),
     )
