@@ -26,6 +26,7 @@ urlpatterns = [
     path("api/", include("stockuploader.urls")),
     path("api/", include("analyzer.urls")),
     path("api/", include("backtester.urls")),
+    path("api/", include("billing.urls")),
     path("api/", include("journal.urls")),
     path("api/", include("news.urls")),
     # Browsable API login
