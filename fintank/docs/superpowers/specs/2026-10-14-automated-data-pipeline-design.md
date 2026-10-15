@@ -99,7 +99,8 @@ EventBridge Scheduler (daily 09:30 UTC)
         NotifyStarted → RunNews (Fargate .sync, ≤ 30 min) → NotifyComplete
       Catch → NotifyFailed
 
-EventBridge rule: Step Functions execution FAILED / TIMED_OUT / ABORTED → SNS
+EventBridge rule: Step Functions execution TIMED_OUT / ABORTED → SNS
+  (FAILED needs no rule: every Task state's Catch → NotifyFailed sends that email)
 Scheduler dead-letter queue (SQS) + CloudWatch alarm on queue depth > 0 → SNS
 ```
 
@@ -127,7 +128,7 @@ security group with **no inbound rules**. This avoids a NAT gateway (~$32/month)
 | Bucket | Purpose | Settings |
 |---|---|---|
 | `thetradingfloor` (existing) | Live data the site reads | **Versioning turned on**; lifecycle rule expires noncurrent versions after 30 days. CDK imports it, does not own it. |
-| `fintank-pipeline-<account-id>` (new) | Working state, staging, run reports, approval tokens | Private, encrypted, block public access, versioning on, lifecycle: `runs/` expires after 90 days, noncurrent versions after 14 days. |
+| `fintank-pipeline-<account-id>` (new) | Working state, staging, run reports, approval tokens | Private, encrypted, block public access, versioning on, lifecycle: `runs/` expires after 45 days (staged copies dominate its size; the baseline report lives at `state/last-published-report.json`), noncurrent versions after 14 days. |
 
 State bucket layout:
 
@@ -141,7 +142,9 @@ runs/<run-id>/
   progress.json             # completed stages — drives resume
   report.json               # every check, every count, timings
   stage/<live-key>          # only the files that differ from live
-  publish-manifest.json     # written by Publish: key, old VersionId, new VersionId
+  verdict.json              # written last by the run task; deleted when a run (re)starts
+  publish-manifest.json     # written by Publish: key, previous existed/VersionId/sha256, new VersionId
+  rollback.json             # written by rollback
   approval-token.json       # written by WaitForApproval
 ```
 
@@ -224,9 +227,16 @@ pull-state`.
 (one automatic retry) or by `python -m pipelines start --mode <lean|full> --run-id <run-id>` skips completed stages,
 so a crash at hour 5 does not re-pay 5 hours of FMP calls.
 
-A failed `refresh_constituents` is never fatal: each list that fails or shrinks keeps its
-existing file (today's behaviour) and is recorded as a warning. Only lists that refreshed
-*and* changed are staged for upload.
+A failed `refresh_constituents` never crashes the run: each list that fails or shrinks
+keeps its existing file (today's behaviour). It is a **FAIL** check, though (see the checks
+table), so the run holds for approval. Only lists that refreshed *and* changed are staged
+for upload.
+
+`report.json` is written before `progress.json` after each checkpointed stage, so a stage
+marked done always has its result in the report. The run task deletes any stale
+`verdict.json` when it starts and sends the Held email *before* writing the final
+`verdict.json`: a missing verdict after `RunPipeline` sends the state machine to
+`CanRetry?`, and a failed SNS publish crashes the task rather than holding silently.
 
 ### Diff before publish (`publish.py`)
 
@@ -238,12 +248,19 @@ existing file (today's behaviour) and is recorded as a warning. Only lists that 
 - Only changed files go to `runs/<id>/stage/`.
 - **Publish** is a separate small Fargate task: server-side `CopyObject` from stage to the
   live key (with the sha256 metadata), recording each key's previous and new `VersionId`
-  in `publish-manifest.json`. No local data needed, so it runs fine days later after an
-  approval.
+  (and whether it existed before) in `publish-manifest.json` as each copy completes. No
+  local data needed, so it runs fine days later after an approval.
+- **Re-publish:** a publish that failed part-way is re-run with `python -m pipelines
+  publish <run-id>` (no new state-machine path). It skips keys already live with the
+  staged content and merges into the existing manifest, keeping each key's *earliest*
+  previous version, so rollback still restores what was live before the run.
 - Publish order puts the "LIVE" datasets last (factor metrics, profile aggregates, econ),
   so the site never sees new aggregates before their per-symbol files.
 - **Rollback:** `python -m pipelines rollback <run-id>` restores each key in the publish
-  manifest to its previous version (or deletes it if it was new).
+  manifest to its previous version — the `null` version for objects written before
+  versioning was turned on — and deletes only keys that did not exist before. It refuses
+  when a later, not-rolled-back run changed any of the same keys (roll back the latest run
+  first); `--force` overrides.
 - Implementation must confirm parquet output is byte-deterministic for identical input
   (same pyarrow version). If it is not, the diff falls back to comparing the decoded
   table, or every parquet uploads each run (~$0.70/run — acceptable, not a blocker).
@@ -297,8 +314,9 @@ S3 keys (`news_json_articles/<name>_articles.json`) so `news/getNews.py` is unto
 | `start --mode lean\|full [--limit N]` | Start the weekly state machine by hand (uses `AWS_PROFILE`, like every command that talks to AWS) |
 | `start-news` | Start the daily-news state machine by hand |
 | `approve <run-id>` / `discard <run-id>` | Read `approval-token.json`, call `SendTaskSuccess` / `SendTaskFailure` |
-| `rollback <run-id>` | Restore the live keys a publish changed |
-| `seed-state` | One-time: archive local `class_files/` JSON and upload to `state/` |
+| `publish <run-id>` (again) | Re-drive a publish that failed part-way; already-live keys are skipped |
+| `rollback <run-id> [--yes] [--force]` | Restore the live keys a publish changed; refuses while a newer run touched the same keys unless `--force` |
+| `seed-state [--force]` | One-time: archive local `class_files/` JSON and upload to `state/`; refuses if `state/` already holds archives unless `--force` |
 | `pull-state` | Download the master state into local `class_files/` |
 | `status` | Last 10 executions of each job with verdict and report link |
 
@@ -359,8 +377,8 @@ implementation measures peak RSS on the first runs and the size is tuned down af
 | Role | Can |
 |---|---|
 | Task execution role | pull the image, read `/fintank/pipeline/*` parameters, write logs |
-| `pipeline-run` task role | read/write state bucket; **read only** `thetradingfloor` (for the diff) |
-| `pipeline-publish` task role | read state bucket `runs/*`; write `thetradingfloor` |
+| `pipeline-run` task role | read/write state bucket; **no** `thetradingfloor` access at all (the diff uses `state/live-manifest.json`) |
+| `pipeline-publish` task role | `thetradingfloor`: `s3:GetObject` / `s3:PutObject` on objects, `s3:ListBucket` / `s3:GetBucketVersioning` on the bucket, **no deletes**. State bucket: read and write `runs/*`, read/write `state/live-manifest.json`, write `state/last-published-report.json`, list the bucket; no write to `state/*.tar.zst`. Rollback runs from Franc's admin terminal, not this role. |
 | `news` task role | write `thetradingfloor/news_json_articles/*` |
 | State machine role | `ecs:RunTask` on the three task definitions, `iam:PassRole` for them, `sns:Publish`, `s3:PutObject` on `runs/*/approval-token.json`, EventBridge managed rule for `.sync` |
 | Scheduler role | `states:StartExecution` on the two state machines |
@@ -371,7 +389,7 @@ implementation measures peak RSS on the first runs and the size is tuned down af
 |---|---|
 | Fargate `pipeline-run`: 3 lean (~3 h) + 1 full (~8 h) | ~$12 |
 | Fargate publish + news | < $1 |
-| State bucket (~10 GB compressed + run staging) | ~$0.50 |
+| State bucket (~10 GB compressed + run staging, `runs/` kept 45 days) | ~$0.50 |
 | `thetradingfloor` noncurrent versions (30 days) | ~$1–2 |
 | S3 requests (state archives, diff HEADs, changed-file copies) | ~$1–2 |
 | Step Functions, Scheduler, SNS, SSM, CloudWatch Logs | < $1 |
@@ -462,14 +480,16 @@ The 30-day noncurrent-version lifecycle rule is added in the console: S3 →
 
 ### 4. Test locally (before anything runs on AWS)
 
-From `fintank/backend`:
+From `fintank/backend`. Every `python -m pipelines …` command in this document means the
+repo venv's Python: either `source ../../.venv/bin/activate` once per shell, or spell it
+`../../.venv/bin/python -m pipelines …` as below.
 
 ```bash
 cd fintank/backend
 uv pip install --python ../../.venv/bin/python -r pipelines/requirements-dev.txt
 ../../.venv/bin/python -m pytest pipelines/tests -q
-python -m pipelines run --mode lean --dry-run --limit 5
-python -m pipelines news --dry-run
+../../.venv/bin/python -m pipelines run --mode lean --dry-run --limit 5
+../../.venv/bin/python -m pipelines news --dry-run
 ```
 
 The news dry run is also where SerpAPI's `bing_news` engine gets confirmed — if every
@@ -497,8 +517,11 @@ subscription*. No alerts arrive until you do.
 
 ```bash
 cd fintank/backend
-AWS_PROFILE=fintank python -m pipelines seed-state
+AWS_PROFILE=fintank ../../.venv/bin/python -m pipelines seed-state
 ```
+
+It refuses if the state bucket already holds `state/*.tar.zst` archives — seeding again
+would overwrite what the AWS runs have fetched since. `--force` overrides.
 
 Archives the local JSON (~27 GB raw) and uploads it to `state/`. Run it right after your
 last local run so the master copy is current.
@@ -509,22 +532,49 @@ last local run so the master copy is current.
    emails, the report, and the news pages. Enable its schedule:
    `cdk deploy --profile fintank -c alert_email=… -c news_schedule=on`. Watch for a week.
 2. **Weekly, smoke.** `python -m pipelines start --mode lean --limit 5`. It will hold
-   (`ALWAYS_HOLD`); read the report, then `discard`.
-3. **Weekly, real.** `python -m pipelines start --mode lean`. Read the report, `approve`,
+   (`ALWAYS_HOLD`) and its report **will show FAIL freshness/count checks** — only 5
+   symbols per list were refreshed. That is expected: it exists to prove the plumbing,
+   so read the report, then `discard`. It also pushes the state it fetched, which is
+   harmless (those are real, current prices).
+3. **Rollback drill (one key), before the first real approve.** Prove publish → rollback
+   restores a previous version, on a scratch key the site never reads:
+   ```bash
+   cd fintank/backend && export AWS_PROFILE=fintank
+   ../../.venv/bin/python - <<'PY'
+   import tempfile
+   from pipelines import publish
+   from pipelines.store import aws_client, default_state_bucket, live_bucket
+   s3, state, live, key = aws_client("s3"), default_state_bucket(), live_bucket(), "pipeline_drill/drill.txt"
+   s3.put_object(Bucket=live, Key=key, Body=b"before")           # what rollback must bring back
+   path = tempfile.mktemp()
+   open(path, "w").write("after")
+   publish.stage_changed(s3, state, "drill-1", [{"key": key, "local_path": path,
+                         "dataset": "econ", "sha256": publish.sha256_file(path)}])
+   print(publish.publish(s3, state, live, "drill-1"))
+   print(s3.get_object(Bucket=live, Key=key)["Body"].read())    # b'after'
+   PY
+   ../../.venv/bin/python -m pipelines rollback drill-1 --yes
+   aws s3 cp --profile fintank s3://thetradingfloor/pipeline_drill/drill.txt -   # prints: before
+   aws s3 rm --profile fintank s3://thetradingfloor/pipeline_drill/drill.txt
+   ```
+   If the last `cp` prints `before`, versioning and rollback work. (`publish` here is the
+   library call, not the CLI: the CLI expects a run report and would email a "published"
+   message.)
+4. **Weekly, real.** `python -m pipelines start --mode lean`. Read the report, `approve`,
    check the site. Enable the `weekly-data-run` schedule:
    `cdk deploy --profile fintank -c alert_email=… -c news_schedule=on -c weekly_schedule=on`.
-4. After three good held runs, set `ALWAYS_HOLD` off:
+5. After three good held runs, set `ALWAYS_HOLD` off:
    `cdk deploy --profile fintank -c alert_email=… -c news_schedule=on -c weekly_schedule=on -c always_hold=false`.
    Every later deploy must repeat the flags in use (or set them in `infra/cdk.json`).
-5. Update `CELERY_BEAT_SCHEDULE` (Django cache timing section) and restart beat.
+6. Update `CELERY_BEAT_SCHEDULE` (Django cache timing section) and restart beat.
 
 ### Day-to-day
 
 | Situation | Do |
 |---|---|
 | "Held" email | Read the linked report → `python -m pipelines approve <run-id>` or `discard <run-id>` |
-| "Failed" email | Open the logs link. Fix, then `python -m pipelines start --mode <lean|full> --run-id <run-id>`, or let next week's run go |
-| Bad data went live | `python -m pipelines rollback <run-id>` |
+| "Failed" email | Open the logs link. Failed while publishing: re-run `python -m pipelines publish <run-id>`, or undo with `python -m pipelines rollback <run-id>`. Failed before publishing: fix, then `python -m pipelines start --mode <lean|full> --run-id <run-id>`, or let next week's run go |
+| Bad data went live | `python -m pipelines rollback <run-id>` — roll back the latest run first; an older run is refused while a newer one touched the same files (`--force` overrides) |
 | Want a full run now | `python -m pipelines start --mode full` |
 | Explore data locally | `python -m pipelines pull-state` first |
 | Change a threshold | edit `thresholds.py` → `cdk deploy` (rebuilds the image) |
@@ -541,8 +591,12 @@ last local run so the master copy is current.
   - resume skips stages recorded in `progress.json`;
   - constituent fallback: failed or shrunk list keeps the old file and is not staged;
   - diff: sha256 match → not staged, mismatch / missing metadata → staged;
-  - rollback restores previous VersionIds and deletes newly created keys;
-  - news: file with < 5 articles, missing fields, stale dates or a fetch error is not
+  - rollback restores previous VersionIds (including the `null` version of pre-versioning
+    objects) and deletes only newly created keys; it refuses while a newer run touched
+    the same keys unless forced;
+  - a publish that crashes mid-dataset keeps a manifest of what it copied, and a
+    re-publish skips already-live keys and keeps the original previous versions;
+  - news: file with fewer than 50 (FMP) / 3 (search) articles, missing fields, stale dates or a fetch error is not
     uploaded; duplicates removed; FMP vs SerpAPI field mapping.
   S3 interactions use `moto`.
 - **CDK:** `cdk synth` snapshot test plus assertions — no NAT gateway, tasks have no
