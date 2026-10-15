@@ -221,7 +221,7 @@ pull-state`.
 
 `push_state` also runs **after each fetch stage** for the datasets that stage touched, and
 `progress.json` records the stage as complete. A crashed task retried by Step Functions
-(one automatic retry) or by `python -m pipelines resume <run-id>` skips completed stages,
+(one automatic retry) or by `python -m pipelines start --mode <lean|full> --run-id <run-id>` skips completed stages,
 so a crash at hour 5 does not re-pay 5 hours of FMP calls.
 
 A failed `refresh_constituents` is never fatal: each list that fails or shrinks keeps its
@@ -523,7 +523,7 @@ last local run so the master copy is current.
 | Situation | Do |
 |---|---|
 | "Held" email | Read the linked report → `python -m pipelines approve <run-id>` or `discard <run-id>` |
-| "Failed" email | Open the logs link. Fix, then `python -m pipelines resume <run-id>`, or let next week's run go |
+| "Failed" email | Open the logs link. Fix, then `python -m pipelines start --mode <lean|full> --run-id <run-id>`, or let next week's run go |
 | Bad data went live | `python -m pipelines rollback <run-id>` |
 | Want a full run now | `python -m pipelines start --mode full` |
 | Explore data locally | `python -m pipelines pull-state` first |
