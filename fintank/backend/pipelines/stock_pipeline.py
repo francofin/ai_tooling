@@ -1238,6 +1238,7 @@ class StockDataPipeline:
         limit: per-folder file cap, for smoke-testing.
         """
         subs = cfg.ALL_SUB_UNIVERSES if sub_universes is None else sub_universes
+        result = StageResult("build_price_parquets")
         for sub in subs:
             folder = self.json_dir("stock_prices", sub)
             if not os.path.isdir(folder):
@@ -1268,12 +1269,16 @@ class StockDataPipeline:
                         self.price_parquet_dir("monthly", sub),
                         f"{symbol}_prices.parquet"))
                     done += 1
+                    result.record(True)
                 except Exception as e:
                     failed += 1
+                    result.record(False, f"{sub}/{symbol}")
                     print(f"\n{sub}/{fname}: {e}")
                 print(f"\r{sub}: {done} processed, {failed} failed",
                       end="", flush=True)
             print()
+            result.detail[sub] = {"saved": done, "failed": failed}
+        return result
 
     def build_fundamentals_parquets(self, data_types=None, sub_universes=None,
                                     limit=None):
@@ -1291,6 +1296,7 @@ class StockDataPipeline:
         types = (list(cfg.FUNDAMENTALS_DATASETS) if data_types is None
                  else data_types)
         subs = cfg.ALL_SUB_UNIVERSES if sub_universes is None else sub_universes
+        result = StageResult("build_fundamentals_parquets")
 
         for data_type in types:
             spec = cfg.FUNDAMENTALS_DATASETS[data_type]
@@ -1329,13 +1335,17 @@ class StockDataPipeline:
                             self.parquet_root, data_type, sub,
                             f"{symbol}{spec['suffix']}.parquet"))
                         done += 1
+                        result.record(True)
                     except Exception as e:
                         failed += 1
+                        result.record(False, f"{data_type}/{sub}/{symbol}")
                         print(f"\n{data_type}/{sub}/{fname}: {e}")
                     print(f"\r{data_type}/{sub}: {done} processed, {failed} failed",
                           end="", flush=True)
                 if files:
                     print()
+                result.detail[f"{data_type}/{sub}"] = {"saved": done, "failed": failed}
+        return result
 
     @staticmethod
     def _read_first_row(path):
@@ -1406,15 +1416,19 @@ class StockDataPipeline:
         rank_returns already drops per-metric at point of use. The legacy
         producer dropped any row with a null in ANY of ~20 columns, ejecting a
         stock from every metric over one non-meaningful ratio.
+
+        Returns a StageResult; detail["lists"][sub] = {"rows", "skipped", "stale"}.
         """
         subs = cfg.FACTOR_SUB_UNIVERSES if sub_universes is None else sub_universes
         os.makedirs(self.factor_metrics_dir, exist_ok=True)
-        results = {}
+        result = StageResult("build_factor_metrics")
+        lists = result.detail.setdefault("lists", {})
 
         for sub in subs:
             folder = self.price_parquet_dir("daily", sub)
             if not os.path.isdir(folder):
                 print(f"{sub}: SKIPPED — no price parquets at {folder}")
+                result.record(False, sub)
                 continue
 
             symbols = sorted(f.removesuffix("_prices.parquet")
@@ -1433,6 +1447,7 @@ class StockDataPipeline:
             if not rows:
                 print(f"{sub}: SKIPPED — no rows built ({len(skipped)} skipped); "
                       "existing parquet left untouched")
+                result.record(False, sub)
                 continue
 
             # A stale symbol's as_of can sit years behind the universe's newest
@@ -1462,7 +1477,8 @@ class StockDataPipeline:
                                 f"{sub}_metrics_returns.parquet")
             os.makedirs(os.path.dirname(path), exist_ok=True)
             df.to_parquet(path, engine="pyarrow", index=False)
-            results[sub] = df
+            lists[sub] = {"rows": len(df), "skipped": len(skipped), "stale": stale}
+            result.record(True)
 
             reasons = {}
             for reason in skipped.values():
@@ -1470,7 +1486,7 @@ class StockDataPipeline:
             print(f"{sub}: {len(df)} built, {len(skipped)} skipped, "
                   f"{stale} stale (returns nulled) {reasons if reasons else ''} → {path}")
 
-        return results
+        return result
 
     # The two aggregated profile files the Django backend still reads. Both
     # carry the same 27-column schema; they differ only in row scope.
@@ -1512,8 +1528,9 @@ class StockDataPipeline:
         lists) are dropped on first occurrence — the profile payload is
         per-symbol, so the copies are identical.
 
-        Returns {name: DataFrame}.
+        Returns a StageResult; detail["rows"][name] = row count.
         """
+        result = StageResult("build_profile_aggregate")
         columns = list(cfg.FIELD_MAPPINGS["long_profiles"].values())
         names = list(self.PROFILE_AGGREGATES) if targets is None else targets
 
@@ -1542,10 +1559,11 @@ class StockDataPipeline:
         if not frames:
             print("SKIPPED — no per-symbol profiles found; "
                   "existing files left untouched")
-            return {}
+            result.record(False, "no per-symbol profiles")
+            return result
 
         everything = pd.concat(frames, ignore_index=True)
-        results = {}
+        rows = result.detail.setdefault("rows", {})
 
         for name in names:
             scope = self.PROFILE_AGGREGATES[name]
@@ -1584,12 +1602,13 @@ class StockDataPipeline:
             path = os.path.join(self.parquet_root, name, f"{name}.parquet")
             os.makedirs(os.path.dirname(path), exist_ok=True)
             df.to_parquet(path, engine="pyarrow", index=False)
-            results[name] = df
+            rows[name] = len(df)
+            result.record(True)
             print(f"{name}: {len(df):,} symbols ({before - len(df)} duplicates "
                   f"dropped{', missing folders: ' + str(missing) if missing else ''}) "
                   f"→ {path}")
 
-        return results
+        return result
 
     def upload_profile_aggregates(self):
         """→ stock_data/company_profiles/company_profiles.parquet and
@@ -1704,14 +1723,21 @@ class StockDataPipeline:
         keys = (list(cfg.CONSTITUENT_PROXY_ETFS) if constituent_keys is None
                 else constituent_keys)
         os.makedirs(self.contr_to_var_dir, exist_ok=True)
+        result = StageResult("build_contr_to_var")
         for const_key in keys:
             sub = self.sub_universe_for(const_key)
-            weights = self.constituent_weights(const_key)
-            prices, missing = self._load_adj_close_matrix(
-                sub, list(weights), lookback=frequency + 10)
-            df, dropped = self.compute_contr_to_vol(prices, weights,
-                                                    frequency=frequency)
+            try:
+                weights = self.constituent_weights(const_key)
+                prices, missing = self._load_adj_close_matrix(
+                    sub, list(weights), lookback=frequency + 10)
+                df, dropped = self.compute_contr_to_vol(prices, weights,
+                                                        frequency=frequency)
+            except (FileNotFoundError, ValueError) as e:
+                result.record(False, sub)
+                print(f"{sub}: SKIPPED — {e}; existing parquet left untouched")
+                continue
             if df.empty:
+                result.record(False, sub)
                 print(f"{sub}: SKIPPED — no symbols survived alignment "
                       f"({len(missing)} no local prices, {len(dropped)} dropped); "
                       "existing parquet left untouched")
@@ -1719,8 +1745,11 @@ class StockDataPipeline:
             out_path = os.path.join(self.contr_to_var_dir,
                                     f"{sub}_contr_to_var.parquet")
             df.reset_index().to_parquet(out_path, index=False)
+            result.record(True)
+            result.detail[sub] = len(df)
             print(f"{sub}: {len(df)} stocks ({len(missing)} no local prices, "
                   f"{len(dropped)} gappy window) → {out_path}")
+        return result
 
     def _load_fred_series(self, series_id, column=None):
         with open(os.path.join(self.econ_json_dir, f"{series_id}.json")) as f:
@@ -1784,6 +1813,11 @@ class StockDataPipeline:
         print(f"yield_spreads ({len(yields)}), cpi ({len(cpi)}), "
               f"nonfarm ({len(nfp)}), unemployment ({len(unemp)}) → {self.econ_dir}/")
 
+        result = StageResult("build_econ_parquets", attempted=4, saved=4)
+        result.detail = {"yield_spreads": len(yields), "cpi": len(cpi),
+                         "nonfarm": len(nfp), "unemployment": len(unemp)}
+        return result
+
     def _load_monthly_metrics(self, kind, key):
         if kind == "etf":
             path = os.path.join(self.price_parquet_dir("monthly", "etfs"),
@@ -1804,7 +1838,7 @@ class StockDataPipeline:
         keys = (list(cfg.RELATIVE_PERF_PAIRS) if pair_keys is None else pair_keys)
         out_dir = os.path.join(self.econ_dir, "relative_perf")
         os.makedirs(out_dir, exist_ok=True)
-        failed = []
+        result, failed = StageResult("build_relative_performance"), []
         for pair in keys:
             try:
                 (base_kind, base_key), (comp_kind, comp_key) = cfg.RELATIVE_PERF_PAIRS[pair]
@@ -1818,12 +1852,15 @@ class StockDataPipeline:
                 df.reset_index().to_parquet(
                     os.path.join(out_dir, f"{pair}.parquet"), index=False)
                 print(f"\r{pair}: {len(df)} months      ", end="", flush=True)
+                result.record(True)
             except Exception as e:
                 failed.append(pair)
+                result.record(False, pair)
                 print(f"\n{pair} failed: {e}")
         print(f"\n{len(keys) - len(failed)} pairs → {out_dir}/")
         if failed:
             print(f"{len(failed)} pairs failed: {failed}")
+        return result
 
     # ═════════════════════════════════════════════════════════════════════
     # STAGE 3 — Upload to s3://{bucket}. Local path == S3 key: a file at
@@ -1991,6 +2028,42 @@ class StockDataPipeline:
     # Inspection — local, read-only, no API calls. Run this BEFORE a fetch to
     # pick from_date, and after Stage 1 to confirm the new data landed.
     # ═════════════════════════════════════════════════════════════════════
+    def modal_last_dates(self, sample=60, seed=7):
+        """Per sub-universe: price-file count and the MODAL last price date over
+        a random sample of `sample` files (see status() for why modal). Reads
+        only the first 4 KB of each file and prints nothing — the runner's
+        freshness check uses it.
+
+        Returns {sub: {"files", "modal_last_date", "newest", "sampled"}}."""
+        import collections
+        import random
+        import re
+
+        pattern = re.compile(rb'"date"\s*:\s*"(\d{4}-\d{2}-\d{2})"')
+        out = {}
+        for sub in cfg.ALL_SUB_UNIVERSES:
+            folder = self.json_dir("stock_prices", sub)
+            if not os.path.isdir(folder):
+                out[sub] = {"files": 0, "modal_last_date": None,
+                            "newest": None, "sampled": 0}
+                continue
+            files = [f for f in os.listdir(folder) if f.endswith("_prices.json")]
+            picks = random.Random(seed).sample(files, min(sample, len(files)))
+            dates = []
+            for name in picks:
+                with open(os.path.join(folder, name), "rb") as fh:
+                    match = pattern.search(fh.read(4096))
+                if match:
+                    dates.append(match.group(1).decode())
+            modal = collections.Counter(dates).most_common(1)
+            out[sub] = {
+                "files": len(files),
+                "modal_last_date": modal[0][0] if modal else None,
+                "newest": max(dates) if dates else None,
+                "sampled": len(dates),
+            }
+        return out
+
     def status(self, sample=60, seed=7):
         """What's on disk and how stale it is, as a DataFrame.
 
@@ -2002,35 +2075,8 @@ class StockDataPipeline:
         Only the first 4 KB of each JSON is read — 'historical' is newest-first,
         so the first date in the file is the last date of data.
         """
-        import collections
-        import random
-        import re
-
-        pattern = re.compile(rb'"date"\s*:\s*"(\d{4}-\d{2}-\d{2})"')
-        rows = []
-        for sub in cfg.ALL_SUB_UNIVERSES:
-            folder = self.json_dir("stock_prices", sub)
-            if not os.path.isdir(folder):
-                rows.append({"sub_universe": sub, "files": 0,
-                             "modal_last_date": None, "newest": None,
-                             "sampled": 0})
-                continue
-            files = [f for f in os.listdir(folder) if f.endswith("_prices.json")]
-            picks = random.Random(seed).sample(files, min(sample, len(files)))
-            dates = []
-            for name in picks:
-                with open(os.path.join(folder, name), "rb") as fh:
-                    match = pattern.search(fh.read(4096))
-                if match:
-                    dates.append(match.group(1).decode())
-            modal = collections.Counter(dates).most_common(1)
-            rows.append({
-                "sub_universe": sub,
-                "files": len(files),
-                "modal_last_date": modal[0][0] if modal else None,
-                "newest": max(dates) if dates else None,
-                "sampled": len(dates),
-            })
+        rows = [{"sub_universe": sub, **info}
+                for sub, info in self.modal_last_dates(sample, seed).items()]
 
         prices = pd.DataFrame(rows)
 
