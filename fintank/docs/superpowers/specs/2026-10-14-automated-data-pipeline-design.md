@@ -1,6 +1,6 @@
 # Automated Data Pipeline on AWS
 
-**Status:** Design approved, not yet implemented
+**Status:** Implemented on branch feat/data-pipeline (see docs/superpowers/plans/2026-10-14-automated-data-pipeline.md for rulings R1–R11)
 **Replaces:** running `lean_run.ipynb`, `full_run.ipynb` and `news_updater.ipynb` by hand
 
 ---
@@ -230,8 +230,9 @@ existing file (today's behaviour) and is recorded as a warning. Only lists that 
 
 ### Diff before publish (`publish.py`)
 
-- For each output file, compute SHA-256 locally and compare with the live object's
-  `x-amz-meta-sha256` metadata (set by every publish from now on). Missing metadata
+- For each output file, compute SHA-256 locally and compare with
+  `state/live-manifest.json` (`{key: sha256}`), which every publish and rollback keeps
+  current; published objects also carry `x-amz-meta-sha256`. Missing metadata
   (objects uploaded before this work) → treated as changed, so the first run publishes
   everything once.
 - Only changed files go to `runs/<id>/stage/`.
@@ -261,7 +262,7 @@ execution and nothing is published.
 | Builds | Every parquet opens and has its expected columns | — | any unreadable / missing columns |
 | Builds | Row count per dataset vs last *published* run's report | < 98% | < 90% |
 | Factor metrics | Stale-symbol count `S` per sub-universe | doubled vs last run | > 10% of universe |
-| Prices | `adjClose <= 0`; one-day move > 80% not explained by a split | any (listed in report) | — |
+| Prices | `adjClose <= 0`; one-day move > 80% not explained by a split | `adjClose ≤ 0`; or > 1% of symbols with a > 80% one-day move (moves are always listed) | — |
 | Econ | Last observation date per FRED series | older than its expected lag | — |
 | Staging | Number of changed files | — | 0 changed files on a run whose prices fetch succeeded (something is wrong with the diff) |
 
@@ -275,7 +276,7 @@ S3 keys (`news_json_articles/<name>_articles.json`) so `news/getNews.py` is unto
 
 - Keys from the environment (`FMP_API`, `SERPAPI_KEY`). The unused OpenAI key is dropped.
 - Per-request timeouts and one retry; errors are recorded, never swallowed.
-- Per file checks: ≥ 5 articles; required fields present (title, url, date — field names
+- Per file checks: ≥ 50 articles for FMP feeds, ≥ 3 for search topics; required fields present (title, url, date — field names
   differ between FMP and SerpAPI and are mapped per source); newest article ≤ 3 days old
   (FMP) / ≤ 7 days (search); duplicates by URL removed.
 - A file that fails is **not uploaded** — yesterday's file stays live. The run is marked
@@ -290,10 +291,11 @@ S3 keys (`news_json_articles/<name>_articles.json`) so `news/getNews.py` is unto
 | Command | Does |
 |---|---|
 | `run --mode lean\|full\|auto [--run-id ID] [--dry-run] [--limit N]` | The weekly task's entry point. `--dry-run`: everything except staging/state push. `--limit N`: N symbols per list (smoke test). |
-| `resume <run-id>` | Continue a crashed run at its first incomplete stage |
+| `start --mode M --run-id <id>` | Resume a run in a fresh execution |
 | `publish <run-id>` | The publish task's entry point |
 | `news [--dry-run]` | The news task's entry point |
 | `start --mode lean\|full [--limit N]` | Start the weekly state machine by hand (uses `AWS_PROFILE`, like every command that talks to AWS) |
+| `start-news` | Start the daily-news state machine by hand |
 | `approve <run-id>` / `discard <run-id>` | Read `approval-token.json`, call `SendTaskSuccess` / `SendTaskFailure` |
 | `rollback <run-id>` | Restore the live keys a publish changed |
 | `seed-state` | One-time: archive local `class_files/` JSON and upload to `state/` |
@@ -315,6 +317,9 @@ One SNS topic, `fintank-pipeline-alerts`, with Franc's email subscribed.
 News sends Started and Complete daily. `NEWS_NOTIFY=warnings_only` (CDK context) reduces it
 to Held/Failed-type emails only.
 
+Held, Complete and News emails are sent by the Python commands; Started, Failed, Discarded
+and Skipped by the state machines. A crashing container command also emails directly.
+
 ### Django cache timing
 
 Django serves S3 data from Redis and Celery refreshes those copies every 86,400 s counted
@@ -334,19 +339,17 @@ refresh endpoint instead (out of scope here).
 
 ### Container
 
-`backend/pipelines/Dockerfile`: `python:3.12-slim`, `uv` installs a new `pipeline`
-dependency group from `backend/pyproject.toml` (pandas, pyarrow, numpy, boto3, requests,
-python-dotenv, zstandard, google-search-results — no Django, no GDAL). Copies
-`pipelines/` and the `utils/` modules the pipeline imports (`utils.factor_windows`; the
-implementation confirms the full import list). Runs as a non-root user.
+`backend/pipelines/Dockerfile`, build context `backend/pipelines/` only: `python:3.12-slim`,
+`pip install -r requirements.txt`, non-root user, entrypoint `python -m pipelines`.
+`factor_windows.py` moved into the package so the context stays small.
 
 ### ECS task sizes
 
 | Task | CPU | Memory | Ephemeral disk | Timeout (Step Functions) |
 |---|---|---|---|---|
 | `pipeline-run` | 4 vCPU | 16 GB | 150 GiB | 12 h |
-| `pipeline-publish` | 0.5 vCPU | 1 GB | 21 GiB | 2 h |
-| `news` | 0.5 vCPU | 1 GB | 21 GiB | 30 min |
+| `pipeline-publish` | 0.5 vCPU | 1 GB | 20 GiB (default) | 2 h |
+| `news` | 0.5 vCPU | 1 GB | 20 GiB (default) | 30 min |
 
 Memory is sized above Franc's 7 GB WSL box because builds currently run there with swap;
 implementation measures peak RSS on the first runs and the size is tuned down after.
@@ -462,21 +465,27 @@ The 30-day noncurrent-version lifecycle rule is added in the console: S3 →
 From `fintank/backend`:
 
 ```bash
-uv sync --group pipeline
-python -m pipelines run --mode lean --dry-run --limit 5     # small, no uploads
+cd fintank/backend
+uv pip install --python ../../.venv/bin/python -r pipelines/requirements-dev.txt
+../../.venv/bin/python -m pytest pipelines/tests -q
+python -m pipelines run --mode lean --dry-run --limit 5
 python -m pipelines news --dry-run
-uv run pytest pipelines/tests
 ```
+
+The news dry run is also where SerpAPI's `bing_news` engine gets confirmed — if every
+`news.<topic>` check says "fetch failed", the engine needs replacing before go-live.
 
 ### 5. Deploy
 
 ```bash
 cd fintank/infra
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 cdk diff   --profile fintank -c alert_email=<you@example.com>
 cdk deploy --profile fintank -c alert_email=<you@example.com>
 ```
+
+If the deploy fails creating `S3Endpoint` because the default VPC already has an S3
+gateway endpoint, re-run with `-c s3_endpoint=off`.
 
 `cdk deploy` builds the container image, pushes it to ECR and creates everything in the
 Architecture section. Both schedules are created **disabled**.
@@ -496,15 +505,17 @@ last local run so the master copy is current.
 
 ### 7. Go live in stages
 
-1. **News.** Start `daily-news` by hand in the Step Functions console. Check the emails,
-   the report, and the news pages. Enable its schedule: EventBridge → *Schedules* →
-   `daily-news` → *Enable*. Watch for a week.
+1. **News.** Start `daily-news` by hand (`python -m pipelines start-news`). Check the
+   emails, the report, and the news pages. Enable its schedule:
+   `cdk deploy --profile fintank -c alert_email=… -c news_schedule=on`. Watch for a week.
 2. **Weekly, smoke.** `python -m pipelines start --mode lean --limit 5`. It will hold
    (`ALWAYS_HOLD`); read the report, then `discard`.
 3. **Weekly, real.** `python -m pipelines start --mode lean`. Read the report, `approve`,
-   check the site. Enable the `weekly-data-run` schedule.
+   check the site. Enable the `weekly-data-run` schedule:
+   `cdk deploy --profile fintank -c alert_email=… -c news_schedule=on -c weekly_schedule=on`.
 4. After three good held runs, set `ALWAYS_HOLD` off:
-   `cdk deploy --profile fintank -c alert_email=… -c always_hold=false`.
+   `cdk deploy --profile fintank -c alert_email=… -c news_schedule=on -c weekly_schedule=on -c always_hold=false`.
+   Every later deploy must repeat the flags in use (or set them in `infra/cdk.json`).
 5. Update `CELERY_BEAT_SCHEDULE` (Django cache timing section) and restart beat.
 
 ### Day-to-day
@@ -517,7 +528,7 @@ last local run so the master copy is current.
 | Want a full run now | `python -m pipelines start --mode full` |
 | Explore data locally | `python -m pipelines pull-state` first |
 | Change a threshold | edit `thresholds.py` → `cdk deploy` (rebuilds the image) |
-| Turn it all off | disable both schedules in EventBridge; `cdk destroy` removes everything except the state bucket (retained) and `thetradingfloor` |
+| Turn it all off | `cdk deploy --profile fintank -c alert_email=… -c news_schedule=off -c weekly_schedule=off`, or `cdk destroy` removes everything except the state bucket (retained) and `thetradingfloor` |
 
 ---
 

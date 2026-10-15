@@ -63,6 +63,18 @@ sudo service redis-server start
 # Check: redis-cli ping  → should return PONG
 ```
 
+### Data pipeline (`backend/pipelines/`, runs on AWS)
+
+```bash
+cd backend
+../../.venv/bin/python -m pytest pipelines/tests -q        # tests (moto, no AWS)
+python -m pipelines run --mode lean --dry-run --limit 5     # local smoke run
+python -m pipelines --help                                  # approve/discard/rollback/status…
+cd ../infra && .venv/bin/python -m pytest -q                # CDK stack tests
+```
+
+Runbook: `backend/pipelines/README.md`. Design + AWS setup: `docs/superpowers/specs/2026-10-14-automated-data-pipeline-design.md`. The notebooks in `class_files/` no longer upload; `class_files/stock_pipeline.py` and `pipeline_config.py` are shims over `pipelines/`.
+
 ### Solidity (Foundry — `stables/`)
 
 ```bash
