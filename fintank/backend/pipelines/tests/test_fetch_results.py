@@ -119,3 +119,33 @@ def test_fred_counts_series(pipeline):
     })
     result = pipeline.fetch_fred_series(series_ids=["DGS10", "GDP"])
     assert (result.name, result.saved, result.failed) == ("fetch_fred_series", 1, 1)
+
+
+class FailingResponse:
+    def raise_for_status(self):
+        raise requests.HTTPError(
+            "401 Client Error: Unauthorized for url: https://fmp/x?apikey=SECRET")
+
+
+@pytest.mark.parametrize("failure", ["http", "connection"])
+def test_get_never_leaks_the_api_key(monkeypatch, failure):
+    def get(url, timeout=30):
+        if failure == "connection":
+            raise requests.ConnectionError(f"Max retries exceeded with url: {url}")
+        return FailingResponse()
+
+    monkeypatch.setattr(sp.requests, "get", get)
+    with pytest.raises(RuntimeError) as info:
+        sp.StockDataPipeline._get("https://fmp/x?apikey=SECRET")
+    assert "SECRET" not in str(info.value)
+    assert info.value.__cause__ is None and info.value.__suppress_context__
+
+
+def test_fetcher_failure_prints_no_api_key(pipeline, capsys):
+    write_constituents(pipeline, "sp500_const", ["BAD"])
+    pipeline._get = fake_get({
+        "/BAD?": requests.HTTPError("500 Server Error for url: https://fmp/BAD?apikey=SECRET"),
+    })
+    result = pipeline.fetch_stock_prices(constituent_keys=["sp500_const"])
+    assert result.failed == 1
+    assert "SECRET" not in capsys.readouterr().out

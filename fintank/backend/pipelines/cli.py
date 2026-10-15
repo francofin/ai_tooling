@@ -55,8 +55,13 @@ def build_parser() -> argparse.ArgumentParser:
         cmd.add_argument("run_id")
         if name == "rollback":
             cmd.add_argument("--yes", action="store_true")
+            cmd.add_argument("--force", action="store_true",
+                             help="roll back even though a later run changed the "
+                                  "same files (restores this run's 'before' versions)")
 
-    sub.add_parser("seed-state", help="one time: upload local JSON state to AWS")
+    seed = sub.add_parser("seed-state", help="one time: upload local JSON state to AWS")
+    seed.add_argument("--force", action="store_true",
+                      help="overwrite state the bucket already holds")
     pull = sub.add_parser("pull-state", help="replace local state with the AWS copy")
     pull.add_argument("--yes", action="store_true")
     sub.add_parser("status", help="recent executions and run verdicts")
@@ -109,14 +114,13 @@ def cmd_publish(args) -> int:
 
 
 def cmd_news(args) -> int:
-    from dotenv import load_dotenv
-
     from pipelines.news import run_news
-    from pipelines.stock_pipeline import BACKEND_DIR
+    from pipelines.stock_pipeline import BACKEND_DIR, env_values
 
-    load_dotenv(os.path.join(BACKEND_DIR, ".env"))      # local runs; absent on AWS
-    fmp_key = os.getenv("FMP_API")
-    serp_key = os.getenv("SERPAPI_KEY") or os.getenv("SERP_API")
+    # Read, never exported (backend/.env's legacy AWS key must not reach boto3).
+    env = env_values(os.path.join(BACKEND_DIR, ".env"))   # local runs; absent on AWS
+    fmp_key = env("FMP_API")
+    serp_key = env("SERPAPI_KEY") or env("SERP_API")
     if not (fmp_key and serp_key):
         raise SystemExit("FMP_API and SERPAPI_KEY must be set")
     root = _data_root()
@@ -196,17 +200,29 @@ def cmd_rollback(args) -> int:
         if answer.strip() != args.run_id:
             print("aborted")
             return 1
-    count = publishing.rollback(aws_client("s3"), default_state_bucket(),
-                                live_bucket(), args.run_id)
+    try:
+        count = publishing.rollback(aws_client("s3"), default_state_bucket(),
+                                    live_bucket(), args.run_id, force=args.force)
+    except RuntimeError as e:
+        raise SystemExit(f"rollback refused: {e}") from None
     print(f"restored {count} files")
     return 0
 
 
 def cmd_seed_state(args) -> int:
     root = _data_root()
+    s3, bucket = aws_client("s3"), default_state_bucket()
+    existing = s3.list_objects_v2(Bucket=bucket, Prefix=state.STATE_PREFIX)
+    archives = [o["Key"] for o in existing.get("Contents", [])
+                if o["Key"].endswith(state.SUFFIX)]
+    if archives and not args.force:
+        print(f"s3://{bucket} already holds state ({len(archives)} archives, e.g. "
+              f"{archives[0]}) — seeding again would overwrite what the runs have "
+              "fetched since. Re-run with --force if that is really what you want.")
+        return 1
     units = state.state_units(root)
     print(f"uploading {len(units)} state folders from {root} (this takes a while)")
-    state.push(aws_client("s3"), default_state_bucket(), root)
+    state.push(s3, bucket, root)
     return 0
 
 

@@ -112,3 +112,19 @@ def test_prepare_fails_stale_and_thin_files():
     assert news.prepare("t", old, "search", NOW)[1].status == "fail"
     unknown = search_results("t", n=5, age="Oct 3")["organic_results"]
     assert news.prepare("t", unknown, "search", NOW)[1].status == "pass"
+
+
+def test_http_get_json_never_leaks_the_api_key(monkeypatch, capsys):
+    import requests
+
+    class Failing:
+        def raise_for_status(self):
+            raise requests.HTTPError("403 Client Error for url: https://f/x?apikey=SECRET")
+
+    monkeypatch.setattr(news.requests, "get", lambda *a, **kw: Failing())
+    monkeypatch.setattr(news.time, "sleep", lambda s: None)
+    with pytest.raises(RuntimeError) as info:
+        news.http_get_json("https://f/x", params={"apikey": "SECRET"})
+    assert "SECRET" not in str(info.value)
+    assert info.value.__cause__ is None and info.value.__suppress_context__
+    assert "SECRET" not in capsys.readouterr().out

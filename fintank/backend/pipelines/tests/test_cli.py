@@ -105,3 +105,52 @@ def test_dry_run_crash_sends_nothing(monkeypatch):
     with pytest.raises(ZeroDivisionError):
         cli.main(["run", "--dry-run"])
     assert sent == []
+
+
+def test_rollback_passes_force(wired, monkeypatch):
+    calls = []
+    monkeypatch.setattr(cli.publishing, "rollback",
+                        lambda *a, **kw: calls.append((a[-1], kw)) or 3)
+    assert cli.main(["rollback", "lean-1", "--yes", "--force"]) == 0
+    assert cli.main(["rollback", "lean-1", "--yes"]) == 0
+    assert calls == [("lean-1", {"force": True}), ("lean-1", {"force": False})]
+
+
+def test_rollback_refusal_exits_with_the_reason(wired, monkeypatch):
+    def refuse(*a, **kw):
+        raise RuntimeError("lean-2 published after lean-1 — roll back the latest run first")
+
+    monkeypatch.setattr(cli.publishing, "rollback", refuse)
+    with pytest.raises(SystemExit, match="roll back the latest run first"):
+        cli.main(["rollback", "lean-1", "--yes"])
+
+
+@pytest.fixture
+def seed_root(tmp_path, monkeypatch):
+    root = tmp_path / "data"
+    (root / "index_data").mkdir(parents=True)
+    (root / "index_data" / "x.json").write_text("{}")
+    monkeypatch.setenv("PIPELINE_DATA_ROOT", str(root))
+    return root
+
+
+def state_keys(s3):
+    return [o["Key"] for o in s3.list_objects_v2(Bucket="state").get("Contents", [])]
+
+
+def test_seed_state_uploads_into_an_empty_bucket(wired, seed_root):
+    _, s3 = wired
+    assert cli.main(["seed-state"]) == 0
+    assert state_keys(s3) == ["state/index_data.tar.zst"]
+
+
+def test_seed_state_refuses_when_state_exists_unless_forced(wired, seed_root, capsys):
+    _, s3 = wired
+    s3.put_object(Bucket="state", Key="state/index_data.tar.zst", Body=b"aws copy")
+    assert cli.main(["seed-state"]) == 1
+    assert "already holds" in capsys.readouterr().out
+    body = s3.get_object(Bucket="state", Key="state/index_data.tar.zst")["Body"].read()
+    assert body == b"aws copy"
+    assert cli.main(["seed-state", "--force"]) == 0
+    body = s3.get_object(Bucket="state", Key="state/index_data.tar.zst")["Body"].read()
+    assert body != b"aws copy"

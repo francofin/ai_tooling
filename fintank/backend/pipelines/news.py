@@ -69,8 +69,11 @@ def http_get_json(url, params=None, timeout=30, retries=1):
             response = requests.get(url, params=params, timeout=timeout)
             response.raise_for_status()
             return response.json()
-        except (requests.RequestException, ValueError):
+        except (requests.RequestException, ValueError) as e:
             if attempt == retries:
+                if isinstance(e, requests.RequestException):
+                    # requests puts the full URL — apikey included — in the message
+                    raise RuntimeError(redact(str(e))) from None
                 raise
             time.sleep(2)
 

@@ -73,13 +73,23 @@ import boto3
 import numpy as np
 import pandas as pd
 import requests
-from dotenv import load_dotenv
+from dotenv import dotenv_values
 
 MODULE_DIR = os.path.dirname(os.path.abspath(__file__))
 BACKEND_DIR = os.path.dirname(MODULE_DIR)
 # Local data stays beside the notebooks; on AWS, PIPELINE_DATA_ROOT is /data.
 DEFAULT_DATA_ROOT = os.path.join(BACKEND_DIR, "class_files")
 DEFAULT_BUCKET = "thetradingfloor"
+
+
+def env_values(path: str):
+    """A lookup over `path` (a .env file) that never touches os.environ: the
+    environment wins, then the file. load_dotenv would export everything in
+    the file — including backend/.env's legacy AWS key."""
+    values = dotenv_values(path) if os.path.exists(path) else {}
+    return lambda name: os.getenv(name) or values.get(name)
+
+
 if BACKEND_DIR not in sys.path:
     sys.path.insert(0, BACKEND_DIR)
 
@@ -154,13 +164,16 @@ class StockDataPipeline:
     def __init__(self, root=None, env_path=None, max_calls=295, pause=60):
         self.root = os.path.abspath(
             root or os.getenv("PIPELINE_DATA_ROOT") or DEFAULT_DATA_ROOT)
-        load_dotenv(env_path or os.path.join(BACKEND_DIR, ".env"))
+        # Read, never exported: backend/.env holds a legacy AWS key that must
+        # not reach os.environ, or boto3 would pick it over AWS_PROFILE.
+        env = env_values(env_path or os.path.join(BACKEND_DIR, ".env"))
 
-        self.fmp_api = os.getenv("FMP_API")
-        self.fred_api = os.getenv("FRED_API")
-        self.aws_key = os.getenv("AWS_ACCESS_KEY_ID")
-        self.aws_secret = os.getenv("AWS_SECRET_ACCESS_KEY")
-        self.bucket = os.getenv("AWS_BUCKET_NAME") or DEFAULT_BUCKET
+        self.fmp_api = env("FMP_API")
+        self.fred_api = env("FRED_API")
+        # Only the notebooks' legacy upload_* methods use these.
+        self.aws_key = env("AWS_ACCESS_KEY_ID")
+        self.aws_secret = env("AWS_SECRET_ACCESS_KEY")
+        self.bucket = env("AWS_BUCKET_NAME") or DEFAULT_BUCKET
         assert self.fmp_api, "FMP_API missing — check backend/.env"
 
         self.limiter = RateLimiter(max_calls=max_calls, pause=pause)
@@ -360,9 +373,15 @@ class StockDataPipeline:
 
     @staticmethod
     def _get(url, timeout=30):
-        """GET a URL and return parsed JSON; raises on HTTP errors."""
-        response = requests.get(url, timeout=timeout)
-        response.raise_for_status()
+        """GET a URL and return parsed JSON; raises on HTTP errors.
+
+        requests puts the full URL — apikey included — in its error messages,
+        so they are re-raised redacted, without the original chained on."""
+        try:
+            response = requests.get(url, timeout=timeout)
+            response.raise_for_status()
+        except requests.RequestException as e:
+            raise RuntimeError(redact(str(e))) from None
         return response.json()
 
     @staticmethod
@@ -553,7 +572,7 @@ class StockDataPipeline:
                 lists[key] = {"status": "kept", "previous": previous,
                               "new": None, "error": redact(str(e))}
                 result.record(False, key)
-                print(f"{key} FAILED (existing file kept): {e}")
+                print(f"{key} FAILED (existing file kept): {redact(str(e))}")
 
         for key, proxy_etf in cfg.CONSTITUENT_PROXY_ETFS.items():
             def holdings(proxy_etf=proxy_etf):
@@ -641,7 +660,7 @@ class StockDataPipeline:
                 except Exception as e:
                     failed.append(symbol)
                     result.record(False, f"{const_key}:{symbol}")
-                    print(f"\n{const_key}: no data for {symbol}: {e}")
+                    print(f"\n{const_key}: no data for {symbol}: {redact(str(e))}")
                 print(f"\r{const_key}: {len(universe_items)} saved, "
                       f"{len(failed)} failed", end="", flush=True)
             print()
@@ -708,7 +727,7 @@ class StockDataPipeline:
                 except Exception as e:
                     failed.append(symbol)
                     result.record(False, f"{const_key}:{symbol}")
-                    print(f"\n{const_key}: {symbol} failed: {e}")
+                    print(f"\n{const_key}: {symbol} failed: {redact(str(e))}")
                 print(f"\r{const_key}: {len(universe_items)} saved, "
                       f"{len(failed)} failed", end="", flush=True)
             print()
@@ -920,7 +939,7 @@ class StockDataPipeline:
                         # call. Breaking would throw away a success already paid
                         # for and force a retry to re-fetch both.
                         failed_kinds[kind] = str(e)
-                        print(f"\n{const_key}: {symbol} {kind} failed: {e}")
+                        print(f"\n{const_key}: {symbol} {kind} failed: {redact(str(e))}")
                         continue
 
                     for note in anomalies:
@@ -1078,7 +1097,7 @@ class StockDataPipeline:
             except Exception as e:
                 failed.append(key)
                 result.record(False, key)
-                print(f"[{n}/{len(keys)}] {key} ({ticker}) FAILED: {e}")
+                print(f"[{n}/{len(keys)}] {key} ({ticker}) FAILED: {redact(str(e))}")
 
         if failed:
             print(f"\n{len(failed)}/{len(keys)} indexes failed: {failed}")
@@ -1140,7 +1159,7 @@ class StockDataPipeline:
                 except Exception as e:
                     failed.append(f"{ex_key}/{sec_key}")
                     result.record(False, f"{ex_key}/{sec_key}")
-                    print(f"\n{ex_key}/{sec_key} failed: {e}")
+                    print(f"\n{ex_key}/{sec_key} failed: {redact(str(e))}")
         print()
         if failed:
             print(f"{len(failed)} combos failed: {failed}")
@@ -1170,7 +1189,7 @@ class StockDataPipeline:
             except Exception as e:
                 failed.append(sid)
                 result.record(False, sid)
-                print(f"\n{sid} failed: {e}")
+                print(f"\n{sid} failed: {redact(str(e))}")
         print()
         if failed:
             print(f"{len(failed)} series failed: {failed}")
@@ -1273,7 +1292,7 @@ class StockDataPipeline:
                 except Exception as e:
                     failed += 1
                     result.record(False, f"{sub}/{symbol}")
-                    print(f"\n{sub}/{fname}: {e}")
+                    print(f"\n{sub}/{fname}: {redact(str(e))}")
                 print(f"\r{sub}: {done} processed, {failed} failed",
                       end="", flush=True)
             print()
@@ -1339,7 +1358,7 @@ class StockDataPipeline:
                     except Exception as e:
                         failed += 1
                         result.record(False, f"{data_type}/{sub}/{symbol}")
-                        print(f"\n{data_type}/{sub}/{fname}: {e}")
+                        print(f"\n{data_type}/{sub}/{fname}: {redact(str(e))}")
                     print(f"\r{data_type}/{sub}: {done} processed, {failed} failed",
                           end="", flush=True)
                 if files:
@@ -1551,7 +1570,7 @@ class StockDataPipeline:
                     frames.append(frame)
                     read += 1
                 except Exception as e:
-                    print(f"\n{sub}/{fname}: {e}")
+                    print(f"\n{sub}/{fname}: {redact(str(e))}")
             print(f"\r  read {read:,} profiles ({sub})            ",
                   end="", flush=True)
         print()
@@ -1734,7 +1753,7 @@ class StockDataPipeline:
                                                         frequency=frequency)
             except (FileNotFoundError, ValueError) as e:
                 result.record(False, sub)
-                print(f"{sub}: SKIPPED — {e}; existing parquet left untouched")
+                print(f"{sub}: SKIPPED — {redact(str(e))}; existing parquet left untouched")
                 continue
             if df.empty:
                 result.record(False, sub)
@@ -1856,7 +1875,7 @@ class StockDataPipeline:
             except Exception as e:
                 failed.append(pair)
                 result.record(False, pair)
-                print(f"\n{pair} failed: {e}")
+                print(f"\n{pair} failed: {redact(str(e))}")
         print(f"\n{len(keys) - len(failed)} pairs → {out_dir}/")
         if failed:
             print(f"{len(failed)} pairs failed: {failed}")
@@ -1932,7 +1951,7 @@ class StockDataPipeline:
                       end="", flush=True)
             except Exception as e:
                 failed.append(name)
-                print(f"\nUpload failed for {name}: {e}")
+                print(f"\nUpload failed for {name}: {redact(str(e))}")
 
         print(f"\n{len(uploaded)} uploaded, {len(failed)} failed "
               f"→ s3://{self.bucket}/{s3_prefix}/")
