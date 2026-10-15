@@ -67,6 +67,12 @@ class LocalStore:
     def exists(self, key):
         return os.path.exists(self._path(key))
 
+    def delete(self, key):
+        try:
+            os.remove(self._path(key))
+        except FileNotFoundError:
+            pass
+
     def list_prefixes(self, prefix):
         folder = self._path(prefix.rstrip("/"))
         if not os.path.isdir(folder):
@@ -108,6 +114,9 @@ class S3Store:
             if _is_missing(e):
                 return False
             raise
+
+    def delete(self, key):
+        self.client.delete_object(Bucket=self.bucket, Key=key)   # no-op if absent
 
     def list_prefixes(self, prefix):
         paginator = self.client.get_paginator("list_objects_v2")

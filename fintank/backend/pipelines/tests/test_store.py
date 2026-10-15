@@ -20,6 +20,13 @@ def test_json_round_trip_and_default(any_store):
     assert not any_store.exists("runs/x/b.json")
 
 
+def test_delete_is_idempotent(any_store):
+    any_store.put_json("runs/x/verdict.json", {"v": 1})
+    any_store.delete("runs/x/verdict.json")
+    assert not any_store.exists("runs/x/verdict.json")
+    any_store.delete("runs/x/verdict.json")             # already gone: no error
+
+
 def test_put_file_and_list_prefixes(any_store, tmp_path):
     f = tmp_path / "f.txt"
     f.write_text("hi")

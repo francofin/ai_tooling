@@ -105,6 +105,11 @@ def run_weekly(ctx: RunContext, checks=None, staging=None) -> RunReport:
     staging = staging or stage_outputs
     report_key = run_key(ctx.run_id, "report.json")
     progress_key = run_key(ctx.run_id, "progress.json")
+    verdict_key = run_key(ctx.run_id, "verdict.json")
+    # A retried run must not leave the previous attempt's verdict behind: the
+    # state machine reads verdict.json after this task, and a missing one
+    # sends it to CanRetry?/NotifyFailed instead of publishing stale results.
+    ctx.store.delete(verdict_key)
 
     saved = ctx.store.get_json(report_key)
     report = (RunReport.from_dict(saved) if saved else
@@ -122,13 +127,15 @@ def run_weekly(ctx: RunContext, checks=None, staging=None) -> RunReport:
         started = time.time()
         result = call_stage(ctx.pipeline, name, ctx.limit)
         report.add_stage(result, time.time() - started)
+        if name in CHECKPOINTED and not ctx.dry_run:
+            state.push(ctx.s3, ctx.state_bucket, ctx.pipeline.root,
+                       since=started, log=ctx.log)
+        # Report before progress: a stage marked done must have its result
+        # in the report, or a resumed run's checks would never see it.
+        ctx.store.put_json(report_key, report.to_dict())
         if name in CHECKPOINTED:
-            if not ctx.dry_run:
-                state.push(ctx.s3, ctx.state_bucket, ctx.pipeline.root,
-                           since=started, log=ctx.log)
             progress["done"].append(name)
             ctx.store.put_json(progress_key, progress)
-        ctx.store.put_json(report_key, report.to_dict())
 
     report.checks = []          # a resumed run re-checks from scratch
     checks(ctx, report)
@@ -137,10 +144,12 @@ def run_weekly(ctx: RunContext, checks=None, staging=None) -> RunReport:
     ctx.store.put_json(report_key, report.to_dict())
 
     hold = report.verdict != PASS or ctx.always_hold
-    ctx.store.put_json(run_key(ctx.run_id, "verdict.json"),
-                       {"run_id": ctx.run_id, "verdict": report.verdict, "hold": hold})
+    # Email first: if SNS fails the task crashes with no verdict written, so
+    # the state machine reports a failure instead of holding in silence.
     if hold and ctx.notifier is not None:
         ctx.notifier.send(*held_message(report, ctx.state_bucket, ctx.always_hold))
+    ctx.store.put_json(verdict_key,
+                       {"run_id": ctx.run_id, "verdict": report.verdict, "hold": hold})
     return report
 
 

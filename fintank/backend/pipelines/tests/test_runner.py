@@ -141,3 +141,40 @@ def test_run_checks_on_fixture_data(pipeline, tmp_path):
     assert by_name["prices.non_positive"] == "pass"
     assert by_name["staging"] == "pass"
     assert report.counts["stock_prices"] == 2           # daily + monthly
+
+
+class RecordingStore(LocalStore):
+    def __init__(self, base):
+        super().__init__(base)
+        self.writes = []
+
+    def put_json(self, key, data):
+        self.writes.append(key.rsplit("/", 1)[-1])
+        super().put_json(key, data)
+
+
+def test_report_is_written_before_progress_for_a_checkpointed_stage(tmp_path):
+    ctx = make_ctx(tmp_path, store=RecordingStore(str(tmp_path / "store")))
+    runner.run_weekly(ctx, checks=adds("pass"), staging=nothing)
+    first_progress = ctx.store.writes.index("progress.json")
+    assert ctx.store.writes[:first_progress] == ["report.json"]
+
+
+def test_stale_verdict_is_removed_when_a_run_starts(tmp_path):
+    ctx = make_ctx(tmp_path, pipeline=FakePipeline(str(tmp_path), fail_on="fetch_ttm_ratios"))
+    verdict_key = run_key("lean-1", "verdict.json")
+    ctx.store.put_json(verdict_key, {"run_id": "lean-1", "verdict": "pass", "hold": False})
+    with pytest.raises(RuntimeError):
+        runner.run_weekly(ctx, checks=adds("pass"), staging=nothing)
+    assert ctx.store.get_json(verdict_key) is None
+
+
+def test_failed_held_email_leaves_no_verdict(tmp_path):
+    class BrokenNotifier:
+        def send(self, subject, message):
+            raise RuntimeError("SNS is down")
+
+    ctx = make_ctx(tmp_path, notifier=BrokenNotifier())
+    with pytest.raises(RuntimeError, match="SNS"):
+        runner.run_weekly(ctx, checks=adds("warn"), staging=nothing)
+    assert ctx.store.get_json(run_key("lean-1", "verdict.json")) is None
