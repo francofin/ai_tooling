@@ -85,6 +85,7 @@ if BACKEND_DIR not in sys.path:
 
 from pipelines import pipeline_config as cfg  # noqa: E402
 from pipelines.factor_windows import WINDOWS, window_return_and_std  # noqa: E402
+from pipelines.results import StageResult, redact  # noqa: E402
 
 warnings.filterwarnings("ignore")
 
@@ -522,60 +523,67 @@ class StockDataPipeline:
         left in place — the constituent JSONs drive every downstream fetcher,
         so a bad refresh must not blank them.
 
-        Returns {key: members}.
+        Returns a StageResult; detail["lists"][key] = {"status": "updated" | "kept", "previous", "new", "error"}.
         """
-        constituents = {}
+        result = StageResult("refresh_constituents")
+        lists = result.detail.setdefault("lists", {})
+
+        def previous_count(path):
+            if not os.path.exists(path):
+                return None
+            with open(path) as f:
+                return len(json.load(f))
+
+        def refresh(key, fetch_rows):
+            path = self.constituents_path(key)
+            previous = previous_count(path)
+            try:
+                rows = fetch_rows()
+                if previous is not None and len(rows) < 0.5 * previous:
+                    raise ValueError(
+                        f"payload shrank {previous} → {len(rows)} — degraded FMP "
+                        "feed? (seen 2026-08-02: IEFA served 138 of ~2,600 "
+                        "holdings for a day)")
+                self._save_json(rows, path)
+                lists[key] = {"status": "updated", "previous": previous,
+                              "new": len(rows), "error": None}
+                result.record(True)
+                print(f"{key}: {len(rows)} members")
+            except Exception as e:
+                lists[key] = {"status": "kept", "previous": previous,
+                              "new": None, "error": redact(str(e))}
+                result.record(False, key)
+                print(f"{key} FAILED (existing file kept): {e}")
 
         for key, proxy_etf in cfg.CONSTITUENT_PROXY_ETFS.items():
-            try:
+            def holdings(proxy_etf=proxy_etf):
                 response = self._get(self._etf_holder_url(proxy_etf))
                 self.limiter.tick()
                 members = [item for item in response if item.get("asset")]
                 if not members:
                     raise ValueError("no rows with an 'asset' symbol in payload")
-                path = self.constituents_path(key)
-                if os.path.exists(path):
-                    previous = len(json.load(open(path)))
-                    if len(members) < 0.5 * previous:
-                        raise ValueError(
-                            f"payload shrank {previous} → {len(members)} members — "
-                            "degraded FMP feed? (seen 2026-08-02: IEFA served 138 "
-                            "of ~2,600 holdings for a day)")
-                self._save_json(members, path)
-                constituents[key] = members
-                print(f"{key}: {len(members)} members")
-            except Exception as e:
-                print(f"{key} FAILED (existing file kept): {e}")
+                return members
+            refresh(key, holdings)
 
         if include_etf_list:
-            try:
+            def etf_list():
                 etf_data = self._get(self._etf_list_url())
                 self.limiter.tick()
                 requested = [x for x in etf_data
                              if x.get("exchange") in cfg.ETF_EXCHANGE_FILTER]
                 if not requested:
                     raise ValueError("exchange filter matched no ETFs")
-                etf_path = self.constituents_path("etf_data")
-                if os.path.exists(etf_path):
-                    previous = len(json.load(open(etf_path)))
-                    if len(requested) < 0.5 * previous:
-                        raise ValueError(f"ETF list shrank {previous} → "
-                                         f"{len(requested)} — degraded feed?")
-                self._save_json(requested, etf_path)
-                constituents["etf_data"] = requested
-                print(f"etf_data: {len(requested)} ETFs "
-                      f"(of {len(etf_data)} listed)")
-            except Exception as e:
-                print(f"etf_data FAILED (existing file kept): {e}")
+                return requested
+            refresh("etf_data", etf_list)
 
-        return constituents
+        return result
 
     # ═════════════════════════════════════════════════════════════════════
     # STAGE 1 — Fetch (live API). The expensive stage: ~90k FMP calls for a
     # full refresh, roughly 4 hours at the 295/min throttle.
     # ═════════════════════════════════════════════════════════════════════
     def fetch_stock_prices(self, from_date=None, constituent_keys=None,
-                           limit=None):
+                           limit=None, stage_name="fetch_stock_prices"):
         """Daily price history per constituent → stock_data_json/stock_prices/
         {sub_universe}/{SYMBOL}_prices.json, merged by date.
 
@@ -598,10 +606,14 @@ class StockDataPipeline:
 
         constituent_keys: subset of CONSTITUENT_PROXY_ETFS; default all eight.
         limit:            per-list member cap, for smoke-testing.
+
+        Returns a StageResult (one attempt per symbol); detail["manifests"]
+        lists the path_helpers manifests written.
         """
         keys = (list(cfg.CONSTITUENT_PROXY_ETFS) if constituent_keys is None
                 else constituent_keys)
         manifests = []
+        result = StageResult(stage_name)
 
         for const_key in keys:
             sub_universe = self.sub_universe_for(const_key)
@@ -625,8 +637,10 @@ class StockDataPipeline:
                     self._save_json(payload, f"{prices_dir}{symbol}_prices.json",
                                     update=True)
                     universe_items[symbol] = {"prices": f"{symbol}_prices.json"}
+                    result.record(True)
                 except Exception as e:
                     failed.append(symbol)
+                    result.record(False, f"{const_key}:{symbol}")
                     print(f"\n{const_key}: no data for {symbol}: {e}")
                 print(f"\r{const_key}: {len(universe_items)} saved, "
                       f"{len(failed)} failed", end="", flush=True)
@@ -637,15 +651,17 @@ class StockDataPipeline:
             self._save_json(universe_items, manifest)
             manifests.append(manifest)
 
-        return manifests
+        result.detail["manifests"] = manifests
+        return result
 
     def fetch_etf_prices(self, from_date=None, limit=None):
         """Daily price history for the tradable-ETF snapshot, saved to
         stock_prices/etfs/. Same merge semantics as the constituent lists."""
         return self.fetch_stock_prices(from_date=from_date,
-                                       constituent_keys=["etf_data"], limit=limit)
+                                       constituent_keys=["etf_data"], limit=limit,
+                                       stage_name="fetch_etf_prices")
 
-    def _fetch_constituent_datasets(self, datasets, manifest_group,
+    def _fetch_constituent_datasets(self, datasets, manifest_group, stage_name,
                                     constituent_keys=None, limit=None):
         """Shared driver for the per-symbol fetchers (profiles, statements,
         ratios, TTM) — one skeleton instead of four near-identical methods.
@@ -662,6 +678,7 @@ class StockDataPipeline:
         keys = (list(cfg.CONSTITUENT_PROXY_ETFS) if constituent_keys is None
                 else constituent_keys)
         manifests = []
+        result = StageResult(stage_name)
 
         for const_key in keys:
             sub_universe = self.sub_universe_for(const_key)
@@ -687,8 +704,10 @@ class StockDataPipeline:
                         self._save_json(payload, path, update=merge)
                         entry[data_type] = f"{symbol}{suffix}"
                     universe_items[symbol] = entry
+                    result.record(True)
                 except Exception as e:
                     failed.append(symbol)
+                    result.record(False, f"{const_key}:{symbol}")
                     print(f"\n{const_key}: {symbol} failed: {e}")
                 print(f"\r{const_key}: {len(universe_items)} saved, "
                       f"{len(failed)} failed", end="", flush=True)
@@ -700,7 +719,8 @@ class StockDataPipeline:
             self._save_json(universe_items, manifest)
             manifests.append(manifest)
 
-        return manifests
+        result.detail["manifests"] = manifests
+        return result
 
     def fetch_profiles(self, constituent_keys=None, limit=None):
         """Company profiles for every constituent (stable /profile — the
@@ -708,14 +728,15 @@ class StockDataPipeline:
         are overwritten each run."""
         return self._fetch_constituent_datasets(
             [("company_profiles", self._profile_url, "_profile.json", False)],
-            manifest_group="profiles",
+            manifest_group="profiles", stage_name="fetch_profiles",
             constituent_keys=constituent_keys, limit=limit)
 
     def fetch_etf_profiles(self, limit=None):
         """Profiles for the tradable-ETF snapshot → company_profiles/etfs/."""
         return self._fetch_constituent_datasets(
             [("company_profiles", self._profile_url, "_profile.json", False)],
-            manifest_group="profiles", constituent_keys=["etf_data"], limit=limit)
+            manifest_group="profiles", stage_name="fetch_etf_profiles",
+            constituent_keys=["etf_data"], limit=limit)
 
     def fetch_financial_statements(self, constituent_keys=None, limit=None):
         """Quarterly income/balance/cash-flow statements (v3 — stable drops
@@ -728,7 +749,7 @@ class StockDataPipeline:
             [("income_statements", self._income_url, "_income_statement.json", True),
              ("balance_sheet_statements", self._balance_url, "_balance_sheet.json", True),
              ("cash_flow_statements", self._cashflow_url, "_cash_flow.json", True)],
-            manifest_group="fundamentals",
+            manifest_group="fundamentals", stage_name="fetch_financial_statements",
             constituent_keys=constituent_keys, limit=limit)
 
     def fetch_ratios(self, constituent_keys=None, limit=None):
@@ -737,7 +758,7 @@ class StockDataPipeline:
         return self._fetch_constituent_datasets(
             [("ratios", self._ratios_url, "_ratios.json", True),
              ("metrics", self._key_metrics_url, "_metrics.json", True)],
-            manifest_group="metrics",
+            manifest_group="metrics", stage_name="fetch_ratios",
             constituent_keys=constituent_keys, limit=limit)
 
     def fetch_ttm_ratios(self, constituent_keys=None, limit=None):
@@ -748,7 +769,7 @@ class StockDataPipeline:
         return self._fetch_constituent_datasets(
             [("ratios_ttm", self._ratios_ttm_url, "_ratios_ttm.json", False),
              ("metrics_ttm", self._metrics_ttm_url, "_metrics_ttm.json", False)],
-            manifest_group="metrics_ttm",
+            manifest_group="metrics_ttm", stage_name="fetch_ttm_ratios",
             constituent_keys=constituent_keys, limit=limit)
 
     # Single implementation lives in pipeline_config so research_utils shares it
@@ -822,6 +843,9 @@ class StockDataPipeline:
                 call refreshes everything like the other snapshot fetchers.
                 Pass True to continue an interrupted run without re-paying for
                 the symbols that already landed.
+
+        Returns a StageResult: saved = with data, no_data = nothing disclosed,
+        failed = errors (the only retry-worthy bucket).
         """
         keys = (list(cfg.SEGMENTATION_CONSTITUENT_KEYS)
                 if constituent_keys is None else constituent_keys)
@@ -969,7 +993,15 @@ class StockDataPipeline:
             total, hit = by_universe[sub]
             print(f"    {sub:15s} {hit:5d}/{total:<5d} ({hit / max(total, 1):.0%})")
         print(f"manifest → {manifest}")
-        return manifest
+        return StageResult(
+            "fetch_revenue_segments",
+            attempted=len(seen) - len(skipped),
+            saved=len(with_data),
+            failed=len(errors),
+            no_data=len(no_data),
+            failed_items=sorted(errors),
+            detail={"manifest": manifest, "skipped": len(skipped)},
+        )
 
     def fetch_index_prices(self, from_date=START_DATE, indexes=None):
         """Index price history → index_data/index_prices_v2/{daily,monthly}/.
@@ -989,11 +1021,11 @@ class StockDataPipeline:
         plan-gated on stable. 65 calls.
 
         indexes: optional list of INDEX_TICKERS keys to refresh a subset.
-        Returns {key: combined raw daily DataFrame}; failures are collected
+        Returns a StageResult (one attempt per index); failures are collected
         and reported, not raised, so one dead ticker doesn't kill the run.
         """
         keys = list(cfg.INDEX_TICKERS) if indexes is None else indexes
-        index_data, failed = {}, []
+        result, failed = StageResult("fetch_index_prices"), []
 
         for n, key in enumerate(keys, start=1):
             ticker = cfg.INDEX_TICKERS[key]["ticker"]
@@ -1012,7 +1044,7 @@ class StockDataPipeline:
                 if not historical:
                     if existing_raw is None:
                         raise ValueError("empty 'historical' payload")
-                    index_data[key] = existing_raw
+                    result.record(True)
                     print(f"[{n}/{len(keys)}] {key}: no new rows since {fetch_from}")
                     continue
 
@@ -1039,17 +1071,18 @@ class StockDataPipeline:
                 self._write_parquet(daily, daily_path)
                 self._write_parquet(monthly, monthly_path)
 
-                index_data[key] = combined
+                result.record(True)
                 mode = "backfill" if existing_raw is None else "update"
                 print(f"[{n}/{len(keys)}] {key}: +{added} rows ({mode}, "
                       f"{len(combined)} total) — {cfg.INDEX_TICKERS[key]['full_name']}")
             except Exception as e:
                 failed.append(key)
+                result.record(False, key)
                 print(f"[{n}/{len(keys)}] {key} ({ticker}) FAILED: {e}")
 
         if failed:
             print(f"\n{len(failed)}/{len(keys)} indexes failed: {failed}")
-        return index_data
+        return result
 
     @staticmethod
     def _load_existing_raw(path):
@@ -1078,7 +1111,7 @@ class StockDataPipeline:
             to_date = datetime.date.today().isoformat()
         ex_keys = list(cfg.EXCHANGES) if exchange_keys is None else exchange_keys
         sec_keys = list(cfg.SECTOR_NAMES) if sector_keys is None else sector_keys
-        failed = []
+        result, failed = StageResult("fetch_sector_history"), []
 
         for ex_key in ex_keys:
             exchange = cfg.EXCHANGES[ex_key]["index_name"]
@@ -1103,12 +1136,15 @@ class StockDataPipeline:
                             f"{sec_key}.json"), update=True)
                     print(f"\r{ex_key}/{sec_key}: perf {len(perf)}, pe {len(pe)}      ",
                           end="", flush=True)
+                    result.record(True)
                 except Exception as e:
                     failed.append(f"{ex_key}/{sec_key}")
+                    result.record(False, f"{ex_key}/{sec_key}")
                     print(f"\n{ex_key}/{sec_key} failed: {e}")
         print()
         if failed:
             print(f"{len(failed)} combos failed: {failed}")
+        return result
 
     def fetch_fred_series(self, series_ids=None, observation_start=None):
         """FRED → stock_data_json/econ_data/{series}.json, merged by date.
@@ -1117,7 +1153,7 @@ class StockDataPipeline:
             raise RuntimeError("FRED_API missing — add it to backend/.env "
                                "(free key: fred.stlouisfed.org user account)")
         ids = cfg.FRED_SERIES if series_ids is None else series_ids
-        failed = []
+        result, failed = StageResult("fetch_fred_series"), []
         for sid in ids:
             try:
                 raw = self._get(self._fred_url(sid, observation_start))
@@ -1130,12 +1166,15 @@ class StockDataPipeline:
                     os.path.join(self.econ_json_dir, f"{sid}.json"),
                     update=True)
                 print(f"\r{sid}: {len(rows)} obs      ", end="", flush=True)
+                result.record(True)
             except Exception as e:
                 failed.append(sid)
+                result.record(False, sid)
                 print(f"\n{sid} failed: {e}")
         print()
         if failed:
             print(f"{len(failed)} series failed: {failed}")
+        return result
 
     def get_sector_snapshot(self):
         """Today's sector performance snapshot (v3 sector-performance) plus a
