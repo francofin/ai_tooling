@@ -25,6 +25,7 @@
         "Subject": "{% '[Fintank] News ' & $run_id & ' started' %}",
         "Message": "{% 'Run ID: ' & $run_id & '\\nExecution: ' & $states.context.Execution.Id %}"
       },
+      "Catch": [{"ErrorEquals": ["States.ALL"], "Assign": {"error": "{% $states.errorOutput %}"}, "Next": "NotifyFailed"}],
       "Next": "RunNews"
     },
     "RunNews": {

@@ -30,6 +30,7 @@
         "StatusFilter": "RUNNING"
       },
       "Assign": {"running": "{% $count($states.result.Executions) %}"},
+      "Catch": [{"ErrorEquals": ["States.ALL"], "Assign": {"error": "{% $states.errorOutput %}"}, "Next": "NotifyFailed"}],
       "Next": "Busy?"
     },
     "Busy?": {
@@ -56,6 +57,7 @@
         "Subject": "{% '[Fintank] Weekly run ' & $run_id & ' started' %}",
         "Message": "{% 'Mode: ' & $mode & '\\nRun ID: ' & $run_id & '\\nExecution: ' & $states.context.Execution.Id %}"
       },
+      "Catch": [{"ErrorEquals": ["States.ALL"], "Assign": {"error": "{% $states.errorOutput %}"}, "Next": "NotifyFailed"}],
       "Next": "RunPipeline"
     },
     "RunPipeline": {
@@ -164,7 +166,7 @@
       "Arguments": {
         "TopicArn": "${TopicArn}",
         "Subject": "{% '[Fintank] Weekly run ' & $run_id & ' FAILED' %}",
-        "Message": "{% 'Run ' & $run_id & ' failed.\\n\\nIf it failed while publishing, some files may already be live — undo with: python -m pipelines rollback ' & $run_id & '\\nResume with: python -m pipelines start --mode ' & $mode & ' --run-id ' & $run_id & '\\n\\nError: ' & $string($error) & '\\n\\nLogs: https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#logsV2:log-groups/log-group/$252Ffintank$252Fpipeline' %}"
+        "Message": "{% 'Run ' & $run_id & ' failed.\\n\\nIf it failed while publishing: re-run python -m pipelines publish ' & $run_id & ', or undo with python -m pipelines rollback ' & $run_id & '\\nIf it failed before publishing, resume with: python -m pipelines start --mode ' & $mode & ' --run-id ' & $run_id & '\\n\\nError: ' & $string($error) & '\\n\\nLogs: https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#logsV2:log-groups/log-group/$252Ffintank$252Fpipeline' %}"
       },
       "Next": "Failed"
     },

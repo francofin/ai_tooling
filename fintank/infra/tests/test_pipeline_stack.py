@@ -108,3 +108,106 @@ def test_asl_is_valid_jsonata_json_after_substitution(name):
         for target in [state.get("Next"), state.get("Default")] + [
                 c["Next"] for c in state.get("Choices", []) + state.get("Catch", [])]:
             assert target is None or target in states, target
+
+
+def render(value):
+    """A CloudFormation ARN expression as a readable string."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        return "".join(render(v) for v in value)
+    if "Fn::Join" in value:
+        sep, parts = value["Fn::Join"]
+        return sep.join(render(p) for p in parts)
+    if "Fn::GetAtt" in value:
+        return f"<{value['Fn::GetAtt'][0]}>"
+    if "Ref" in value:
+        return "aws" if value["Ref"] == "AWS::Partition" else f"<{value['Ref']}>"
+    raise AssertionError(value)
+
+
+def statements_of(template, role_logical_id):
+    for policy in template.find_resources("AWS::IAM::Policy").values():
+        if {"Ref": role_logical_id} in policy["Properties"]["Roles"]:
+            for statement in policy["Properties"]["PolicyDocument"]["Statement"]:
+                actions = statement["Action"]
+                resources = statement["Resource"]
+                yield ([actions] if isinstance(actions, str) else actions,
+                       [render(r) for r in (resources if isinstance(resources, list)
+                                            else [resources])])
+
+
+def logical_id(template, resource_type):
+    (lid,) = template.find_resources(resource_type).keys()
+    return lid
+
+
+def test_publish_role_cannot_delete_anything(built):
+    template = built[1]
+    for actions, resources in statements_of(template, role_of(template, "fintank-publish")):
+        assert not [a for a in actions if a.startswith("s3:Delete")], (actions, resources)
+
+
+def test_publish_role_writes_only_live_objects_and_run_bookkeeping(built):
+    template = built[1]
+    state = f"<{logical_id(template, 'AWS::S3::Bucket')}>"
+    puts = set()
+    for actions, resources in statements_of(template, role_of(template, "fintank-publish")):
+        if any(a.startswith("s3:Put") for a in actions):
+            puts |= set(resources)
+    assert puts == {"arn:aws:s3:::thetradingfloor/*", f"{state}/runs/*",
+                    f"{state}/state/live-manifest.json",
+                    f"{state}/state/last-published-report.json"}
+
+
+def test_publish_role_has_no_object_version_access(built):
+    template = built[1]
+    for actions, _ in statements_of(template, role_of(template, "fintank-publish")):
+        assert "s3:GetObjectVersion" not in actions
+
+
+def test_topic_policy_lets_events_and_cloudwatch_publish(built):
+    template = built[1]
+    principals = set()
+    for policy in template.find_resources("AWS::SNS::TopicPolicy").values():
+        for statement in policy["Properties"]["PolicyDocument"]["Statement"]:
+            if "sns:Publish" in json.dumps(statement["Action"]):
+                principals.add(statement["Principal"]["Service"])
+    assert {"events.amazonaws.com", "cloudwatch.amazonaws.com"} <= principals
+
+
+def test_runs_expire_after_45_days(built):
+    rules = [r for b in built[1].find_resources("AWS::S3::Bucket").values()
+             for r in b["Properties"]["LifecycleConfiguration"]["Rules"]]
+    (runs,) = [r for r in rules if r.get("Prefix") == "runs/"]
+    assert runs["ExpirationInDays"] == 45
+
+
+@pytest.mark.parametrize("name,states", [
+    ("weekly.asl.json", ["CheckBusy", "NotifyStarted"]),
+    ("news.asl.json", ["NotifyStarted"]),
+])
+def test_early_states_report_failures(name, states):
+    definition = json.loads((ASL_DIR / name).read_text().replace("${SubnetIds}", "[]"))
+    for state in states:
+        catch = definition["States"][state].get("Catch", [])
+        assert [c["Next"] for c in catch if c["ErrorEquals"] == ["States.ALL"]] == \
+            ["NotifyFailed"], state
+
+
+def test_weekly_failure_email_explains_republish():
+    text = (ASL_DIR / "weekly.asl.json").read_text()
+    assert "python -m pipelines publish ' & $run_id" in text
+    assert "python -m pipelines rollback ' & $run_id" in text
+
+
+def test_app_validates_news_notify():
+    from app import stack_options
+    base = {"alert_email": "ops@example.com"}
+    assert stack_options(base.get)["news_notify"] == "all"
+    assert stack_options({**base, "news_notify": "warnings_only"}.get)["news_notify"] \
+        == "warnings_only"
+    with pytest.raises(SystemExit, match="news_notify"):
+        stack_options({**base, "news_notify": "sometimes"}.get)
+    with pytest.raises(SystemExit, match="alert_email"):
+        stack_options({}.get)

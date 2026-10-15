@@ -64,8 +64,10 @@ class PipelineStack(Stack):
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL, enforce_ssl=True,
             removal_policy=RemovalPolicy.RETAIN,
             lifecycle_rules=[
+                # Staged copies dominate the bucket; the baseline report a run
+                # compares against lives under state/, not runs/.
                 s3.LifecycleRule(id="ExpireRuns", prefix="runs/",
-                                 expiration=Duration.days(90)),
+                                 expiration=Duration.days(45)),
                 s3.LifecycleRule(id="ExpireOldVersions",
                                  noncurrent_version_expiration=Duration.days(14)),
             ])
@@ -118,11 +120,22 @@ class PipelineStack(Stack):
         state_bucket.grant_read_write(run_td.task_role)
         topic.grant_publish(run_td.task_role)
 
-        state_bucket.grant_read_write(publish_td.task_role)
-        live_bucket.grant_read_write(publish_td.task_role)
-        publish_td.task_role.add_to_principal_policy(iam.PolicyStatement(
-            actions=["s3:GetBucketVersioning", "s3:GetObjectVersion"],
-            resources=[live_bucket.bucket_arn, live_bucket.arn_for_objects("*")]))
+        # Publish: server-side copies into live, no deletes anywhere (rollback
+        # runs from Franc's terminal, not from this role), and no write to the
+        # state archives. ListBucket makes a missing key a 404, not a 403.
+        bookkeeping = [state_bucket.arn_for_objects(k) for k in
+                       ("state/live-manifest.json", "state/last-published-report.json")]
+        for statement in (
+                iam.PolicyStatement(actions=["s3:GetObject", "s3:PutObject"],
+                                    resources=[live_bucket.arn_for_objects("*")]),
+                iam.PolicyStatement(actions=["s3:ListBucket", "s3:GetBucketVersioning"],
+                                    resources=[live_bucket.bucket_arn]),
+                iam.PolicyStatement(actions=["s3:GetObject", "s3:PutObject"],
+                                    resources=[state_bucket.arn_for_objects("runs/*"),
+                                               *bookkeeping]),
+                iam.PolicyStatement(actions=["s3:ListBucket"],
+                                    resources=[state_bucket.bucket_arn])):
+            publish_td.task_role.add_to_principal_policy(statement)
         topic.grant_publish(publish_td.task_role)
 
         live_bucket.grant_put(news_td.task_role, "news_json_articles/*")
@@ -205,6 +218,10 @@ class PipelineStack(Stack):
             comparison_operator=cw.ComparisonOperator.GREATER_THAN_THRESHOLD,
             treat_missing_data=cw.TreatMissingData.NOT_BREACHING)
         never_started.add_alarm_action(cw_actions.SnsAction(topic))
+        topic.add_to_resource_policy(iam.PolicyStatement(
+            actions=["sns:Publish"], resources=[topic.topic_arn],
+            principals=[iam.ServicePrincipal("cloudwatch.amazonaws.com")],
+            conditions={"ArnLike": {"aws:SourceArn": never_started.alarm_arn}}))
 
         # Timeouts and aborts skip the state machines' own failure email.
         events.Rule(

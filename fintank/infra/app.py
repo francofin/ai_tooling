@@ -14,20 +14,36 @@ import aws_cdk as cdk
 
 from pipeline_stack import PipelineStack
 
-app = cdk.App()
-ctx = app.node.try_get_context
-alert_email = ctx("alert_email")
-if not alert_email:
-    raise SystemExit("pass -c alert_email=you@example.com")
+NEWS_NOTIFY = ("all", "warnings_only")
 
-PipelineStack(
-    app, "FintankPipeline",
-    env=cdk.Environment(account=os.environ["CDK_DEFAULT_ACCOUNT"], region="us-east-1"),
-    alert_email=alert_email,
-    always_hold=str(ctx("always_hold")).lower() != "false",
-    news_notify=ctx("news_notify") or "all",
-    weekly_schedule=ctx("weekly_schedule") == "on",
-    news_schedule=ctx("news_schedule") == "on",
-    s3_endpoint=ctx("s3_endpoint") != "off",
-)
-app.synth()
+
+def stack_options(ctx) -> dict:
+    """PipelineStack keyword arguments from the -c context flags."""
+    alert_email = ctx("alert_email")
+    if not alert_email:
+        raise SystemExit("pass -c alert_email=you@example.com")
+    news_notify = ctx("news_notify") or "all"
+    if news_notify not in NEWS_NOTIFY:
+        raise SystemExit(f"news_notify must be one of {', '.join(NEWS_NOTIFY)}, "
+                         f"not {news_notify!r}")
+    return dict(
+        alert_email=alert_email,
+        always_hold=str(ctx("always_hold")).lower() != "false",
+        news_notify=news_notify,
+        weekly_schedule=ctx("weekly_schedule") == "on",
+        news_schedule=ctx("news_schedule") == "on",
+        s3_endpoint=ctx("s3_endpoint") != "off",
+    )
+
+
+def main() -> None:
+    app = cdk.App()
+    PipelineStack(
+        app, "FintankPipeline",
+        env=cdk.Environment(account=os.environ["CDK_DEFAULT_ACCOUNT"], region="us-east-1"),
+        **stack_options(app.node.try_get_context))
+    app.synth()
+
+
+if __name__ == "__main__":
+    main()
