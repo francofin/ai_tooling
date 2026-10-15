@@ -1,0 +1,10 @@
+# Runtime deps of the pipeline image and of local runs. Versions match the
+# shared venv so local and AWS runs write identical parquet bytes.
+pandas==2.3.3
+pyarrow==22.0.0
+numpy==2.3.4
+boto3==1.42.44
+requests==2.32.5
+python-dotenv==1.2.1
+pandas-market-calendars==5.3.0
+zstandard==0.25.0

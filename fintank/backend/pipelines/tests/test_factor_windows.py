@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from utils.factor_windows import WINDOWS, window_return_and_std
+from pipelines.factor_windows import WINDOWS, window_return_and_std
 
 
 def _series(dates, values):
