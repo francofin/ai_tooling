@@ -16,6 +16,7 @@ from datetime import timedelta
 from dotenv import load_dotenv
 from decouple import config
 import dj_database_url
+from celery.schedules import crontab
 
 load_dotenv()
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -145,18 +146,22 @@ CELERY_RESULT_BACKEND = "redis://localhost:6379/0"
 CELERY_TIMEZONE = "UTC"
 CELERY_ENABLE_UTC = True
 
+# Fixed UTC times just after the AWS pipeline jobs (news 09:30 daily, weekly
+# data Saturdays from 10:00, done by ~18:00 on a full run), so new S3 data is
+# cached within minutes instead of up to 24 h later. See
+# docs/superpowers/specs/2026-10-14-automated-data-pipeline-design.md.
 CELERY_BEAT_SCHEDULE = {
     "update_news_articles_daily": {
         "task": "news.tasks.update_news_articles",
-        "schedule": 86400,  # every 24 hours
+        "schedule": crontab(hour=10, minute=0),
     },
     "update_universe_profiles_daily": {
         "task": "analyzer.tasks.update_universe_profiles",
-        "schedule": 86400,  # every 24 hours — parquet is static, no market-hours gate
+        "schedule": crontab(hour=20, minute=0),
     },
     "update_economic_data_daily": {
         "task": "analyzer.tasks.update_economic_data",
-        "schedule": 86400,  # every 24 hours — FRED/month-end data, no market-hours gate
+        "schedule": crontab(hour=20, minute=0),
     },
 }
 
