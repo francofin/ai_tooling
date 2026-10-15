@@ -96,3 +96,111 @@ def test_publish_refuses_unversioned_live_bucket(aws, tmp_path):
     aws.create_bucket(Bucket="live")
     with pytest.raises(RuntimeError, match="versioning"):
         publish.publish(aws, "state", "live", "r1")
+
+
+class FlakyCopies:
+    """Wraps an S3 client; copy_object raises for the named keys."""
+
+    def __init__(self, client, fail_keys):
+        self._client, self.fail_keys, self.copied = client, set(fail_keys), []
+
+    def __getattr__(self, name):
+        return getattr(self._client, name)
+
+    def copy_object(self, **kwargs):
+        if kwargs["Key"] in self.fail_keys:
+            raise RuntimeError(f"copy of {kwargs['Key']} blew up")
+        self.copied.append(kwargs["Key"])
+        return self._client.copy_object(**kwargs)
+
+
+def stage_run(client, tmp_path, run_id, contents):
+    store = S3Store("state", client)
+    store.put_json(run_key(run_id, "report.json"), {"run_id": run_id, "counts": {}})
+    outs = make_outputs(tmp_path, contents)
+    publish.stage_changed(client, "state", run_id,
+                          publish.diff_outputs(outs, store.get_json(LIVE_MANIFEST, {})))
+
+
+def manifest_files(client, run_id):
+    manifest = S3Store("state", client).get_json(run_key(run_id, "publish-manifest.json"))
+    return {f["key"]: f for f in manifest["files"]}
+
+
+def test_crash_mid_group_then_republish_keeps_original_previous_versions(buckets, tmp_path):
+    do_run(buckets, tmp_path, "r1", {"econ_data/cpi.parquet": "c1"})
+    r1_version = buckets.head_object(Bucket="live", Key="econ_data/cpi.parquet")["VersionId"]
+    stage_run(buckets, tmp_path, "r2", {"econ_data/cpi.parquet": "c2",
+                                        "econ_data/a.parquet": "a2",
+                                        "econ_data/b.parquet": "b2"})
+    flaky = FlakyCopies(buckets, {"econ_data/b.parquet"})
+    with pytest.raises(RuntimeError, match="blew up"):
+        publish.publish(flaky, "state", "live", "r2")
+    files = manifest_files(buckets, "r2")
+    assert set(files) == {"econ_data/cpi.parquet", "econ_data/a.parquet"}
+    assert files["econ_data/cpi.parquet"]["previous_version"] == r1_version
+
+    retry = FlakyCopies(buckets, set())
+    result = publish.publish(retry, "state", "live", "r2")
+    assert retry.copied == ["econ_data/b.parquet"]       # already-live keys skipped
+    assert result["published"] == 1
+    files = manifest_files(buckets, "r2")
+    assert set(files) == {"econ_data/cpi.parquet", "econ_data/a.parquet",
+                          "econ_data/b.parquet"}
+    assert files["econ_data/cpi.parquet"]["previous_version"] == r1_version
+
+    publish.rollback(buckets, "state", "live", "r2")
+    assert live_body(buckets, "econ_data/cpi.parquet") == "c1"
+    for key in ("econ_data/a.parquet", "econ_data/b.parquet"):
+        with pytest.raises(buckets.exceptions.NoSuchKey):
+            buckets.get_object(Bucket="live", Key=key)
+
+
+def test_republish_of_live_run_copies_nothing_and_keeps_rollback(buckets, tmp_path):
+    do_run(buckets, tmp_path, "r1", {"econ_data/cpi.parquet": "c1"})
+    do_run(buckets, tmp_path, "r2", {"econ_data/cpi.parquet": "c2"})
+    again = FlakyCopies(buckets, set())
+    assert publish.publish(again, "state", "live", "r2")["published"] == 0
+    assert again.copied == []
+    publish.rollback(buckets, "state", "live", "r2")
+    assert live_body(buckets, "econ_data/cpi.parquet") == "c1"
+
+
+def test_rollback_restores_object_written_before_versioning(aws, tmp_path):
+    aws.create_bucket(Bucket="state")
+    aws.create_bucket(Bucket="live")
+    aws.put_object(Bucket="live", Key="econ_data/cpi.parquet", Body=b"original")
+    aws.put_bucket_versioning(Bucket="live",
+                              VersioningConfiguration={"Status": "Enabled"})
+    do_run(aws, tmp_path, "r1", {"econ_data/cpi.parquet": "c1"})
+    entry = manifest_files(aws, "r1")["econ_data/cpi.parquet"]
+    assert entry["previous_existed"] is True
+    publish.rollback(aws, "state", "live", "r1")
+    assert live_body(aws, "econ_data/cpi.parquet") == "original"
+
+
+def test_rollback_of_older_run_refused_while_newer_run_is_live(buckets, tmp_path):
+    do_run(buckets, tmp_path, "r1", {"econ_data/cpi.parquet": "c1"})
+    do_run(buckets, tmp_path, "r2", {"econ_data/cpi.parquet": "c2"})
+    with pytest.raises(RuntimeError, match="r2"):
+        publish.rollback(buckets, "state", "live", "r1")
+    assert live_body(buckets, "econ_data/cpi.parquet") == "c2"
+
+    publish.rollback(buckets, "state", "live", "r2")       # latest first
+    publish.rollback(buckets, "state", "live", "r1")       # now allowed
+    with pytest.raises(buckets.exceptions.NoSuchKey):
+        buckets.get_object(Bucket="live", Key="econ_data/cpi.parquet")
+
+
+def test_rollback_force_overrides_the_newer_run_guard(buckets, tmp_path):
+    do_run(buckets, tmp_path, "r1", {"econ_data/cpi.parquet": "c1"})
+    do_run(buckets, tmp_path, "r2", {"econ_data/cpi.parquet": "c2"})
+    publish.rollback(buckets, "state", "live", "r1", force=True)
+    with pytest.raises(buckets.exceptions.NoSuchKey):
+        buckets.get_object(Bucket="live", Key="econ_data/cpi.parquet")
+
+
+def test_rollback_ignores_newer_runs_touching_other_keys(buckets, tmp_path):
+    do_run(buckets, tmp_path, "r1", {"econ_data/cpi.parquet": "c1"})
+    do_run(buckets, tmp_path, "r2", {"econ_data/gdp.parquet": "g2"})
+    assert publish.rollback(buckets, "state", "live", "r1") == 1
