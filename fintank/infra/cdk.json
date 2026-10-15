@@ -1,0 +1,10 @@
+{
+  "app": ".venv/bin/python app.py",
+  "context": {
+    "always_hold": "true",
+    "news_notify": "all",
+    "weekly_schedule": "off",
+    "news_schedule": "off",
+    "s3_endpoint": "on"
+  }
+}

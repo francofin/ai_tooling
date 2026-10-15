@@ -1,0 +1,173 @@
+{
+  "Comment": "Fintank weekly market-data run. See docs/superpowers/specs/2026-10-14-automated-data-pipeline-design.md",
+  "QueryLanguage": "JSONata",
+  "TimeoutSeconds": 777600,
+  "StartAt": "Init",
+  "States": {
+    "Init": {
+      "Type": "Pass",
+      "Assign": {
+        "mode": "{% $exists($states.input.mode) ? $states.input.mode : ($number($fromMillis($toMillis($states.context.Execution.StartTime), '[D1]')) <= 7 ? 'full' : 'lean') %}",
+        "limit": "{% $exists($states.input.limit) ? ['--limit', $string($states.input.limit)] : [] %}",
+        "attempt": 0,
+        "error": null,
+        "reason": null
+      },
+      "Next": "NameRun"
+    },
+    "NameRun": {
+      "Type": "Pass",
+      "Assign": {
+        "run_id": "{% $exists($states.input.run_id) ? $states.input.run_id : $mode & '-' & $fromMillis($toMillis($states.context.Execution.StartTime), '[Y0001][M01][D01]-[H01][m01]') %}"
+      },
+      "Next": "CheckBusy"
+    },
+    "CheckBusy": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:sfn:listExecutions",
+      "Arguments": {
+        "StateMachineArn": "{% $states.context.StateMachine.Id %}",
+        "StatusFilter": "RUNNING"
+      },
+      "Assign": {"running": "{% $count($states.result.Executions) %}"},
+      "Next": "Busy?"
+    },
+    "Busy?": {
+      "Type": "Choice",
+      "Choices": [{"Condition": "{% $running > 1 %}", "Next": "NotifyBusy"}],
+      "Default": "NotifyStarted"
+    },
+    "NotifyBusy": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Arguments": {
+        "TopicArn": "${TopicArn}",
+        "Subject": "{% '[Fintank] Weekly run ' & $run_id & ' skipped' %}",
+        "Message": "Another weekly run is still in progress, so this one did not start. See: python -m pipelines status"
+      },
+      "Next": "AlreadyRunning"
+    },
+    "AlreadyRunning": {"Type": "Fail", "Error": "AlreadyRunning", "Cause": "another weekly run is in progress"},
+    "NotifyStarted": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Arguments": {
+        "TopicArn": "${TopicArn}",
+        "Subject": "{% '[Fintank] Weekly run ' & $run_id & ' started' %}",
+        "Message": "{% 'Mode: ' & $mode & '\\nRun ID: ' & $run_id & '\\nExecution: ' & $states.context.Execution.Id %}"
+      },
+      "Next": "RunPipeline"
+    },
+    "RunPipeline": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::ecs:runTask.sync",
+      "Arguments": {
+        "Cluster": "${ClusterArn}",
+        "TaskDefinition": "${RunTaskDefinitionArn}",
+        "LaunchType": "FARGATE",
+        "NetworkConfiguration": {
+          "AwsvpcConfiguration": {
+            "Subnets": ${SubnetIds},
+            "SecurityGroups": ["${SecurityGroupId}"],
+            "AssignPublicIp": "ENABLED"
+          }
+        },
+        "Overrides": {
+          "ContainerOverrides": [
+            {"Name": "app", "Command": "{% $append(['run', '--mode', $mode, '--run-id', $run_id], $limit) %}"}
+          ]
+        }
+      },
+      "TimeoutSeconds": 43200,
+      "Catch": [{"ErrorEquals": ["States.ALL"], "Assign": {"error": "{% $states.errorOutput %}"}, "Next": "CanRetry?"}],
+      "Next": "ReadVerdict"
+    },
+    "ReadVerdict": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:s3:getObject",
+      "Arguments": {
+        "Bucket": "${StateBucket}",
+        "Key": "{% 'runs/' & $run_id & '/verdict.json' %}"
+      },
+      "Assign": {"verdict": "{% $parse($states.result.Body) %}"},
+      "Catch": [{"ErrorEquals": ["States.ALL"], "Assign": {"error": "{% $states.errorOutput %}"}, "Next": "CanRetry?"}],
+      "Next": "Hold?"
+    },
+    "CanRetry?": {
+      "Type": "Choice",
+      "Choices": [{"Condition": "{% $attempt < 1 %}", "Next": "WaitBeforeRetry"}],
+      "Default": "NotifyFailed"
+    },
+    "WaitBeforeRetry": {
+      "Type": "Wait",
+      "Seconds": 60,
+      "Assign": {"attempt": "{% $attempt + 1 %}"},
+      "Next": "RunPipeline"
+    },
+    "Hold?": {
+      "Type": "Choice",
+      "Choices": [{"Condition": "{% $verdict.hold %}", "Next": "WaitForApproval"}],
+      "Default": "Publish"
+    },
+    "WaitForApproval": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:s3:putObject.waitForTaskToken",
+      "Arguments": {
+        "Bucket": "${StateBucket}",
+        "Key": "{% 'runs/' & $run_id & '/approval-token.json' %}",
+        "Body": "{% $string({'task_token': $states.context.Task.Token, 'run_id': $run_id}) %}",
+        "ContentType": "application/json"
+      },
+      "TimeoutSeconds": 604800,
+      "Catch": [
+        {"ErrorEquals": ["States.Timeout"], "Assign": {"reason": "it was not approved within 7 days"}, "Next": "NotifyDiscarded"},
+        {"ErrorEquals": ["Discarded"], "Assign": {"reason": "it was discarded"}, "Next": "NotifyDiscarded"},
+        {"ErrorEquals": ["States.ALL"], "Assign": {"error": "{% $states.errorOutput %}"}, "Next": "NotifyFailed"}
+      ],
+      "Next": "Publish"
+    },
+    "Publish": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::ecs:runTask.sync",
+      "Arguments": {
+        "Cluster": "${ClusterArn}",
+        "TaskDefinition": "${PublishTaskDefinitionArn}",
+        "LaunchType": "FARGATE",
+        "NetworkConfiguration": {
+          "AwsvpcConfiguration": {
+            "Subnets": ${SubnetIds},
+            "SecurityGroups": ["${SecurityGroupId}"],
+            "AssignPublicIp": "ENABLED"
+          }
+        },
+        "Overrides": {"ContainerOverrides": [{"Name": "app", "Command": "{% ['publish', $run_id] %}"}]}
+      },
+      "TimeoutSeconds": 7200,
+      "Catch": [{"ErrorEquals": ["States.ALL"], "Assign": {"error": "{% $states.errorOutput %}"}, "Next": "NotifyFailed"}],
+      "Next": "Published"
+    },
+    "Published": {"Type": "Succeed"},
+    "NotifyDiscarded": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Arguments": {
+        "TopicArn": "${TopicArn}",
+        "Subject": "{% '[Fintank] Weekly run ' & $run_id & ' discarded' %}",
+        "Message": "{% 'Run ' & $run_id & ' was not published because ' & $reason & '. The live site is unchanged.' %}"
+      },
+      "Next": "Discarded"
+    },
+    "Discarded": {"Type": "Succeed"},
+    "NotifyFailed": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Arguments": {
+        "TopicArn": "${TopicArn}",
+        "Subject": "{% '[Fintank] Weekly run ' & $run_id & ' FAILED' %}",
+        "Message": "{% 'Run ' & $run_id & ' failed.\\n\\nIf it failed while publishing, some files may already be live — undo with: python -m pipelines rollback ' & $run_id & '\\nResume with: python -m pipelines start --mode ' & $mode & ' --run-id ' & $run_id & '\\n\\nError: ' & $string($error) & '\\n\\nLogs: https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#logsV2:log-groups/log-group/$252Ffintank$252Fpipeline' %}"
+      },
+      "Next": "Failed"
+    },
+    "Failed": {"Type": "Fail", "Error": "WeeklyRunFailed"}
+  }
+}

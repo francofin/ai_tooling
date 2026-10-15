@@ -80,3 +80,8 @@ notes.txt
 # brainstorming visual companion
 .superpowers/
 blockchain/
+
+# AWS CDK (infra/)
+/infra/.venv/
+/infra/cdk.out/
+/infra/cdk.context.json

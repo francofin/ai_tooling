@@ -1,0 +1,63 @@
+{
+  "Comment": "Fintank daily news run. See docs/superpowers/specs/2026-10-14-automated-data-pipeline-design.md",
+  "QueryLanguage": "JSONata",
+  "TimeoutSeconds": 3600,
+  "StartAt": "Init",
+  "States": {
+    "Init": {
+      "Type": "Pass",
+      "Assign": {
+        "run_id": "{% $exists($states.input.run_id) ? $states.input.run_id : 'news-' & $fromMillis($toMillis($states.context.Execution.StartTime), '[Y0001][M01][D01]-[H01][m01]') %}",
+        "error": null
+      },
+      "Next": "NotifyStart?"
+    },
+    "NotifyStart?": {
+      "Type": "Choice",
+      "Choices": [{"Condition": "{% ${NotifyStart} %}", "Next": "NotifyStarted"}],
+      "Default": "RunNews"
+    },
+    "NotifyStarted": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Arguments": {
+        "TopicArn": "${TopicArn}",
+        "Subject": "{% '[Fintank] News ' & $run_id & ' started' %}",
+        "Message": "{% 'Run ID: ' & $run_id & '\\nExecution: ' & $states.context.Execution.Id %}"
+      },
+      "Next": "RunNews"
+    },
+    "RunNews": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::ecs:runTask.sync",
+      "Arguments": {
+        "Cluster": "${ClusterArn}",
+        "TaskDefinition": "${NewsTaskDefinitionArn}",
+        "LaunchType": "FARGATE",
+        "NetworkConfiguration": {
+          "AwsvpcConfiguration": {
+            "Subnets": ${SubnetIds},
+            "SecurityGroups": ["${SecurityGroupId}"],
+            "AssignPublicIp": "ENABLED"
+          }
+        },
+        "Overrides": {"ContainerOverrides": [{"Name": "app", "Command": "{% ['news', '--run-id', $run_id] %}"}]}
+      },
+      "TimeoutSeconds": 1800,
+      "Catch": [{"ErrorEquals": ["States.ALL"], "Assign": {"error": "{% $states.errorOutput %}"}, "Next": "NotifyFailed"}],
+      "Next": "Done"
+    },
+    "Done": {"Type": "Succeed"},
+    "NotifyFailed": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Arguments": {
+        "TopicArn": "${TopicArn}",
+        "Subject": "{% '[Fintank] News ' & $run_id & ' FAILED' %}",
+        "Message": "{% 'News run ' & $run_id & ' failed; the previous files stay live.\\n\\nError: ' & $string($error) & '\\n\\nLogs: https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#logsV2:log-groups/log-group/$252Ffintank$252Fpipeline' %}"
+      },
+      "Next": "Failed"
+    },
+    "Failed": {"Type": "Fail", "Error": "NewsRunFailed"}
+  }
+}
