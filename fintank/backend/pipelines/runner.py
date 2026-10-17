@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
+from pipelines import pipeline_config as cfg
 from pipelines import state
 from pipelines.checks import (PASS, CheckResult, check_constituents, check_counts,
                               check_econ, check_factor_staleness, check_fetch,
@@ -180,12 +181,14 @@ def recent_adj_close(outputs):
 
 
 def fred_last_dates(p) -> dict:
+    """Last observation date per FRED series still in cfg.FRED_SERIES — files
+    for dropped series can linger on disk and in state, and must not warn."""
     out = {}
     folder = p.econ_json_dir
     if not os.path.isdir(folder):
         return out
     for name in sorted(os.listdir(folder)):
-        if not name.endswith(".json"):
+        if not name.endswith(".json") or name.removesuffix(".json") not in cfg.FRED_SERIES:
             continue
         with open(os.path.join(folder, name)) as f:
             rows = json.load(f)
@@ -203,9 +206,11 @@ def run_checks(ctx: RunContext, report: RunReport) -> None:
     if "refresh_constituents" in stages:
         results += check_constituents(stages["refresh_constituents"])
     results += [check_fetch(r) for name, r in stages.items() if name.startswith("fetch_")]
+    ctx.log("── checks: freshness")
     modal = {sub: info["modal_last_date"] for sub, info in p.modal_last_dates().items()}
     results += check_freshness(modal, recent_nyse_sessions(ctx.today))
     outputs = collect_outputs(p)
+    ctx.log(f"── checks: opening {len(outputs):,} output files (a few minutes on a full run)")
     results += check_outputs_readable(outputs)
     report.counts = collect_counts(outputs, stages)
     results += check_counts(report.counts, baseline.get("counts"))
@@ -213,6 +218,7 @@ def run_checks(ctx: RunContext, report: RunReport) -> None:
         report.factor_staleness = stages["build_factor_metrics"].detail.get("lists", {})
     results += check_factor_staleness(report.factor_staleness,
                                       baseline.get("factor_staleness"))
+    ctx.log("── checks: recent price moves")
     results += check_price_sanity(recent_adj_close(outputs))
     results += check_econ(fred_last_dates(p), ctx.today)
     report.add_checks(results)

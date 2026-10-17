@@ -344,7 +344,9 @@ FRED_SERIES = [
     "DGS2", "DGS5", "DGS10", "DGS30",   # nominal treasury constant-maturity yields
     "DFII5", "DFII10",                  # TIPS real yields
     "BAMLH0A0HYM2EY",                   # ICE BofA HY effective yield (replaces NDL ML/USTRI)
-    "CPIAUCSL", "CPGRLE01USM659N",      # CPI level, OECD core CPI YoY
+    "CPIAUCSL",                         # CPI level (OECD core CPI YoY CPGRLE01USM659N
+                                        # dropped 2026-10: unused, and FRED stopped
+                                        # updating it in Apr 2025)
     "PAYEMS", "UNRATE", "CCSA",         # payrolls, unemployment rate, continued claims
     "GDP", "GDPC1",                     # nominal / real GDP
     "USREC", "USRECD",                  # NBER recession flags (monthly / daily)

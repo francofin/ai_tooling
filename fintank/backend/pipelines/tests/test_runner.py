@@ -178,3 +178,13 @@ def test_failed_held_email_leaves_no_verdict(tmp_path):
     with pytest.raises(RuntimeError, match="SNS"):
         runner.run_weekly(ctx, checks=adds("warn"), staging=nothing)
     assert ctx.store.get_json(run_key("lean-1", "verdict.json")) is None
+
+
+def test_fred_last_dates_ignores_series_no_longer_fetched(pipeline):
+    import json
+    import os
+    os.makedirs(pipeline.econ_json_dir, exist_ok=True)
+    for sid, last in (("DGS10", "2026-10-09"), ("CPGRLE01USM659N", "2025-04-01")):
+        with open(os.path.join(pipeline.econ_json_dir, f"{sid}.json"), "w") as f:
+            json.dump([{"date": last, "value": 1.0}], f)
+    assert runner.fred_last_dates(pipeline) == {"DGS10": "2026-10-09"}
