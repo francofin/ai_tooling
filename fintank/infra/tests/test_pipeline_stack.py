@@ -211,3 +211,13 @@ def test_app_validates_news_notify():
         stack_options({**base, "news_notify": "sometimes"}.get)
     with pytest.raises(SystemExit, match="alert_email"):
         stack_options({}.get)
+
+
+def test_news_machine_passes_search_flag_from_input():
+    definition = json.loads((ASL_DIR / "news.asl.json").read_text()
+                            .replace("${SubnetIds}", '["subnet-1"]')
+                            .replace("${NotifyStart}", "true"))
+    states = definition["States"]
+    assert "--search" in states["Init"]["Assign"]["search"]
+    command = states["RunNews"]["Arguments"]["Overrides"]["ContainerOverrides"][0]["Command"]
+    assert "$search" in command

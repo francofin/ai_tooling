@@ -6,7 +6,7 @@ import pytest
 from pipelines import news
 from pipelines.store import LocalStore, run_key
 
-NOW = dt.datetime(2026, 10, 17, 9, 30, tzinfo=dt.timezone.utc)
+NOW = dt.datetime(2026, 10, 16, 9, 30, tzinfo=dt.timezone.utc)   # a search day
 FRESH = (NOW - dt.timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S")
 
 
@@ -128,3 +128,50 @@ def test_http_get_json_never_leaks_the_api_key(monkeypatch, capsys):
     assert "SECRET" not in str(info.value)
     assert info.value.__cause__ is None and info.value.__suppress_context__
     assert "SECRET" not in capsys.readouterr().out
+
+
+def test_search_days_fit_the_serpapi_quota():
+    assert news.SEARCH_DAYS == (1, 4, 7, 10, 13, 16, 19, 22, 25, 28)
+    assert len(news.SEARCH_DAYS) * len(news.SEARCH_TERMS) <= 250
+    assert news.search_due(dt.date(2026, 10, 16)) is True
+    assert news.search_due(dt.date(2026, 10, 17)) is False
+
+
+def test_off_day_runs_only_the_fmp_feeds(tmp_path):
+    off_day = dt.datetime(2026, 10, 17, 9, 30, tzinfo=dt.timezone.utc)
+    calls = []
+
+    def counting_get(url, params=None):
+        calls.append(url)
+        return make_get()(url, params)
+
+    uploads, store = [], LocalStore(str(tmp_path / "store"))
+    report = news.run_news("news-1", "fmp", "serp", str(tmp_path / "out"), store,
+                           upload=lambda path, key: uploads.append(key),
+                           now=off_day, get=counting_get, log=lambda *a: None)
+    assert report.verdict == "pass"
+    assert len(uploads) == 4
+    assert news.SERPAPI_URL not in calls
+    skipped = next(c for c in report.checks if c["name"] == "news.search_topics")
+    assert skipped["status"] == "pass"
+    assert "next on day 19" in skipped["detail"]
+    overall = next(c for c in report.checks if c["name"] == "news.overall")
+    assert "0 of 4 files" in overall["detail"]
+
+
+def test_search_override_forces_or_skips_topics(tmp_path):
+    off_day = dt.datetime(2026, 10, 17, 9, 30, tzinfo=dt.timezone.utc)
+    on_day = dt.datetime(2026, 10, 16, 9, 30, tzinfo=dt.timezone.utc)
+    for now, search, expected in ((off_day, True, 28), (on_day, False, 4)):
+        uploads = []
+        news.run_news("news-1", "fmp", "serp", str(tmp_path / "out"),
+                      LocalStore(str(tmp_path / "store")),
+                      upload=lambda path, key: uploads.append(key), now=now,
+                      get=make_get(), log=lambda *a: None, search=search)
+        assert len(uploads) == expected
+
+
+def test_last_search_day_of_the_month_points_to_next_month():
+    assert news.next_search_day(dt.date(2026, 10, 29)) == dt.date(2026, 11, 1)
+    assert news.next_search_day(dt.date(2026, 10, 28)) == dt.date(2026, 11, 1)
+    assert news.next_search_day(dt.date(2026, 10, 2)) == dt.date(2026, 10, 4)

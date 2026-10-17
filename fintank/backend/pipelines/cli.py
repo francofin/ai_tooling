@@ -41,12 +41,19 @@ def build_parser() -> argparse.ArgumentParser:
     news = sub.add_parser("news", help="daily news run (the AWS task's entry point)")
     news.add_argument("--run-id")
     news.add_argument("--dry-run", action="store_true")
+    searching = news.add_mutually_exclusive_group()
+    searching.add_argument("--search", dest="search", action="store_true", default=None,
+                           help="run the SerpAPI topics even on a non-search day")
+    searching.add_argument("--no-search", dest="search", action="store_false",
+                           help="skip the SerpAPI topics even on a search day")
 
     start = sub.add_parser("start", help="start the weekly state machine now")
     start.add_argument("--mode", choices=["lean", "full"], required=True)
     start.add_argument("--limit", type=int)
     start.add_argument("--run-id", help="resume this run instead of starting a new one")
-    sub.add_parser("start-news", help="start the news state machine now")
+    start_news = sub.add_parser("start-news", help="start the news state machine now")
+    start_news.add_argument("--search", action="store_true",
+                            help="include the SerpAPI topics even on a non-search day")
 
     for name, text in (("approve", "publish a held run"),
                        ("discard", "throw a held run away"),
@@ -136,7 +143,7 @@ def cmd_news(args) -> int:
     report = run_news(run_id, fmp_key, serp_key, os.path.join(root, "news_json_articles"),
                       store, upload=upload, notifier=notifier,
                       notify_all=os.getenv("NEWS_NOTIFY", "all") == "all",
-                      state_bucket=bucket, dry_run=args.dry_run)
+                      state_bucket=bucket, dry_run=args.dry_run, search=args.search)
     print(report.summary())
     return 0
 
@@ -164,8 +171,9 @@ def cmd_start(args) -> int:
 
 def cmd_start_news(args) -> int:
     sfn = aws_client("stepfunctions")
+    payload = {"search": True} if args.search else {}
     response = sfn.start_execution(stateMachineArn=_machine_arn(sfn, NEWS_MACHINE),
-                                   input="{}")
+                                   input=json.dumps(payload))
     print(f"started {response['executionArn']}")
     return 0
 

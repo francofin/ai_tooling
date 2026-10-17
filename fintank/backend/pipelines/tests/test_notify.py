@@ -65,3 +65,12 @@ def test_news_and_crash_messages():
     subject, body = crash_message("run", "lean-1", "Traceback ... ?apikey=SECRET")
     assert subject == "[Fintank] run lean-1 crashed"
     assert "SECRET" not in body
+
+
+def test_news_message_mentions_skipped_search_topics():
+    r = RunReport("news-20261017-0930", "news", "news", "2026-10-17T09:30:00+00:00")
+    r.add_checks([CheckResult("news.search_topics", "pass", 0, None,
+                              "skipped today (SerpAPI quota) — next on day 19")])
+    r.finish(verdict_override="pass")
+    _, body = news_message(r, 4, "state-bucket")
+    assert "skipped today (SerpAPI quota)" in body

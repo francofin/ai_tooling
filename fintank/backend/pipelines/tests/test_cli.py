@@ -154,3 +154,16 @@ def test_seed_state_refuses_when_state_exists_unless_forced(wired, seed_root, ca
     assert cli.main(["seed-state", "--force"]) == 0
     body = s3.get_object(Bucket="state", Key="state/index_data.tar.zst")["Body"].read()
     assert body != b"aws copy"
+
+
+def test_news_search_flags():
+    parse = cli.build_parser().parse_args
+    assert parse(["news"]).search is None
+    assert parse(["news", "--search"]).search is True
+    assert parse(["news", "--no-search"]).search is False
+
+
+def test_start_news_can_force_searches(wired):
+    sfn, _ = wired
+    cli.main(["start-news", "--search"])
+    assert json.loads(sfn.calls[0][1]["input"]) == {"search": True}

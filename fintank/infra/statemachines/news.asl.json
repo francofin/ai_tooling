@@ -8,6 +8,7 @@
       "Type": "Pass",
       "Assign": {
         "run_id": "{% $exists($states.input.run_id) ? $states.input.run_id : 'news-' & $fromMillis($toMillis($states.context.Execution.StartTime), '[Y0001][M01][D01]-[H01][m01]') %}",
+        "search": "{% $exists($states.input.search) and $states.input.search = true ? ['--search'] : [] %}",
         "error": null
       },
       "Next": "NotifyStart?"
@@ -42,7 +43,7 @@
             "AssignPublicIp": "ENABLED"
           }
         },
-        "Overrides": {"ContainerOverrides": [{"Name": "app", "Command": "{% ['news', '--run-id', $run_id] %}"}]}
+        "Overrides": {"ContainerOverrides": [{"Name": "app", "Command": "{% $append(['news', '--run-id', $run_id], $search) %}"}]}
       },
       "TimeoutSeconds": 1800,
       "Catch": [{"ErrorEquals": ["States.ALL"], "Assign": {"error": "{% $states.errorOutput %}"}, "Next": "NotifyFailed"}],

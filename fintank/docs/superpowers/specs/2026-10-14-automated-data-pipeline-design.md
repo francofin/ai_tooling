@@ -61,7 +61,7 @@ All times UTC (no daylight-saving drift between AWS and Celery).
 | Job | When | Runs |
 |---|---|---|
 | `weekly-data-run` | Saturdays 10:00 | `mode=auto`: day-of-month 1–7 → **full**, otherwise **lean**. Constituents refreshed first either way. |
-| `daily-news` | Daily 09:30 | Fetch → check → upload passing files |
+| `daily-news` | Daily 09:30 | FMP feeds every day; the 24 SerpAPI topics only on days 1, 4, 7, 10, 13, 16, 19, 22, 25, 28 (`SEARCH_DAYS`, 240 searches/month for a 250-search plan). Fetch → check → upload passing files |
 
 Either job can also be started by hand with an explicit mode (Step Functions console or
 `python -m pipelines start --mode full`).
@@ -300,8 +300,12 @@ S3 keys (`news_json_articles/<name>_articles.json`) so `news/getNews.py` is unto
   `warn` if any file failed, `fail` if more than half did. News publishes passing files
   automatically; there is no approval hold.
 - Implementation must confirm SerpAPI's `bing_news` engine still returns results (Microsoft
-  retired the Bing Search APIs in 2025) and pick a replacement engine if not. 24
-  searches/day ≈ 730/month, which needs a paid SerpAPI plan.
+  retired the Bing Search APIs in 2025) and pick a replacement engine if not —
+  confirmed working 2026-10-17. Each run of the 24 topics costs 24 searches; on the
+  current 250-search plan they run only on `SEARCH_DAYS` (10 runs, 240 searches a
+  month) while the FMP feeds run daily. Skipped topics keep their last files and are
+  reported as a passing `news.search_topics` check, not failures. `news --search` /
+  `--no-search` and `start-news --search` override the day rule.
 
 ### CLI (`python -m pipelines ...`)
 
@@ -440,8 +444,8 @@ backend uses the same FMP and AWS keys.
 
 1. **FMP:** generate a new key in the FMP dashboard → put it in `backend/.env` (`FMP_API`)
    → it goes into SSM in step 2 → revoke the old key.
-2. **SerpAPI:** regenerate the key at serpapi.com → SSM in step 2. Confirm the plan covers
-   ~730 searches/month.
+2. **SerpAPI:** regenerate the key at serpapi.com → SSM in step 2. The news job fits a
+   250-search plan (topics on 10 days a month); widen `SEARCH_DAYS` after upgrading.
 3. **OpenAI:** revoke the key in the OpenAI dashboard (the news job does not use it).
 4. **AWS access key `AKIAR76F…`:** it is also `backend/.env`'s key. IAM → the user that
    owns it → *Create access key* → put the new pair in `backend/.env` → restart Django and

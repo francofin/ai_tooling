@@ -61,7 +61,11 @@ def complete_message(report, publish_result, state_bucket) -> tuple[str, str]:
 def news_message(report, uploaded, state_bucket) -> tuple[str, str]:
     subject = (f"[Fintank] News {report.run_id} - {report.verdict.upper()}, "
                f"{uploaded} files updated")
-    return subject, f"{report.summary()}\n\nReport: {report_url(state_bucket, report.run_id)}"
+    skipped = next((c["detail"] for c in report.checks
+                    if c["name"] == "news.search_topics"), None)
+    note = f"Search topics: {skipped}\n\n" if skipped else ""
+    return subject, (f"{note}{report.summary()}\n\n"
+                     f"Report: {report_url(state_bucket, report.run_id)}")
 
 
 def crash_message(job, run_id, error_text) -> tuple[str, str]:
