@@ -188,3 +188,14 @@ def test_fred_last_dates_ignores_series_no_longer_fetched(pipeline):
         with open(os.path.join(pipeline.econ_json_dir, f"{sid}.json"), "w") as f:
             json.dump([{"date": last, "value": 1.0}], f)
     assert runner.fred_last_dates(pipeline) == {"DGS10": "2026-10-09"}
+
+
+def test_build_failures_count_as_checks(pipeline, tmp_path):
+    ctx = make_ctx(tmp_path, pipeline=pipeline, today=dt.date(2026, 10, 10))
+    report = RunReport("lean-1", "weekly", "lean", "2026-10-10T10:00:00+00:00", dry_run=True)
+    report.add_stage(StageResult("build_relative_performance", attempted=20, saved=5,
+                                 failed=15), 1.0)
+    runner.run_checks(ctx, report)
+    by_name = {c["name"]: c["status"] for c in report.checks}
+    assert by_name["build_relative_performance.failure_rate"] == "fail"
+    assert by_name["minimum.stock_prices"] == "fail"           # empty fixture data

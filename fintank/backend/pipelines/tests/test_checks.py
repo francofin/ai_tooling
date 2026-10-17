@@ -121,3 +121,21 @@ def test_staging():
     assert c.check_staging(0, 100).status == c.FAIL
     assert c.check_staging(0, 0).status == c.PASS
     assert c.check_staging(5, 100).status == c.PASS
+
+
+def test_minimums_fail_below_floor_even_without_baseline():
+    counts = dict(t.MIN_COUNTS)
+    counts["profile_rows.company_profiles"] = 45          # a truncated aggregate
+    results = statuses(c.check_minimums(counts))
+    assert results["minimum.profile_rows.company_profiles"] == c.FAIL
+    assert results["minimum.stock_prices"] == c.PASS
+    missing = statuses(c.check_minimums({}))
+    assert set(missing.values()) == {c.FAIL}
+
+
+def test_factor_coverage_against_constituent_lists():
+    lists = {"sp500": {"rows": 493, "stale": 1}, "nas": {"rows": 5, "stale": 4},
+             "unknown": {"rows": 3, "stale": 0}}
+    members = {"sp500": 504, "nas": 101}
+    assert statuses(c.check_factor_coverage(lists, members)) == {
+        "factor_coverage.sp500": c.PASS, "factor_coverage.nas": c.FAIL}

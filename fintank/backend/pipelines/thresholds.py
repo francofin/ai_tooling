@@ -17,6 +17,24 @@ FRESHNESS_WARN_SESSIONS = 1
 COUNT_RATIO_WARN = 0.98
 COUNT_RATIO_FAIL = 0.90
 
+# Site-wide outputs may never shrink below these, even on the first publish when
+# there is no baseline to compare against. Measured from a full build in 2026-10
+# (stock_prices 27,526 files, fundamentals 53,654, company_profiles 13,771 rows,
+# long_profiles 6,375 rows); floors are ~80%. Raise them as the universe grows.
+MIN_COUNTS = {
+    "constituents": 9,
+    "index_prices": 120,
+    "stock_prices": 22000,
+    "fundamentals": 43000,
+    "factor_metrics": 8,
+    "profile_aggregates": 2,
+    "econ": 20,
+    "profile_rows.company_profiles": 11000,
+    "profile_rows.long_profiles": 5000,
+}
+# Factor rows per list vs the list's constituent count.
+FACTOR_MIN_COVERAGE = 0.80
+
 # Factor metrics stale symbols (returns nulled because prices lag).
 STALE_GROWTH_WARN = 2.0         # current >= 2x the baseline ...
 STALE_GROWTH_MIN_DELTA = 5      # ... and at least 5 more symbols, to ignore noise

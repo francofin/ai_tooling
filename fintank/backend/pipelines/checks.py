@@ -164,6 +164,32 @@ def check_counts(current: dict, baseline: dict | None) -> list[CheckResult]:
     return out
 
 
+def check_minimums(counts: dict) -> list[CheckResult]:
+    """Absolute floors for site-wide outputs — catches a truncated build even on
+    the first publish, when check_counts has no baseline."""
+    out = []
+    for name, floor in sorted(t.MIN_COUNTS.items()):
+        now = counts.get(name, 0)
+        out.append(CheckResult(f"minimum.{name}", FAIL if now < floor else PASS, now,
+                               floor, f"{now:,} (minimum {floor:,})"))
+    return out
+
+
+def check_factor_coverage(lists: dict, members: dict) -> list[CheckResult]:
+    """Factor rows per list against the list's constituent count."""
+    out = []
+    for sub, info in sorted(lists.items()):
+        total = members.get(sub)
+        if not total:
+            continue
+        share = info["rows"] / total
+        out.append(CheckResult(
+            f"factor_coverage.{sub}", FAIL if share < t.FACTOR_MIN_COVERAGE else PASS,
+            round(share, 4), t.FACTOR_MIN_COVERAGE,
+            f"{info['rows']:,} rows for {total:,} constituents ({share:.0%})"))
+    return out
+
+
 def check_factor_staleness(current: dict, baseline: dict | None) -> list[CheckResult]:
     out = []
     for sub, info in sorted(current.items()):

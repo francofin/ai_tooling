@@ -19,7 +19,8 @@ import pandas as pd
 from pipelines import pipeline_config as cfg
 from pipelines import state
 from pipelines.checks import (PASS, CheckResult, check_constituents, check_counts,
-                              check_econ, check_factor_staleness, check_fetch,
+                              check_econ, check_factor_coverage,
+                              check_factor_staleness, check_fetch, check_minimums,
                               check_freshness, check_outputs_readable,
                               check_price_sanity, check_staging, recent_nyse_sessions)
 from pipelines.notify import held_message
@@ -180,6 +181,17 @@ def recent_adj_close(outputs):
             yield symbol, series
 
 
+def constituent_counts(p) -> dict:
+    """{sub_universe: member count} from the constituent lists on disk."""
+    out = {}
+    for key in cfg.CONSTITUENT_PROXY_ETFS:
+        path = p.constituents_path(key)
+        if os.path.isfile(path):
+            with open(path) as f:
+                out[p.sub_universe_for(key)] = len(json.load(f))
+    return out
+
+
 def fred_last_dates(p) -> dict:
     """Last observation date per FRED series still in cfg.FRED_SERIES — files
     for dropped series can linger on disk and in state, and must not warn."""
@@ -205,7 +217,10 @@ def run_checks(ctx: RunContext, report: RunReport) -> None:
     results = []
     if "refresh_constituents" in stages:
         results += check_constituents(stages["refresh_constituents"])
-    results += [check_fetch(r) for name, r in stages.items() if name.startswith("fetch_")]
+    # Same failure-rate rule for builds as for fetches: a build that quietly skips
+    # most of its inputs must not reach the site.
+    results += [check_fetch(r) for name, r in stages.items()
+                if name.startswith(("fetch_", "build_"))]
     ctx.log("── checks: freshness")
     modal = {sub: info["modal_last_date"] for sub, info in p.modal_last_dates().items()}
     results += check_freshness(modal, recent_nyse_sessions(ctx.today))
@@ -214,10 +229,12 @@ def run_checks(ctx: RunContext, report: RunReport) -> None:
     results += check_outputs_readable(outputs)
     report.counts = collect_counts(outputs, stages)
     results += check_counts(report.counts, baseline.get("counts"))
+    results += check_minimums(report.counts)
     if "build_factor_metrics" in stages:
         report.factor_staleness = stages["build_factor_metrics"].detail.get("lists", {})
     results += check_factor_staleness(report.factor_staleness,
                                       baseline.get("factor_staleness"))
+    results += check_factor_coverage(report.factor_staleness, constituent_counts(p))
     ctx.log("── checks: recent price moves")
     results += check_price_sanity(recent_adj_close(outputs))
     results += check_econ(fred_last_dates(p), ctx.today)

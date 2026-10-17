@@ -282,6 +282,9 @@ execution and nothing is published.
 | Prices | `adjClose <= 0`; one-day move > 80% not explained by a split | `adjClose ≤ 0`; or > 1% of symbols with a > 80% one-day move (moves are always listed) | — |
 | Econ | Last observation date per FRED series | older than its expected lag | — |
 | Staging | Number of changed files | — | 0 changed files on a run whose prices fetch succeeded (something is wrong with the diff) |
+| Builds | Failed items per build stage (same rule as fetch) | > 2% | > 10% |
+| Minimums | Site-wide outputs vs `MIN_COUNTS` (stock_prices ≥ 22,000 files, fundamentals ≥ 43,000, company_profiles ≥ 11,000 rows, long_profiles ≥ 5,000 rows, …) — protects the first publish, which has no baseline | — | below the floor |
+| Factor coverage | Factor rows per list vs the list's constituent count | — | < 80% |
 
 "Last published run" comes from the newest `report.json` whose run was published, so a
 held-then-discarded run never becomes the baseline.
