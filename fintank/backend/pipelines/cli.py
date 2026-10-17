@@ -183,6 +183,10 @@ def _approval_token(run_id) -> str:
         run_key(run_id, "approval-token.json"))
     if not token:
         raise SystemExit(f"{run_id} is not waiting for approval")
+    if isinstance(token, str):
+        # Step Functions' putObject JSON-encodes the Body string it is given, so
+        # the file holds a JSON string wrapping the object.
+        token = json.loads(token)
     return token["task_token"]
 
 

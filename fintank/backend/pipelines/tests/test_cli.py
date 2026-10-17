@@ -167,3 +167,14 @@ def test_start_news_can_force_searches(wired):
     sfn, _ = wired
     cli.main(["start-news", "--search"])
     assert json.loads(sfn.calls[0][1]["input"]) == {"search": True}
+
+
+def test_approve_reads_the_token_as_step_functions_writes_it(wired):
+    """The WaitForApproval state's putObject JSON-encodes its Body string, so the
+    file holds a JSON string that itself contains the object (seen on AWS)."""
+    sfn, s3 = wired
+    inner = json.dumps({"task_token": "tok", "run_id": "lean-1"})
+    s3.put_object(Bucket="state", Key=run_key("lean-1", "approval-token.json"),
+                  Body=json.dumps(inner).encode())
+    cli.main(["approve", "lean-1"])
+    assert sfn.calls[0][1]["taskToken"] == "tok"
