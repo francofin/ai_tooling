@@ -18,11 +18,12 @@ psycopg2.extensions.register_adapter(np.int64, psycopg2._psycopg.AsIs)
 from utils.IndexMaps import IndexMaps
 from utils.DailyFunctions import ExtractAWSData
 import pickle
+import os
+import dotenv
+dotenv.load_dotenv()
 
-
-fmp_api = "ae1d54fe3e47127725abf34b567116fe"
-fred_api = "b4bde611d36ffa37156a0b3424d4a123"
-
+fmp_api = os.getenv("FMP_API")
+fred_api = os.getenv("FRED_API")
 
 index_config = IndexYaml().yaml
 
@@ -38,7 +39,7 @@ class GetStockAndIndexData:
     def __init__(self):
         self.base_url = "https://financialmodelingprep.com/api/v3/historical-price-full/"
         self.index_url = "https://financialmodelingprep.com/api/v3/historical-price-full/%5E"
-        self.fmp_api = "ae1d54fe3e47127725abf34b567116fe"
+        self.fmp_api = fmp_api
         self.url_seq = f"?serietype=line&apikey={self.fmp_api}"
         self.index_maps = IndexMaps(index_config)
         self.sp500_holdings_url = f"https://financialmodelingprep.com/api/v3/sp500_constituent?apikey={self.fmp_api}"
