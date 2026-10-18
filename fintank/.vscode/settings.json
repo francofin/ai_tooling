@@ -12,6 +12,12 @@
   // Memory: applies when fintank/ is opened directly rather than via the
   // monorepo root (which has its own .vscode/settings.json with the same intent).
   "files.watcherExclude": {
+    // The data lake: 192,562 raw JSONs + 142,393 parquets. Nothing
+    // edits these by hand -- the pipeline writes them -- and watching
+    // them is what made opening fintank/ time out the WSL vsock
+    // handshake under the 8 GB cap in ~/.wslconfig.
+    "**/class_files/stock_data_json/**": true,
+    "**/class_files/stock_data/**": true,
     "**/node_modules/**": true,
     "**/.next/**": true,
     "**/.venv/**": true,
@@ -23,6 +29,8 @@
     "**/.playwright-mcp/**": true
   },
   "search.exclude": {
+    "**/class_files/stock_data_json": true,
+    "**/class_files/stock_data": true,
     "**/node_modules": true,
     "**/.next": true,
     "**/.venv": true,
