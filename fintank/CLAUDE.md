@@ -73,7 +73,7 @@ python -m pipelines --help                                  # approve/discard/ro
 cd ../infra && .venv/bin/python -m pytest -q                # CDK stack tests
 ```
 
-Runbook: `backend/pipelines/README.md`. Design + AWS setup: `docs/superpowers/specs/2026-10-14-automated-data-pipeline-design.md`. The notebooks in `class_files/` no longer upload; `class_files/stock_pipeline.py` and `pipeline_config.py` are shims over `pipelines/`.
+**Start here:** `docs/RECENT_CHANGES.md` — current state, how the AWS pipeline is operated, open items. Runbook: `backend/pipelines/README.md`. Design + AWS setup: `docs/superpowers/specs/2026-10-14-automated-data-pipeline-design.md`. The notebooks in `class_files/` no longer upload; `class_files/stock_pipeline.py` and `pipeline_config.py` are shims over `pipelines/`.
 
 ### Solidity (Foundry — `stables/`)
 
