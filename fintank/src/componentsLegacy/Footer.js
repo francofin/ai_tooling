@@ -1,6 +1,6 @@
 import React from "react"
 import Link from "next/link"
-import Image from "@componentsLegacy/CustomImage"
+import Logo from "@componentsLegacy/Logo"
 import {
   Container,
   Row,
@@ -80,13 +80,7 @@ const Footer = () => {
                         )
                       })}
                       <li className="mt-3">
-                        <Image
-                          src={`/images/${item.lowerImage}`}
-                          width={150}
-                          height={90}
-                          alt="Fintank Technology Finance Research"
-                          style={{ objectFit: "contain" }}
-                        />
+                        <Logo size={38} tone="light" />
                       </li>
                     </ul>
                   )}

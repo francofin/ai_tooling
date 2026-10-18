@@ -7,6 +7,7 @@ import ActiveLink from "@componentsLegacy/ActiveLink"
 import menu from "@data/menu.json"
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome"
 import { faBars } from "@fortawesome/free-solid-svg-icons"
+import Logo from "@componentsLegacy/Logo"
 import SearchForm from "./SearchForm"
 import UserMenu from "./UserMenu"
 import DropdownMenuItem from "./DropdownMenuItem"
@@ -74,13 +75,7 @@ const Header = (props) => {
             {/* NAVBAR BRAND */}
             <Link href="/" passHref legacyBehavior>
               <Navbar.Brand className="py-1">
-                <img
-                  src="/images/homepageImages/fintank.png"
-                  width="150"
-                  height="70"
-                  alt="Fintank logo"
-                  style={{ objectFit: "contain", background: "transparent" }}
-                />
+                <Logo size={34} />
               </Navbar.Brand>
             </Link>
             {/* END NAVBAR BRAND */}

@@ -7,7 +7,6 @@ import { FormProvider } from "@componentsLegacy/FormContext"
 import { BookingProvider } from "@componentsLegacy/BookingContext"
 import SvgIcons from "@componentsLegacy/SvgIcons"
 import SSRProvider from "react-bootstrap/SSRProvider"
-import footerContent from "@data/footer.json"
 const Layout = (pageProps) => {
   const headerProps = {
     nav: {
@@ -28,7 +27,9 @@ const Layout = (pageProps) => {
       >
         <Head>
           <title>{pageProps.title} - Portfolio Manager</title>
-          <link rel="icon" href={`/images/${footerContent[0].lowerImage}`} />
+          <link rel="icon" type="image/svg+xml" href="/content/svg/fintank-mark.svg" />
+          <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png" />
+          <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
           <meta charset="UTF-8" />
         </Head>
         <NextNProgress color="#4E66F8" options={{ showSpinner: false }} />

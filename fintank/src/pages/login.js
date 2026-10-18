@@ -11,6 +11,7 @@ import { faFacebookF, faGoogle } from "@fortawesome/free-brands-svg-icons"
 import swal from 'sweetalert';
 import {fireBaseAuth, googleAuthProvider, facebookAuthProvider} from '@utils/fireBaseUtility';
 import { signInWithEmailAndPassword, signInWithPopup, getIdTokenResult } from "firebase/auth";
+import Logo from "@componentsLegacy/Logo"
 
 export async function getStaticProps() {
   return {
@@ -114,15 +115,7 @@ const Login = () => {
         <Col md="8" lg="6" xl="5" className="d-flex align-items-center">
           <div className="w-100 py-5 px-md-5 px-xl-6 position-relative">
             <div className="mb-5">
-              <img
-                src="/images/homepageImages/fintank7.jpg"
-                alt="..."
-                style={{
-                  maxWidth: "15rem",
-                  borderRadius:"10px"
-                }}
-                className="img-fluid mb-3"
-              />
+              <Logo size={44} className="mb-3" />
               <h2>Welcome back</h2>
             </div>
             <Form className="form-validate" onSubmit={handleOnSubmit}>
