@@ -11,10 +11,12 @@ const ReactApexChart = dynamic(() => import("react-apexcharts"), { ssr: false })
 const MoversSection = ({ moverData, data }) => {
   const [indexHeatMapValue, setIndexHeatMapValue] = useState(constituentIndexMaps[0].value)
   const [indexHeatMapLabel, setIndexHeatMapLabel] = useState(constituentIndexMaps[0].label)
-  const { options: heatMapOptions, series: heatMapSeries, loading: heatMapLoading } = useIndexHeatMaps(
-    indexHeatMapValue,
-    indexHeatMapLabel
-  )
+  const {
+    options: heatMapOptions,
+    series: heatMapSeries,
+    loading: heatMapLoading,
+    disclosure: heatMapDisclosure,
+  } = useIndexHeatMaps(indexHeatMapValue, indexHeatMapLabel)
 
   return (
     <section className="py-6 bg-gray-100">
@@ -75,6 +77,15 @@ const MoversSection = ({ moverData, data }) => {
         </div>
         <div className="text-center pb-lg-4">
           <p className="h2">{indexHeatMapLabel} Constituent Stock Performance</p>
+          {heatMapDisclosure && !heatMapLoading && (
+            <p className="text-muted small mb-0">
+              Showing the {heatMapDisclosure.perSide.toLocaleString()} strongest and{" "}
+              {heatMapDisclosure.perSide.toLocaleString()} weakest movers of{" "}
+              {heatMapDisclosure.total.toLocaleString()} constituents.{" "}
+              {heatMapDisclosure.omitted.toLocaleString()} names between those extremes
+              are not drawn. Hover any tile for its full quote.
+            </p>
+          )}
         </div>
         <Row>
           {typeof window !== "undefined" && (

@@ -2,11 +2,61 @@ import React, {useState, useEffect} from 'react';
 import { useRouter } from 'next/router';
 import {fetcher} from '../utils/helpers';
 
+/**
+ * Treemap render cost, measured in headless Chromium against this exact
+ * option set (ApexCharts 4.5), every tile labelled:
+ *
+ *    504 tiles (S&P 500)        781 ms   <- the bar that feels fine today
+ *    500 tiles (capped Russell) ~1.0 s
+ *   1000 tiles                 2385 ms
+ *   1955 tiles (full Russell)  5006 ms   <- this is what froze the page
+ *
+ * Only the two Russell universes are big enough to matter: 1,955 and 1,350
+ * names against 504 for the S&P. They are cut to their strongest and weakest
+ * movers; every other universe is drawn whole and untouched.
+ *
+ * Labels are NOT suppressed. An earlier pass dropped the text on middle tiles
+ * to buy speed, but it applied to every universe -- including the S&P, which
+ * is never capped -- and left a visibly blank band through the middle of the
+ * map. Capping the two Russells at 250 a side gets them to roughly the S&P's
+ * cost with every tile still labelled, which is the better trade.
+ */
+const MAX_TILES_PER_SIDE = 250   // top 250 + bottom 250, Russell universes only
+
+// Keys come from `constituentIndexMaps` in utils/IndexMappings.js.
+const CAPPED_UNIVERSES = new Set(['r2000', 'rmicro'])
+
+/**
+ * Reduce a Russell universe to its extremes. `heat_map` arrives already sorted
+ * by `y` descending, so the strongest and weakest movers are just the two ends
+ * of the array.
+ *
+ * Universes outside CAPPED_UNIVERSES pass through whole, whatever their size:
+ * the cap is deliberately keyed on which index was selected, not on a length
+ * threshold, so adding a mid-size universe later cannot silently start
+ * truncating it.
+ *
+ * Returns the tiles to draw plus what was left out, for the disclosure.
+ */
+export const capHeatMapTiles = (rows, universe, perSide = MAX_TILES_PER_SIDE) => {
+  const all = Array.isArray(rows) ? rows : []
+  if (!CAPPED_UNIVERSES.has(universe) || all.length <= perSide * 2) {
+    return { tiles: all, total: all.length, omitted: 0, capped: false }
+  }
+  return {
+    tiles: [...all.slice(0, perSide), ...all.slice(-perSide)],
+    total: all.length,
+    omitted: all.length - perSide * 2,
+    capped: true,
+  }
+}
+
 export const useIndexHeatMaps = (index, initialIndexName) => {
     const [loading, setLoading] = useState(true)
     const [series, setSeries] = useState([])
     const [options, setOptions] = useState(undefined)
     const [indexUniverseData, setIndexUniverseData] = useState([])
+    const [disclosure, setDisclosure] = useState(null)
     const router = useRouter()
 
     useEffect(() => {
@@ -19,7 +69,19 @@ export const useIndexHeatMaps = (index, initialIndexName) => {
                 const heatMapData = indexDataPack?.heat_map || []
 
                 setIndexUniverseData(universeData)
-                setSeries([{data: heatMapData}])
+
+                const {tiles, total, omitted, capped} = capHeatMapTiles(heatMapData, index)
+                setSeries([{data: tiles}])
+                setDisclosure(
+                  capped
+                    ? {
+                        total,
+                        omitted,
+                        shown: tiles.length,
+                        perSide: MAX_TILES_PER_SIDE,
+                      }
+                    : null
+                )
 
                 setOptions({
                   legend: { show: false },
@@ -78,5 +140,5 @@ export const useIndexHeatMaps = (index, initialIndexName) => {
         fetchData()
     }, [index, initialIndexName]);
 
-    return { options, series, loading, indexUniverseData }
+    return { options, series, loading, indexUniverseData, disclosure }
 }
