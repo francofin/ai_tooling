@@ -14,6 +14,14 @@ def now_iso() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
 
 
+def _fmt_bytes(n: float) -> str:
+    for unit in ("B", "KB", "MB"):
+        if n < 1000:
+            return f"{n:.1f} {unit}" if unit != "B" else f"{int(n)} B"
+        n /= 1000
+    return f"{n:.2f} GB"
+
+
 def _fmt_seconds(seconds: float) -> str:
     minutes = int(seconds // 60)
     hours, minutes = divmod(minutes, 60)
@@ -35,9 +43,10 @@ class RunReport:
     staged_files: int = 0
     verdict: str | None = None
 
-    def add_stage(self, result: StageResult, seconds: float) -> None:
+    def add_stage(self, result: StageResult, seconds: float, downloaded: int = 0) -> None:
         entry = result.to_dict()
         entry["seconds"] = round(seconds, 1)
+        entry["bytes"] = downloaded
         self.stages = [s for s in self.stages if s["name"] != result.name] + [entry]
 
     def stage(self, name: str) -> dict | None:
@@ -70,10 +79,20 @@ class RunReport:
             timing += f", finished {self.finished_at} ({_fmt_seconds(elapsed)})"
         lines += [timing, "", "Stages:"]
         for s in self.stages:
+            size = f"  {_fmt_bytes(s['bytes'])}" if s.get("bytes") else ""
             lines.append(
                 f"  {s['name']:<30} {s['attempted']:>6} attempted {s['saved']:>6} saved "
                 f"{s['failed']:>5} failed ({s.get('failure_rate', 0):.1%})  "
-                f"{_fmt_seconds(s.get('seconds', 0))}")
+                f"{_fmt_seconds(s.get('seconds', 0))}{size}")
+        total = sum(s.get("bytes", 0) for s in self.stages)
+        if total:
+            lines.append(f"Downloaded from APIs: {_fmt_bytes(total)}")
+        for s in self.stages:
+            d = s.get("detail") or {}
+            if "incremental" in d:
+                lines.append(f"{s['name']}: {d['incremental']} recent window, "
+                             f"{d['restated']} restated (full re-download), "
+                             f"{d['full']} new")
         tally = Counter(c["status"] for c in self.checks)
         lines += ["", f"Checks: {tally.get('pass', 0)} pass, {tally.get('warn', 0)} warn, "
                       f"{tally.get('fail', 0)} fail"]

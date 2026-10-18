@@ -48,9 +48,8 @@ FULL_STAGES = [
 ]
 CHECKPOINTED = frozenset(s for s in FULL_STAGES if s not in BUILD_STAGES)
 
-# The arguments the notebooks used. A full-history price window costs the same
-# number of calls and avoids the gap and split-seam problems (see
-# fetch_stock_prices.__doc__).
+# Where a FULL price download starts. Symbols with saved history only
+# download a recent window (see fetch_stock_prices.__doc__).
 FROM_DATES = {"fetch_stock_prices": "1999-01-01", "fetch_etf_prices": "1999-01-01",
               "fetch_sector_history": "2010-01-01"}
 LIMITABLE = frozenset({
@@ -127,8 +126,10 @@ def run_weekly(ctx: RunContext, checks=None, staging=None) -> RunReport:
             continue
         ctx.log(f"── {name}")
         started = time.time()
+        bytes_before = getattr(ctx.pipeline, "bytes_downloaded", 0)
         result = call_stage(ctx.pipeline, name, ctx.limit)
-        report.add_stage(result, time.time() - started)
+        report.add_stage(result, time.time() - started,
+                         getattr(ctx.pipeline, "bytes_downloaded", 0) - bytes_before)
         if name in CHECKPOINTED and not ctx.dry_run:
             state.push(ctx.s3, ctx.state_bucket, ctx.pipeline.root,
                        since=started, log=ctx.log)

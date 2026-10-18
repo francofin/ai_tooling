@@ -4,7 +4,7 @@ import pytest
 import requests
 
 from pipelines import stock_pipeline as sp
-from pipelines.tests.helpers import price_rows, write_constituents
+from pipelines.tests.helpers import price_rows, write_constituents, write_price_json
 
 
 def fake_get(routes):
@@ -149,3 +149,96 @@ def test_fetcher_failure_prints_no_api_key(pipeline, capsys):
     result = pipeline.fetch_stock_prices(constituent_keys=["sp500_const"])
     assert result.failed == 1
     assert "SECRET" not in capsys.readouterr().out
+
+
+def recording_get(responses):
+    """A _get replacement that returns `responses` in order and keeps every
+    requested URL, so a test can see which date window was asked for."""
+    urls, queue = [], list(responses)
+
+    def _get(url, timeout=30):
+        urls.append(url)
+        return queue.pop(0)
+    return _get, urls
+
+
+def saved_rows(pipeline, sub, symbol):
+    with open(f"{pipeline.json_dir('stock_prices', sub)}{symbol}_prices.json") as f:
+        return json.load(f)["historical"]
+
+
+def test_stock_prices_with_history_fetch_only_a_recent_window(pipeline):
+    write_constituents(pipeline, "sp500_const", ["AAA"])
+    write_price_json(pipeline, "sp500", "AAA", "2026-10-09")
+    old = saved_rows(pipeline, "sp500", "AAA")
+    # Same prices on the overlapping dates, plus five new sessions.
+    fresh = price_rows("2026-10-16", 45)[:12]
+    pipeline._get, urls = recording_get([{"symbol": "AAA", "historical": fresh}])
+
+    result = pipeline.fetch_stock_prices(from_date="1999-01-01",
+                                         constituent_keys=["sp500_const"])
+
+    assert len(urls) == 1 and "from=2026-09-29" in urls[0]
+    assert len(saved_rows(pipeline, "sp500", "AAA")) == len(old) + 5
+    assert result.detail["incremental"] == 1 and result.detail["restated"] == 0
+
+
+def test_restated_history_is_refetched_in_full_and_replaced(pipeline):
+    write_constituents(pipeline, "sp500_const", ["AAA"])
+    write_price_json(pipeline, "sp500", "AAA", "2026-10-09")
+    # A split halves every adjClose, so the overlap no longer matches.
+    restated = [dict(r, adjClose=r["adjClose"] / 2, close=r["close"] / 2)
+                for r in price_rows("2026-10-16", 45)]
+    pipeline._get, urls = recording_get([
+        {"symbol": "AAA", "historical": restated[:12]},
+        {"symbol": "AAA", "historical": restated},
+    ])
+
+    result = pipeline.fetch_stock_prices(from_date="1999-01-01",
+                                         constituent_keys=["sp500_const"])
+
+    assert "from=1999-01-01" in urls[1]
+    assert saved_rows(pipeline, "sp500", "AAA") == restated
+    assert result.detail["restated"] == 1 and result.saved == 1
+
+
+def test_symbol_without_history_gets_the_full_window(pipeline):
+    write_constituents(pipeline, "sp500_const", ["NEW"])
+    pipeline._get, urls = recording_get([{"historical": price_rows("2026-10-16", 5)}])
+
+    result = pipeline.fetch_stock_prices(from_date="1999-01-01",
+                                         constituent_keys=["sp500_const"])
+
+    assert len(urls) == 1 and "from=1999-01-01" in urls[0]
+    assert result.detail["full"] == 1
+
+
+def test_get_counts_downloaded_bytes(monkeypatch):
+    class Ok:
+        content = b'{"a": 1}'
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"a": 1}
+
+    monkeypatch.setattr(sp.requests, "get", lambda url, timeout=30: Ok())
+    monkeypatch.setattr(sp.StockDataPipeline, "bytes_downloaded", 0)
+    sp.StockDataPipeline._get("https://fmp/x")
+    assert sp.StockDataPipeline.bytes_downloaded == len(Ok.content)
+
+
+def test_symbol_with_no_recent_rows_falls_back_to_full_history(pipeline):
+    write_constituents(pipeline, "sp500_const", ["HALT"])
+    write_price_json(pipeline, "sp500", "HALT", "2026-08-03")
+    pipeline._get, urls = recording_get([
+        {"historical": []},
+        {"historical": price_rows("2026-08-03", 60)},
+    ])
+
+    result = pipeline.fetch_stock_prices(from_date="1999-01-01",
+                                         constituent_keys=["sp500_const"])
+
+    assert "from=1999-01-01" in urls[1]
+    assert (result.saved, result.detail["full"]) == (1, 1)

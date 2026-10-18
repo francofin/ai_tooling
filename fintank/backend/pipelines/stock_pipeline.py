@@ -104,6 +104,14 @@ STABLE_BASE = "https://financialmodelingprep.com/stable"
 FRED_BASE = "https://api.stlouisfed.org/fred/series/observations"
 START_DATE = "1999-01-01"
 
+# Price files that already hold history re-download only from this many
+# calendar days before their last saved date; the overlap is how a split or
+# dividend restatement is caught (see fetch_stock_prices).
+PRICE_OVERLAP_DAYS = 10
+# Relative gap between a saved and a re-fetched price that counts as a
+# restatement. The smallest quarterly dividend moves adjClose ~0.05%.
+RESTATEMENT_TOLERANCE = 1e-4
+
 # Columns that come from FMP rather than being computed by the metric
 # calculators — what we keep from an existing file before recomputing.
 RAW_PRICE_COLS = ["open", "high", "low", "close", "adjClose", "volume", "label"]
@@ -160,6 +168,10 @@ class StockDataPipeline:
               backend/class_files/.
     env_path: .env with FMP_API / AWS_* / FRED_API. Defaults to backend/.env.
     """
+
+    # Response bytes from every FMP/FRED call in this process; the runner
+    # reads it around each stage. FMP plans cap monthly bandwidth.
+    bytes_downloaded = 0
 
     def __init__(self, root=None, env_path=None, max_calls=295, pause=60):
         self.root = os.path.abspath(
@@ -382,6 +394,7 @@ class StockDataPipeline:
             response.raise_for_status()
         except requests.RequestException as e:
             raise RuntimeError(redact(str(e))) from None
+        StockDataPipeline.bytes_downloaded += len(response.content)
         return response.json()
 
     @staticmethod
@@ -606,33 +619,38 @@ class StockDataPipeline:
         """Daily price history per constituent → stock_data_json/stock_prices/
         {sub_universe}/{SYMBOL}_prices.json, merged by date.
 
-        `from_date` is passed STRAIGHT INTO THE REQUEST URL — nothing reads
-        the existing file first (unlike fetch_index_prices, which self-detects).
-        Three consequences:
+        Incremental, because FMP plans cap monthly BANDWIDTH: full history
+        for ~19k symbols is tens of GB per run. Per symbol:
 
-          * The call count is the same whatever date you pass — one call per
-            symbol. from_date buys payload size and parse time, not API budget.
-          * The merge unions, it does not fill gaps. A from_date AFTER your
-            last saved date leaves a silent hole mid-series.
-          * adjClose is back-adjusted, so a symbol that splits inside the gap
-            has its whole history restated. A narrow window replaces only the
-            rows inside it, leaving a step discontinuity at the boundary that
-            poisons every rolling window crossing it — out to 756 days.
+          * No saved file → download from `from_date` (the full history).
+          * Saved file → download only from PRICE_OVERLAP_DAYS before its
+            last saved date, so the window always overlaps saved rows and
+            never leaves a gap.
+          * adjClose is back-adjusted: a split or dividend inside the window
+            restates the WHOLE history, and merging just the window would
+            leave a step at the seam that poisons every rolling window
+            crossing it (out to 756 days). So the overlapping rows are
+            compared first; if close or adjClose moved, that symbol's full
+            history is downloaded and REPLACES the file.
 
-        Because the call count is identical either way, from_date="1999-01-01"
-        is the safe default for a routine top-up: same ~1h floor, immune to
-        both the gap and the split seam.
+        The call count is unchanged (one per symbol, plus one per restated
+        symbol); the bytes drop by ~95%.
+
+        from_date: start of a full download. None asks FMP for its default
+                   window, so pass START_DATE for real runs.
 
         constituent_keys: subset of CONSTITUENT_PROXY_ETFS; default all eight.
         limit:            per-list member cap, for smoke-testing.
 
         Returns a StageResult (one attempt per symbol); detail["manifests"]
-        lists the path_helpers manifests written.
+        lists the path_helpers manifests written, and detail["full"],
+        ["incremental"] and ["restated"] count how each symbol was fetched.
         """
         keys = (list(cfg.CONSTITUENT_PROXY_ETFS) if constituent_keys is None
                 else constituent_keys)
         manifests = []
         result = StageResult(stage_name)
+        modes = {"full": 0, "incremental": 0, "restated": 0}
 
         for const_key in keys:
             sub_universe = self.sub_universe_for(const_key)
@@ -649,12 +667,9 @@ class StockDataPipeline:
                 if not symbol:
                     continue
                 try:
-                    payload = self._get(self._prices_url(symbol, from_date))
-                    self.limiter.tick()
-                    if not payload.get("historical"):
-                        raise ValueError("empty 'historical' payload")
-                    self._save_json(payload, f"{prices_dir}{symbol}_prices.json",
-                                    update=True)
+                    mode = self._fetch_symbol_prices(
+                        symbol, f"{prices_dir}{symbol}_prices.json", from_date)
+                    modes[mode] += 1
                     universe_items[symbol] = {"prices": f"{symbol}_prices.json"}
                     result.record(True)
                 except Exception as e:
@@ -671,7 +686,69 @@ class StockDataPipeline:
             manifests.append(manifest)
 
         result.detail["manifests"] = manifests
+        result.detail.update(modes)
         return result
+
+    def _fetch_symbol_prices(self, symbol, path, from_date):
+        """Download and save one symbol's prices; returns how: "full",
+        "incremental" or "restated". See fetch_stock_prices."""
+        saved = self._saved_price_rows(path)
+        if saved:
+            last = max(r["date"] for r in saved)
+            window_from = (datetime.date.fromisoformat(last)
+                           - datetime.timedelta(days=PRICE_OVERLAP_DAYS)).isoformat()
+            payload = self._get(self._prices_url(symbol, window_from))
+            self.limiter.tick()
+            recent = payload.get("historical")
+            # No recent rows (a halted symbol): fall through to a full
+            # download rather than count a symbol with history as failed.
+            if recent:
+                if not self._restated(saved, recent):
+                    self._save_json(payload, path, update=True)
+                    return "incremental"
+                payload = self._price_payload(symbol, from_date)
+                self._save_json(payload, path)
+                return "restated"
+        payload = self._price_payload(symbol, from_date)
+        self._save_json(payload, path, update=True)
+        return "full"
+
+    def _price_payload(self, symbol, from_date):
+        payload = self._get(self._prices_url(symbol, from_date))
+        self.limiter.tick()
+        if not payload.get("historical"):
+            raise ValueError("empty 'historical' payload")
+        return payload
+
+    @staticmethod
+    def _saved_price_rows(path):
+        """The 'historical' rows of a saved price file, or [] if there is
+        none or it can't be read (which falls back to a full download)."""
+        try:
+            with open(path) as f:
+                rows = json.load(f).get("historical") or []
+        except (OSError, ValueError, AttributeError):
+            return []
+        return [r for r in rows if isinstance(r, dict) and "date" in r]
+
+    @staticmethod
+    def _restated(saved_rows, new_rows):
+        """True when FMP's prices for dates we already hold have moved (a
+        split or dividend re-adjusted history), or nothing overlaps to tell."""
+        saved = {r["date"]: r for r in saved_rows}
+        overlap = 0
+        for row in new_rows:
+            old = saved.get(row.get("date"))
+            if old is None:
+                continue
+            overlap += 1
+            for col in ("close", "adjClose"):
+                a, b = old.get(col), row.get(col)
+                if a is None or b is None:
+                    continue
+                if abs(a - b) > RESTATEMENT_TOLERANCE * max(abs(a), abs(b), 1e-9):
+                    return True
+        return overlap == 0
 
     def fetch_etf_prices(self, from_date=None, limit=None):
         """Daily price history for the tradable-ETF snapshot, saved to

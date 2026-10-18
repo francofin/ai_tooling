@@ -54,3 +54,21 @@ def test_summary_lists_non_passing_checks():
     assert "1 pass, 1 warn, 0 fail" in text
     assert "WARN freshness.tsx — 1 session behind" in text
     assert "ok —" not in text
+
+
+def test_summary_shows_bandwidth_and_price_fetch_modes():
+    r = make_report()
+    prices = StageResult("fetch_stock_prices", attempted=10, saved=10,
+                         detail={"full": 1, "incremental": 8, "restated": 1})
+    r.add_stage(prices, 60, downloaded=150_000_000)
+    r.add_stage(StageResult("build_a", attempted=1, saved=1), 1)
+    text = r.summary()
+    assert "150.0 MB" in text
+    assert "Downloaded from APIs: 150.0 MB" in text
+    assert "fetch_stock_prices: 8 recent window, 1 restated (full re-download), 1 new" in text
+
+
+def test_add_stage_without_download_records_zero_bytes():
+    r = make_report()
+    r.add_stage(StageResult("build_a"), 1)
+    assert r.stage("build_a")["bytes"] == 0
