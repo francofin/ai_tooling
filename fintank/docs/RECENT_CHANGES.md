@@ -1,6 +1,6 @@
 # Recent changes and how we operate now
 
-Last updated 2026-10-18. Read this first in a new session, then the linked docs for detail.
+Last updated 2026-10-25. Read this first in a new session, then the linked docs for detail.
 
 ## TL;DR
 
@@ -58,6 +58,11 @@ Other flags: `-c always_hold=false` (auto-publish clean runs), `-c news_notify=w
 
 ## What changed recently (newest first)
 
+- **2026-10-25: Oct 24 run** (`lean-20261024-1000`) was the first incremental run.
+  - Downloaded **702.8 MB in total** (previously tens of GB).
+  - `fetch_stock_prices`: 10,497 recent window / 134 restated / 4 new.
+  - 4h40m.
+  - Its only warnings were GDP/GDPC1 staleness. The data was correct; the limit was too tight, so it was raised 200 → 240 days (`f1eea95`, needs redeploy).
 - **2026-10-18: incremental price download** (`c333bd0`).
   - FMP returned 429 "Bandwidth Limit Reach" for every call, including the Django site's live calls. The cause was the pipeline re-downloading full history from 1999: about 2.5 MB × about 19k symbols, so roughly 25–45 GB per run.
   - Now a symbol with saved history downloads only from 10 days before its last saved date, about 3 KB.
@@ -90,11 +95,7 @@ Other flags: `-c always_hold=false` (auto-publish clean runs), `-c news_notify=w
 
 ## Next steps / open items
 
-1. **Sat 2026-10-24**: review the held email:
-   - 0 FAIL;
-   - "Downloaded from APIs" a few GB;
-   - mostly "recent window".
-   Then `approve`. Check FMP dashboard bandwidth.
+1. Approve `lean-20261024-1000` if not yet done; redeploy for `f1eea95`. Next run Sat 2026-10-31.
 2. Delete the deactivated old AWS access key (around 2026-10-24).
 3. After 3 clean weekly runs (Oct 24, Oct 31, Nov 7): redeploy with `-c always_hold=false`.
 4. Decide whether to drop the FMP data boost once real usage is known.
