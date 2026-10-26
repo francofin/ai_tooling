@@ -81,6 +81,7 @@ Other flags: `-c always_hold=false` (auto-publish clean runs), `-c news_notify=w
   - `GetPrices.py` reads FMP/FRED keys from env (`03976bb`).
   - CLI reads the double-encoded approval token (`1198518`).
 - **2026-10-17: key rotation.** FMP key and AWS access key rotated. The old AWS key is deactivated and should be deleted around 2026-10-24. Keys still in old notebooks/commits are dead copies. SerpAPI and FRED were not rotated.
+- **2026-10-26: AWS hosting plan** for the whole web app (Lightsail server + managed Postgres, ~56 CAD/month vs ~112 today) in `docs/AWS_HOSTING_PLAN.md`. Proposal only; open decisions listed there.
 - **Unrelated frontend commits on main:**
   - new drawn logo / favicon / OG card (`f3113ac`);
   - heatmap caps the Russell universes to 250 strongest and weakest (`211acd5`);
