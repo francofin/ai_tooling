@@ -54,7 +54,10 @@ ECON_MAX_LAG_DAYS = {
     "DFII5": 10, "DFII10": 10, "BAMLH0A0HYM2EY": 10,
     "CCSA": 21, "WALCL": 21,
     "CPIAUCSL": 75, "PAYEMS": 75, "UNRATE": 75, "USREC": 75, "USRECD": 75,
-    "GDP": 200, "GDPC1": 200,
+    # A quarter is dated by its first day and its advance estimate lands about
+    # 30 days after it ends, so the newest observation is up to ~212 days old
+    # just before the next release (Q2 = Apr 1, Q3 out at the end of October).
+    "GDP": 240, "GDPC1": 240,
 }
 ECON_DEFAULT_MAX_LAG_DAYS = 120
 

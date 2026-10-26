@@ -117,6 +117,13 @@ def test_econ():
                        "econ.NEWSERIES": c.WARN}
 
 
+def test_quarterly_gdp_is_current_until_the_next_advance_estimate():
+    # Q2 is dated 2026-04-01 and stays the latest observation until the Q3
+    # advance estimate at the end of October.
+    results = statuses(c.check_econ({"GDP": "2026-04-01"}, D(2026, 10, 28)))
+    assert results == {"econ.GDP": c.PASS}
+
+
 def test_staging():
     assert c.check_staging(0, 100).status == c.FAIL
     assert c.check_staging(0, 0).status == c.PASS
