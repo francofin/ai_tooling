@@ -65,15 +65,17 @@ aws s3api put-bucket-lifecycle-configuration --bucket "$BUCKET" --lifecycle-conf
 aws iam create-user --user-name fintank-django
 aws iam put-user-policy --user-name fintank-django --policy-name fintank-django \
   --policy-document file://deploy/iam-django-policy.json
-aws iam create-access-key --user-name fintank-django
+aws iam create-access-key --user-name fintank-django \
+  --query 'AccessKey.[AccessKeyId,SecretAccessKey]' --output text
 
 aws iam create-user --user-name fintank-backup
 aws iam put-user-policy --user-name fintank-backup --policy-name fintank-backup \
   --policy-document file://deploy/iam-backup-policy.json
-aws iam create-access-key --user-name fintank-backup
+aws iam create-access-key --user-name fintank-backup \
+  --query 'AccessKey.[AccessKeyId,SecretAccessKey]' --output text
 ```
 
-Each `create-access-key` prints an `AccessKeyId` and `SecretAccessKey` **once**. Save both pairs in your password manager now, labelled "django" and "backup". Do not paste them into chat or commit them.
+Each `create-access-key` prints two values on one line, the access key ID then the secret, **once**. Save each pair straight into your password manager now, labelled "django" and "backup", without copying them into any file, chat or commit. If you lose one, delete that key (`aws iam delete-access-key`) and create a new one.
 
 Confirm: `aws s3api get-bucket-lifecycle-configuration --bucket "$BUCKET"` shows the 30-day rule, and `aws iam list-user-policies --user-name fintank-django` shows `fintank-django` (same for `fintank-backup`).
 
@@ -238,48 +240,54 @@ For `DEPLOY_KNOWN_HOSTS`, check the key is really your server's before saving. O
 
 Firebase values: Firebase console, project settings (gear icon), **General**, **Your apps**, the web app, **SDK setup and configuration**, **Config**. Map `apiKey`, `authDomain`, `projectId`, `appId`, `measurementId` to the five names above. **The web build fails without them**, and a deploy will not get past the build job.
 
-Then trigger the deploy: push to `main` a change under `fintank/`, or in GitHub open **Actions**, **Fintank deploy**, **Run workflow** (branch `main`). The jobs are test, build, deploy.
+**Merge `aws-web-hosting` into `main` first.** The workflow only runs from `main`, so nothing deploys from the branch. Merge the pull request on GitHub (or merge locally and push `main`). Merging changes `fintank/` and starts the deploy by itself; if you add the secrets and variables after the merge, rerun it from **Actions**, **Fintank deploy**, **Run workflow** (branch `main`). The jobs are test, build, deploy.
+
+After the merge, update your local checkout:
+- `git checkout main && git pull`, then run `npm install` in `fintank/` (Next moved to 15.5.29).
+- `backend/.env` needs `DEBUG=True` for local work (`DEBUG` now defaults to False).
 
 Confirm on the server (as `deploy`):
 
 ```bash
-cd /opt/fintank
-cat .image-tag                      # a commit SHA
+cd /opt/fintank && export IMAGE_TAG=$(cat .image-tag)
+echo "$IMAGE_TAG"                   # a commit SHA
 docker compose ps                   # all services Up; api and db "healthy"
 curl -s https://api.thefintank.com/healthz/
 ```
 
 and `https://www.thefintank.com` loads in a browser (the first certificate can take a minute).
 
-Run `docker compose` commands from `/opt/fintank` and, if Compose complains about `IMAGE_TAG`, prefix with `IMAGE_TAG=$(cat .image-tag)`.
+Every `docker compose` command needs to run in `/opt/fintank` with `IMAGE_TAG` set, so each step below starts with `cd /opt/fintank && export IMAGE_TAG=$(cat .image-tag)`. A new SSH session forgets it.
 
 ## 6. Seed the data
 
 The new database is empty. Stocks must exist before the first watchlist add (`Stock.objects` is what the watchlist links to), and avatar presets are needed for signup.
 
-On your machine, where the data lives (`fintank/backend`, using your normal local environment):
+On your machine, from the **main folder** (the real checkout at `~/projects/ai_agents/ai_tooling/fintank`, not a branch worktree), where the local database with the stocks is. Prerequisites: `backend/.env` points at that local database and has `DEBUG=True`, and the repo's shared virtualenv exists at `ai_tooling/.venv`.
 
 ```bash
-cd backend
-python manage.py dumpdata stockuploader.Stock users.AvatarPreset | gzip > seed.json.gz
-ls -lh seed.json.gz
-cd ..
+cd ~/projects/ai_agents/ai_tooling/fintank/backend
+../../.venv/bin/python manage.py shell -c "from stockuploader.models import Stock; from users.models import AvatarPreset; print('stocks', Stock.objects.count(), 'presets', AvatarPreset.objects.count())"
 ```
 
-Do not commit this file.
+This must print `stocks 12881 presets 48` before you go on. If not, you are pointed at the wrong database. Then dump to `/tmp`, outside the repo, so it cannot be committed:
+
+```bash
+../../.venv/bin/python manage.py dumpdata stockuploader.Stock users.AvatarPreset | gzip > /tmp/seed.json.gz
+ls -lh /tmp/seed.json.gz
+```
 
 Copy it up and load it:
 
 ```bash
-scp -i ~/.ssh/fintank_deploy backend/seed.json.gz deploy@SERVER_IP:/opt/fintank/
+scp -i ~/.ssh/fintank_deploy /tmp/seed.json.gz deploy@SERVER_IP:/opt/fintank/
 ssh -i ~/.ssh/fintank_deploy deploy@SERVER_IP
 ```
 
 On the server:
 
 ```bash
-cd /opt/fintank
-export IMAGE_TAG=$(cat .image-tag)
+cd /opt/fintank && export IMAGE_TAG=$(cat .image-tag)
 gunzip -c seed.json.gz | docker compose run --rm -T api python manage.py loaddata --format=json -
 docker compose exec -T api python manage.py shell -c "from stockuploader.models import Stock; from users.models import AvatarPreset; print('stocks', Stock.objects.count(), 'presets', AvatarPreset.objects.count())"
 ```
@@ -287,17 +295,19 @@ docker compose exec -T api python manage.py shell -c "from stockuploader.models 
 Expect `stocks 12881 presets 48`. Then create your admin user and delete the copies:
 
 ```bash
+cd /opt/fintank && export IMAGE_TAG=$(cat .image-tag)
 docker compose exec api python manage.py createsuperuser
 rm /opt/fintank/seed.json.gz
 ```
 
-On your machine: `rm backend/seed.json.gz`.
+On your machine: `rm /tmp/seed.json.gz`.
 
 ## 7. Warm the cache
 
-The worker fills the cache on a schedule. Run the three scheduled tasks once so the site has data now. On the server in `/opt/fintank` (with `IMAGE_TAG` exported as above):
+The worker fills the cache on a schedule. Run the three scheduled tasks once so the site has data now. On the server:
 
 ```bash
+cd /opt/fintank && export IMAGE_TAG=$(cat .image-tag)
 docker compose exec worker celery -A fintank_backend call news.tasks.update_news_articles
 docker compose exec worker celery -A fintank_backend call analyzer.tasks.update_universe_profiles
 docker compose exec worker celery -A fintank_backend call analyzer.tasks.update_economic_data
@@ -356,11 +366,11 @@ After a week of clean running: delete the archived app `thefintank-app` and the 
 Today Postgres runs in the `db` container on the same server (Option B). Backups exist but there is no point-in-time restore. Before real paying users, move to a Lightsail managed database (Option A, about 56 CAD/month total).
 
 1. Lightsail, **Databases**, **Create database**: PostgreSQL 16, region `us-east-1`, the smallest **Standard** plan, **private** access only (not public), same VPC as the instance. Write down the endpoint, user, password and database name (`fintank_api`).
-2. Put the site in maintenance so no writes happen: simplest is to stop the web and api containers on the server: `cd /opt/fintank && IMAGE_TAG=$(cat .image-tag) docker compose stop web api worker`. (The site is down from here.)
+2. Put the site in maintenance so no writes happen: simplest is to stop the web and api containers on the server: `cd /opt/fintank && export IMAGE_TAG=$(cat .image-tag) && docker compose stop web api worker`. (The site is down from here.)
 3. Dump from the container: `docker compose exec -T db sh -c 'pg_dump -Fc -U "$POSTGRES_USER" "$POSTGRES_DB"' > /tmp/move.dump`.
 4. Restore into the managed database. From the server with the endpoint in `PGHOST`: `docker run --rm -i -e PGPASSWORD='MANAGED_PASSWORD' postgres:16-alpine pg_restore --no-owner --clean --if-exists -h MANAGED_ENDPOINT -U MANAGED_USER -d fintank_api < /tmp/move.dump`.
 5. Edit `/opt/fintank/.env`: `DATABASE_HOST=MANAGED_ENDPOINT`, `DATABASE_USER=`, `DATABASE_PASSWORD=`, `DATABASE_NAME=` to the managed values, and `DATABASE_SSLMODE=require`.
-6. Start again: `IMAGE_TAG=$(cat .image-tag) docker compose up -d`. (The `db` container may also start; it is unused now.)
+6. Start again: `cd /opt/fintank && export IMAGE_TAG=$(cat .image-tag) && docker compose up -d`. (The `db` container may also start; it is unused now.)
 7. Verify: log in, load a watchlist, check `docker compose logs api` shows no database errors. Then `rm /tmp/move.dump`.
 8. After a few days of clean running, remove the `db` service and the `pgdata` volume from `deploy/docker-compose.yml` (a normal commit and deploy), and update `backup_db.sh` to dump from the managed database (or rely on its automatic backups). Do not remove `db` earlier: it is your way back.
 
@@ -410,9 +420,9 @@ Only needed if the avatar test shows `AccessDenied`. Make only `media/*` public,
 
 **Caddy cannot get a certificate (browser says connection failed or insecure; `docker compose logs caddy` shows ACME or "no valid A records" errors).** DNS has not propagated or points at the wrong IP. Run the three `dns.google` checks from step 4; fix the records until they all return `SERVER_IP`. Check ports 80 and 443 are open in the Lightsail firewall. Then `cd /opt/fintank && IMAGE_TAG=$(cat .image-tag) docker compose restart caddy` and watch `docker compose logs -f caddy`. Let's Encrypt rate-limits repeated failures, so fix DNS before retrying many times.
 
-**The deploy rolled back.** The GitHub Action fails and the log says `redeploying previous tag ...` (or "no previous tag" on the first deploy). The site keeps running on the previous version. Look at what failed: open the failed run in GitHub Actions, then on the server `cd /opt/fintank && docker compose ps && docker compose logs --tail 100 api`. Common causes: a missing or wrong value in `.env`, a failing migration, or `ghcr.io` login expired (`docker login` again). Fix it and push again, or use **Run workflow**. Database migrations are not rolled back, so keep them backward compatible. To pin a specific old version by hand: `IMAGE_TAG=<sha> docker compose up -d`.
+**The deploy rolled back.** The GitHub Action fails and the log says `redeploying previous tag ...` (or "no previous tag" on the first deploy). The site keeps running on the previous version. Look at what failed: open the failed run in GitHub Actions, then on the server `cd /opt/fintank && export IMAGE_TAG=$(cat .image-tag) && docker compose ps && docker compose logs --tail 100 api`. Common causes: a missing or wrong value in `.env`, a failing migration, or `ghcr.io` login expired (`docker login` again). Fix it and push again, or use **Run workflow**. Database migrations are not rolled back, so keep them backward compatible. To pin a specific old version by hand: `IMAGE_TAG=<sha> docker compose up -d`.
 
-**A "Fintank DB backup FAILED" email.** It names the date and step: `pg_dump` (the `db` container is down or unhealthy: `docker compose ps`), `dump size check` (empty dump), or `upload` (AWS credentials or bucket: `aws sts get-caller-identity` as `deploy`, check `~/.aws/credentials` and the backup bucket name in `.env`). Details are in `tail -n 50 /var/log/fintank-backup.log`. Fix, then rerun `/opt/fintank/backup_db.sh` to confirm. If you get no email at all for a day, check the log and `crontab -l` as `deploy`, and that you confirmed the SNS email subscription.
+**A "Fintank DB backup FAILED" email.** It names the date and step: `pg_dump` (the `db` container is down or unhealthy: `cd /opt/fintank && export IMAGE_TAG=$(cat .image-tag) && docker compose ps`), `dump size check` (empty dump), or `upload` (AWS credentials or bucket: `aws sts get-caller-identity` as `deploy`, check `~/.aws/credentials` and the backup bucket name in `.env`). Details are in `tail -n 50 /var/log/fintank-backup.log`. Fix, then rerun `/opt/fintank/backup_db.sh` to confirm. If you get no email at all for a day, check the log and `crontab -l` as `deploy`, and that you confirmed the SNS email subscription.
 
 **Locked out of SSH.** The `ubuntu` user still works with the Lightsail default key. As a last resort, use the Lightsail console's browser SSH (instance, **Connect**).
 
