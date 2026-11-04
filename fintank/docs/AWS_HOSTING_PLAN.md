@@ -1,7 +1,14 @@
 # Plan: move the whole Fintank web app to AWS
 
-Status: **proposal**, not started. Written 2026-10-26.
-Goal: run the frontend, backend, database, cache and background jobs on AWS, alongside the data pipeline that is already there. Spend clearly less than today's **~112 CAD/month** (Heroku ~64 + DigitalOcean ~48).
+Status: **decided 2026-11-04, build not started.** Written 2026-10-26. Implementation plan: `docs/superpowers/plans/2026-11-04-aws-web-hosting.md`.
+Goal: run the frontend, backend, database, cache and background jobs on AWS, alongside the data pipeline that is already there. Spend clearly less than the old **~112 CAD/month** (Heroku ~64 + DigitalOcean ~48).
+
+**Decisions (these override anything below that conflicts):**
+- **Start on Option B** (Postgres on the server, about 43 CAD/month with 13% tax), and **move to Option A** (about 63 CAD/month with tax) before taking paying users.
+- **Fresh database.** Nothing was migrated from Heroku, so the dump/restore, temporary hostnames and cutover steps in section 6 no longer apply.
+- **Registry:** GHCR. **Frontend:** on the server. **Domain:** `thefintank.com`, with DNS moving from DigitalOcean to Route 53; GoDaddy stays the registrar.
+- **Old hosting is already off** (2026-11-04): the Heroku app is deleted and `thefintank-app` is archived on DigitalOcean, so the site is offline until go-live. `orca-app` and the Droplet on DigitalOcean are separate and stay.
+- **Tables needing seed data:** only `Stock` and `AvatarPreset`.
 
 Prices below are AWS us-east-1 list prices in USD, converted at **1.39 CAD/USD**. They exclude tax. Confirm them in the [AWS Pricing Calculator](https://calculator.aws/) before committing; AWS pricing pages are the authority.
 
@@ -115,10 +122,9 @@ Option B is the fallback if cost matters more than database safety. Revisit C on
 
 These are code and config changes in this repo. Each is small, but all are required:
 
-1. **Fix the frontend build.**
-   - `next build` fails today on a missing Anchor IDL (`anchor/src/counter-exports.ts` imports `../target/idl/counter.json`).
-   - Choose one: commit a generated IDL, stub it, or drop the scaffold-level App Router Solana pages from the build.
-   - Nothing can deploy until the build passes.
+1. **Fix the frontend build.** Done 2026-11-03.
+   - `next build` failed on `anchor/src/counter-exports.ts` importing `../target/idl/counter.json`. That file could never be generated: the repo has no `counter` program, only an empty `fintank` one.
+   - Removed the unused counter scaffold (`/counter`, `src/components/counter`, `anchor/src`), then fixed the 3 type errors and 2 lint errors behind it.
 2. **Production settings for Django** (`backend/fintank_backend/settings.py`):
    - `DEBUG` defaults to **True** when unset. Make it default to False.
    - `ALLOWED_HOSTS` and `CORS_ALLOWED_ORIGINS` are hard-coded to Heroku/localhost; read them from env.

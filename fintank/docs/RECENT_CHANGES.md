@@ -1,6 +1,6 @@
 # Recent changes and how we operate now
 
-Last updated 2026-10-25. Read this first in a new session, then the linked docs for detail.
+Last updated 2026-11-04. Read this first in a new session, then the linked docs for detail.
 
 ## TL;DR
 
@@ -81,7 +81,7 @@ Other flags: `-c always_hold=false` (auto-publish clean runs), `-c news_notify=w
   - `GetPrices.py` reads FMP/FRED keys from env (`03976bb`).
   - CLI reads the double-encoded approval token (`1198518`).
 - **2026-10-17: key rotation.** FMP key and AWS access key rotated. The old AWS key is deactivated and should be deleted around 2026-10-24. Keys still in old notebooks/commits are dead copies. SerpAPI and FRED were not rotated.
-- **2026-10-26: AWS hosting plan** for the whole web app (Lightsail server + managed Postgres, ~56 CAD/month vs ~112 today) in `docs/AWS_HOSTING_PLAN.md`. Proposal only; open decisions listed there.
+- **2026-11-04: moving the web app to AWS.** Old Heroku app deleted and `thefintank-app` archived, so the site is offline until go-live. Decisions are at the top of `docs/AWS_HOSTING_PLAN.md`; build steps are in `docs/superpowers/plans/2026-11-04-aws-web-hosting.md`. `next build` now passes (`6ba9e8b`).
 - **Unrelated frontend commits on main:**
   - new drawn logo / favicon / OG card (`f3113ac`);
   - heatmap caps the Russell universes to 250 strongest and weakest (`211acd5`);

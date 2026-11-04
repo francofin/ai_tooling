@@ -181,9 +181,7 @@ Minimal program (`anchor/programs/fintank/src/lib.rs`). Declares a `JounralEntry
 
 **Frontend** (`.env`):
 - `NEXT_PUBLIC_FINTANK_API_URL` — Django API base URL (default `http://localhost:8000/api`)
-- `PROGRAM_ID` — Solana program ID
 - `NEXT_PUBLIC_FIREBASE_*` — Firebase project config for auth
-- `NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN` — Mapbox for map components
 
 **Backend** (`backend/.env`):
 - `DATABASE_*` — PostgreSQL connection (host: `127.0.0.1:5432`, db: `fintank_api`)
