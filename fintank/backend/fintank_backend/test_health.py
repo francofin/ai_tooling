@@ -34,3 +34,9 @@ class HealthzTests(TestCase):
             response = self.client.get(self.url)
         self.assertEqual(response.status_code, 503)
         self.assertNotIn("secret-host", response.content.decode())
+
+    def test_head_returns_200_when_healthy(self):
+        self.assertEqual(self.client.head(self.url).status_code, 200)
+
+    def test_post_returns_405(self):
+        self.assertEqual(self.client.post(self.url).status_code, 405)

@@ -3,7 +3,7 @@ import logging
 from django.core.cache import cache
 from django.db import connection
 from django.http import JsonResponse
-from django.views.decorators.http import require_GET
+from django.views.decorators.http import require_safe
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ def _check_cache():
         return False
 
 
-@require_GET
+@require_safe
 def healthz(request):
     """Liveness/readiness probe. Plain Django view: no DRF auth. Never returns error text."""
     db = _check_db()
