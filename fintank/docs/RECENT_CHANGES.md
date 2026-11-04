@@ -10,6 +10,16 @@ Last updated 2026-11-04. Read this first in a new session, then the linked docs 
 - Weekly runs currently **hold for manual approval** even when every check passes (`always_hold`). After 3 clean weekly runs, redeploy with `-c always_hold=false` so clean runs publish themselves.
 - Price downloads are **incremental** since 2026-10-18 (commit `c333bd0`), after FMP's monthly bandwidth cap was hit.
 
+## Web hosting (not live yet)
+
+**The site is not live until the owner finishes the server runbook `deploy/README.md`.** The old Heroku backend is deleted and the DigitalOcean app is archived.
+
+- Planned hosting: one Lightsail 4 GB instance in `us-east-1` running Docker Compose (Caddy, web, api, worker, redis, Postgres in a container) at `/opt/fintank`. DNS in Route 53.
+- Deploys: `.github/workflows/fintank-deploy.yml` on pushes to `main` (test, build images to GHCR, then SSH deploy via `deploy/deploy.sh`, only when the repo variable `DEPLOY_ENABLED` is `true`). A failed health check redeploys the previous image tag.
+- Nightly Postgres backup to `s3://fintank-backups-137315715959/postgres/` via `deploy/backup_db.sh` (cron on the server, SNS email on failure).
+- Local dev after this change: run `npm install` in `fintank/` (Next moved to 15.5.29) and set `DEBUG=True` in `backend/.env` (`DEBUG` now defaults to False).
+- Design and decisions: `docs/AWS_HOSTING_PLAN.md`. Move to a managed database before paying users: last section of the runbook.
+
 ## Where things live
 
 | What | Where |

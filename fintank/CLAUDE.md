@@ -75,6 +75,10 @@ cd ../infra && .venv/bin/python -m pytest -q                # CDK stack tests
 
 **Start here:** `docs/RECENT_CHANGES.md` — current state, how the AWS pipeline is operated, open items. Runbook: `backend/pipelines/README.md`. Design + AWS setup: `docs/superpowers/specs/2026-10-14-automated-data-pipeline-design.md`. The notebooks in `class_files/` no longer upload; `class_files/stock_pipeline.py` and `pipeline_config.py` are shims over `pipelines/`.
 
+### Web hosting and deploys (`deploy/`, `.github/workflows/fintank-deploy.yml`)
+
+Lightsail + Docker Compose, deployed from GitHub Actions on push to `main`. **Not live until the owner finishes the runbook `deploy/README.md`** (server setup, IAM, DNS, secrets, seed, go-live tests). Server files: `deploy/bootstrap_server.sh`, `deploy.sh`, `docker-compose.yml`, `Caddyfile`, `backup_db.sh`, `env.example`. Local dev needs `DEBUG=True` in `backend/.env`.
+
 ### Solidity (Foundry — `stables/`)
 
 ```bash

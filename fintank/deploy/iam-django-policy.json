@@ -1,0 +1,23 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ListLiveBucket",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::thetradingfloor"
+    },
+    {
+      "Sid": "ReadLiveBucket",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::thetradingfloor/*"
+    },
+    {
+      "Sid": "WriteMediaOnly",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:DeleteObject"],
+      "Resource": "arn:aws:s3:::thetradingfloor/media/*"
+    }
+  ]
+}
