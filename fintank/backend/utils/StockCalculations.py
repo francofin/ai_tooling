@@ -289,13 +289,13 @@ class GetData:
         for stock_batch in data_batches:
             url = f"https://financialmodelingprep.com/stable/batch-quote?symbols={stock_batch}&apikey={self.fmp_api_key}"
             try:
-                response = requests.get(url)
+                response = requests.get(url, timeout=30)
                 if response.status_code == 200:
                     perf_data.extend(json.loads(response.content))
                 else:
                     print(f"Failed to fetch batch (status {response.status_code}): {stock_batch[:100]}...")
             except Exception as e:
-                print(f"Error fetching batch: {e}")
+                print(f"Error fetching batch: {type(e).__name__}")
 
         # Build heat map data
         perf_data_for_page = []

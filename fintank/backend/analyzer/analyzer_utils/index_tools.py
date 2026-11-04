@@ -521,7 +521,7 @@ def get_index_quotes(slug):
             quotes.extend(response.json())
         except (requests.RequestException, ValueError) as error:
             # A dropped batch costs some constituents, not the whole section.
-            print(f"index_quotes: batch failed for {slug}: {error}")
+            print(f"index_quotes: batch failed for {slug}: {type(error).__name__}")
             continue
 
     if not quotes:

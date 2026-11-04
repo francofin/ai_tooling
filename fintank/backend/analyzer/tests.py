@@ -756,7 +756,7 @@ class ResolvedStatementsTests(SimpleTestCase):
             self._run('AAPL', {'sp500': OSError('S3 timeout'), 'nas': KeyError('b')})
 
         self.assertNotIsInstance(ctx.exception, KeyError)
-        self.assertIn('S3 timeout', str(ctx.exception))
+        self.assertIn('OSError', str(ctx.exception))
 
 
 @override_settings(CACHES=LOCMEM_CACHE)

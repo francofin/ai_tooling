@@ -26,11 +26,11 @@ def list_journals(request):
     """
     try:
         articles = get_article_index()
-    except ArticleStoreUnavailable as error:
+    except ArticleStoreUnavailable:
         # An empty list alongside the 503 keeps research-posts.js rendering an
         # empty state instead of throwing on `data.indexes.map`.
         return Response(
-            {"indexes": [], "detail": f"Journal unavailable: {error}"},
+            {"indexes": [], "detail": "Journal unavailable."},
             status=status.HTTP_503_SERVICE_UNAVAILABLE,
         )
 
@@ -44,9 +44,9 @@ def get_journal(request, slug):
         article = get_article(slug)
     except ArticleNotFound as error:
         return Response({"detail": str(error)}, status=status.HTTP_404_NOT_FOUND)
-    except ArticleStoreUnavailable as error:
+    except ArticleStoreUnavailable:
         return Response(
-            {"detail": f"Journal unavailable: {error}"},
+            {"detail": "Journal unavailable."},
             status=status.HTTP_503_SERVICE_UNAVAILABLE,
         )
 
