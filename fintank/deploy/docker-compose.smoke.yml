@@ -1,0 +1,14 @@
+# Overlay used only by smoke.sh: locally built images, Caddy on loopback only.
+services:
+  caddy:
+    ports: !override
+      - "127.0.0.1:18443:443"
+  web:
+    image: fintank-web:${IMAGE_TAG}
+    pull_policy: never
+  api:
+    image: fintank-api:${IMAGE_TAG}
+    pull_policy: never
+  worker:
+    image: fintank-api:${IMAGE_TAG}
+    pull_policy: never
