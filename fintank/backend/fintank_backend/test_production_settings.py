@@ -15,7 +15,7 @@ names = ["DEBUG", "ALLOWED_HOSTS", "CORS_ALLOWED_ORIGINS", "CSRF_TRUSTED_ORIGINS
          "CACHES", "CELERY_BROKER_URL", "CELERY_RESULT_BACKEND", "DATABASES",
          "INSTALLED_APPS", "STORAGES", "MEDIA_URL", "SESSION_COOKIE_SECURE",
          "CSRF_COOKIE_SECURE", "SECURE_PROXY_SSL_HEADER", "SECURE_HSTS_SECONDS",
-         "SECURE_SSL_REDIRECT"]
+         "SECURE_SSL_REDIRECT", "REST_FRAMEWORK", "AUTH_THROTTLE_RATES"]
 print(json.dumps({n: getattr(s, n, None) for n in names}, default=str))
 """
 
@@ -110,3 +110,83 @@ class ProductionSettingsTests(SimpleTestCase):
         self.assertFalse(s["SECURE_SSL_REDIRECT"])
         self.assertEqual(load({"SECURE_HSTS_SECONDS": "60"})["SECURE_HSTS_SECONDS"], 60)
         self.assertIs(load({"DEBUG": "True"})["SESSION_COOKIE_SECURE"], False)
+
+
+_LOGGING_PROBE = """
+import logging
+import django
+django.setup()
+logging.getLogger("django.request").error("request blew up")
+logging.getLogger("analyzer.views").info("app info line")
+try:
+    raise RuntimeError("403 for url: https://fmp.example/x?a=1&apikey=SECRET1&b=2")
+except RuntimeError:
+    logging.getLogger("django.request").exception("with traceback")
+"""
+
+
+class ThrottleSettingsTests(SimpleTestCase):
+    def test_outside_tests_the_real_limits_apply_behind_one_proxy(self):
+        s = load({})
+        self.assertEqual(s["REST_FRAMEWORK"]["DEFAULT_THROTTLE_RATES"], s["AUTH_THROTTLE_RATES"])
+        self.assertEqual(s["REST_FRAMEWORK"]["NUM_PROXIES"], 1)
+
+
+class LoggingSettingsTests(SimpleTestCase):
+    def _stderr(self):
+        env = {
+            "PATH": os.environ.get("PATH", ""),
+            "PYTHONPATH": BACKEND_DIR,
+            "SECRET_KEY": "x",
+            "DJANGO_SKIP_DOTENV": "1",
+            "DJANGO_SETTINGS_MODULE": "fintank_backend.settings",
+        }
+        out = subprocess.run(
+            [sys.executable, "-c", _LOGGING_PROBE],
+            env=env, cwd="/", capture_output=True, text=True, check=True,
+        )
+        return out.stderr
+
+    def test_with_debug_false_request_errors_and_app_logs_reach_the_console(self):
+        stderr = self._stderr()
+        self.assertIn("request blew up", stderr)
+        self.assertIn("app info line", stderr)
+
+    def test_console_output_redacts_keys_even_in_tracebacks(self):
+        stderr = self._stderr()
+        self.assertIn("with traceback", stderr)
+        self.assertIn("RuntimeError", stderr)
+        self.assertNotIn("SECRET1", stderr)
+        self.assertIn("apikey=[REDACTED]&b=2", stderr)
+
+    def test_root_and_django_log_to_console_at_info(self):
+        from django.conf import settings
+        self.assertEqual(settings.LOGGING["root"]["handlers"], ["console"])
+        self.assertEqual(settings.LOGGING["root"]["level"], "INFO")
+        self.assertEqual(settings.LOGGING["loggers"]["django"]["level"], "INFO")
+        self.assertEqual(settings.LOGGING["loggers"]["django"]["handlers"], ["console"])
+
+    def test_the_test_run_itself_stays_quiet(self):
+        from django.conf import settings
+        self.assertEqual(settings.LOGGING["handlers"]["console"]["level"], "CRITICAL")
+
+    def test_celery_handlers_get_redaction_and_keep_their_format(self):
+        import io
+        import logging
+        from fintank_backend.celery import redact_worker_logs
+        stream = io.StringIO()
+        handler = logging.StreamHandler(stream)
+        handler.setFormatter(logging.Formatter("WORKER %(message)s"))
+        logger = logging.Logger("celery-format-test")
+        logger.addHandler(handler)
+
+        redact_worker_logs(logger=logger)
+        logger.error("failed url?apikey=SECRET2")
+
+        self.assertEqual(stream.getvalue().strip(), "WORKER failed url?apikey=[REDACTED]")
+
+
+class GunicornLoggingTests(SimpleTestCase):
+    def test_access_log_goes_to_stdout(self):
+        dockerfile = (Path(BACKEND_DIR) / "Dockerfile").read_text()
+        self.assertIn('"--access-logfile", "-"', dockerfile)

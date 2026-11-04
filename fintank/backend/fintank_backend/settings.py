@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/4.0/ref/settings/
 
 from pathlib import Path
 import os
+import sys
 from datetime import timedelta
 from dotenv import load_dotenv
 from decouple import config
@@ -28,6 +29,9 @@ def env_list(name: str, default: list[str]) -> list[str]:
     items = [item.strip() for item in raw.split(',') if item.strip()]
     return items or list(default)
 
+
+# True under `manage.py test`.
+TESTING = 'test' in sys.argv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -189,11 +193,56 @@ LIST_PER_PAGE = 10000
 
 AUTH_USER_MODEL = 'users.CustomUser'
 
+# Limits on unauthenticated credential endpoints. `www` logins go through the
+# Next.js server, so Django sees the web server's address for all of them:
+# auth_login is therefore effectively a site-wide ceiling, and the strict limit
+# is auth_login_account, per submitted username (see fintank_backend/auth_views.py).
+# dj_rest_auth is the scope that package's own views declare.
+AUTH_THROTTLE_RATES = {
+    'auth_login': '60/min',
+    'auth_login_account': '10/min',
+    'auth_register': '20/hour',
+    'auth_token': '120/min',
+    'dj_rest_auth': '20/min',
+}
+
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ],
     'EXCEPTION_HANDLER': 'utils.custom_exception_handler.custom_exception_handler',
+    # Only applies to views that declare a throttle_scope.
+    'DEFAULT_THROTTLE_CLASSES': ['rest_framework.throttling.ScopedRateThrottle'],
+    'DEFAULT_THROTTLE_RATES': (
+        {scope: '100000/min' for scope in AUTH_THROTTLE_RATES} if TESTING else AUTH_THROTTLE_RATES
+    ),
+    # Caddy is the one proxy in front of gunicorn, so the client address is the
+    # last X-Forwarded-For entry. Without this a forged header evades the limits.
+    'NUM_PROXIES': 1,
+}
+
+# DEBUG=False silences Django's default console handler, which would lose 500
+# tracebacks. The handler level keeps the test run quiet; assertLogs still works.
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'plain': {
+            '()': 'fintank_backend.logging_utils.RedactingFormatter',
+            'fmt': '%(asctime)s %(levelname)s %(name)s: %(message)s',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'plain',
+            'level': 'CRITICAL' if TESTING else 'INFO',
+        },
+    },
+    'root': {'handlers': ['console'], 'level': 'INFO'},
+    'loggers': {
+        'django': {'handlers': ['console'], 'level': 'INFO', 'propagate': False},
+    },
 }
 
 

@@ -27,4 +27,4 @@ RUN mkdir -p fintank_backend/static \
     && SECRET_KEY=build-only-throwaway DEBUG=True python manage.py collectstatic --noinput
 
 EXPOSE 8000
-CMD ["gunicorn", "fintank_backend.wsgi", "--bind", "0.0.0.0:8000", "--workers", "2", "--timeout", "120"]
+CMD ["gunicorn", "fintank_backend.wsgi", "--bind", "0.0.0.0:8000", "--workers", "2", "--timeout", "120", "--access-logfile", "-"]

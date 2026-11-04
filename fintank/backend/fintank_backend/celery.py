@@ -1,6 +1,9 @@
+import logging
 import os
 from celery import Celery
-from celery.signals import worker_process_init
+from celery.signals import after_setup_logger, after_setup_task_logger, worker_process_init
+
+from fintank_backend.logging_utils import RedactingWrapper
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "fintank_backend.settings")
 
@@ -21,6 +24,15 @@ def reset_fsspec_state(**kwargs):
 
     fsspec.asyn.reset_lock()
     s3fs.S3FileSystem.clear_instance_cache()
+
+@after_setup_logger.connect
+@after_setup_task_logger.connect
+def redact_worker_logs(logger, **kwargs):
+    """Celery replaces the root logger's handlers in the worker, and it logs a
+    failed task's traceback, which can hold an FMP URL with its key."""
+    for handler in logger.handlers:
+        handler.setFormatter(RedactingWrapper(handler.formatter or logging.Formatter()))
+
 
 # Load config from Django settings
 app.config_from_object("django.conf:settings", namespace="CELERY")
