@@ -2,7 +2,6 @@ import {fireBaseAuth} from '@utils/fireBaseUtility';
 import React, {useReducer,useState, createContext, useEffect} from 'react';
 import { onAuthStateChanged, getIdTokenResult  } from "firebase/auth";
 import { useRouter } from 'next/router';
-import Resizer from 'react-image-file-resizer';
 import axios from 'axios'
 import swal from 'sweetalert';
 
@@ -35,9 +34,7 @@ const DjangoAuthProvider = ({children}) => {
     const [isAuthenticated, setIsAuthenticated] = useState(false)
     const [error, setError] = useState(null)
     const [updated, setUpdated] = useState(null)
-    const [avatar, setAvatar] = useState("")
     const [userProfile, setUserProfile] = useState(null)
-    const [imageData, setImageData] = useState({})
     const [userWatchList, setuserWatchList] = useState([])
     const [addedStockToWatchlist, setAddedStockToWatchlist] = useState(false)
     const [state, dispatch] = useReducer(firebaseReducer, initialState);
@@ -157,45 +154,6 @@ const DjangoAuthProvider = ({children}) => {
                 || error.message
                 || 'Registration failed';
             setError(msg);
-        }
-    }
-
-
-    const handleImageUpload = async(file) => {
-
-        Resizer.imageFileResizer(file, 720, 500, "JPEG", 100, 0, async(uri) => {
-            try{
-                let {data} = await axios.post('/api/auth/uploadImages', {
-                    image: uri,
-                });
-                // console.log(data)
-                //set image in state.and loading to false.
-                setAvatar(await data.Location);
-                setImageData(data);
-            }catch(err){
-                // console.log(err);
-                swal({
-                    title:`Failed to Upload Image ${err}`,
-                    icon: "error"
-                  });
-            }
-        })
-    }
-
-
-    const handleImageRemove = async() => {
-        try{
-            const imageKey = user.profile_picture_cs.split("/")[3]
-            await axios.post('/api/auth/removeImages', {imageKey});
-            // console.log(res)
-            // console.log(imageKey[3])
-            
-        }catch(err){
-            // console.log(err);
-            swal({
-                title:`Failed to Upload Image ${err}`,
-                icon: "error"
-                });
         }
     }
 
@@ -363,11 +321,7 @@ const DjangoAuthProvider = ({children}) => {
             logout,
             register,
             clearErrors,
-            imageData,
             state,
-            avatar,
-            handleImageUpload,
-            handleImageRemove,
             dispatch,
             updateUser,
             setUpdated,
