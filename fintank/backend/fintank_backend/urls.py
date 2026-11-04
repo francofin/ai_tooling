@@ -17,8 +17,12 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf.urls.static import static
 from django.conf import settings
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenVerifyView, TokenRefreshView
 
+from .auth_views import (
+    ThrottledTokenObtainPairView,
+    ThrottledTokenRefreshView,
+    ThrottledTokenVerifyView,
+)
 from .health import healthz
 
 
@@ -34,9 +38,9 @@ urlpatterns = [
     path("api/", include("news.urls")),
     # Browsable API login
     path("api-auth/", include("rest_framework.urls")),
-    path("api/auth/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
-    path("api/auth/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
-    path("api/auth/token/verify/", TokenVerifyView.as_view(), name="token_verify"),
+    path("api/auth/token/", ThrottledTokenObtainPairView.as_view(), name="token_obtain_pair"),
+    path("api/auth/token/refresh/", ThrottledTokenRefreshView.as_view(), name="token_refresh"),
+    path("api/auth/token/verify/", ThrottledTokenVerifyView.as_view(), name="token_verify"),
     path("api/auth/", include("dj_rest_auth.urls")),
     path("api/auth/registration/", include("dj_rest_auth.registration.urls")),
     path("accounts/", include("allauth.urls")),  # admin/social flows
