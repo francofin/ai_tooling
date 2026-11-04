@@ -204,6 +204,10 @@ AUTH_THROTTLE_RATES = {
     'auth_register': '20/hour',
     'auth_token': '120/min',
     'dj_rest_auth': '20/min',
+    # /admin/login/ and /login/, shared. These reach Django directly through
+    # Caddy, so the address here is the real client's.
+    'form_login': '30/hour',
+    'form_login_account': '30/hour',
 }
 
 REST_FRAMEWORK = {

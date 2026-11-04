@@ -12,6 +12,8 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.translation import gettext_lazy as _
 from django.views.decorators.http import require_http_methods, require_POST
 
+from fintank_backend.auth_views import limit_form_login
+
 User = get_user_model()
 
 
@@ -19,6 +21,7 @@ def _staff_only(user):
     return user.is_active and (user.is_staff or user.is_superuser)
 
 @require_POST
+@limit_form_login
 def session_login(request):
     username = (request.POST.get("username") or "").strip().lower()  # you store email in username
     password = request.POST.get("password") or ""

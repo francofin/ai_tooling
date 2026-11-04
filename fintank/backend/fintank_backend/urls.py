@@ -22,12 +22,14 @@ from .auth_views import (
     ThrottledTokenObtainPairView,
     ThrottledTokenRefreshView,
     ThrottledTokenVerifyView,
+    limit_form_login,
 )
 from .health import healthz
 
 
 urlpatterns = [
     path("healthz/", healthz, name="healthz"),
+    path('admin/login/', limit_form_login(admin.site.login)),
     path('admin/', admin.site.urls),
     path("api/", include("users.urls", namespace="users")),
     path("api/", include("stockuploader.urls")),
@@ -36,8 +38,6 @@ urlpatterns = [
     path("api/", include("billing.urls")),
     path("api/", include("journal.urls")),
     path("api/", include("news.urls")),
-    # Browsable API login
-    path("api-auth/", include("rest_framework.urls")),
     path("api/auth/token/", ThrottledTokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("api/auth/token/refresh/", ThrottledTokenRefreshView.as_view(), name="token_refresh"),
     path("api/auth/token/verify/", ThrottledTokenVerifyView.as_view(), name="token_verify"),
@@ -49,6 +49,7 @@ urlpatterns = [
 ]
 
 
-# Serve media in dev only
+# Serve media and the browsable API's login in dev only
 if settings.DEBUG:
+    urlpatterns.append(path("api-auth/", include("rest_framework.urls")))
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
@@ -17,6 +18,8 @@ LOW_RATES = {
     'auth_register': '2/min',
     'auth_token': '2/min',
     'dj_rest_auth': '2/min',
+    'form_login': '4/min',
+    'form_login_account': '2/min',
 }
 
 
@@ -97,6 +100,103 @@ class AuthThrottleTests(TestCase):
     def test_other_endpoints_are_not_throttled(self):
         for _ in range(5):
             self.assertNotEqual(self.client.get('/api/avatar-presets/').status_code, 429)
+
+
+@override_settings(CACHES=LOCMEM_CACHE)
+class FormLoginThrottleTests(TestCase):
+    """The HTML password forms on the api host: /admin/login/ and /login/."""
+
+    def setUp(self):
+        cache.clear()
+        patcher = patch.dict(ScopedRateThrottle.THROTTLE_RATES, LOW_RATES)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.admin = get_user_model().objects.create_superuser(
+            username='boss', email='boss@example.com', password='right-password',
+            first_name='Test', last_name='Owner')
+
+    def _post(self, url, username, password='wrong', **extra):
+        return self.client.post(url, {'username': username, 'password': password}, **extra)
+
+    def test_repeated_guesses_at_one_account_get_429(self):
+        for url in ('/admin/login/', '/login/'):
+            with self.subTest(url=url):
+                cache.clear()
+                self.assertNotEqual(self._post(url, 'boss').status_code, 429)
+                self.assertNotEqual(self._post(url, 'BOSS ').status_code, 429)
+                response = self._post(url, 'boss')
+                self.assertEqual(response.status_code, 429)
+                self.assertGreater(int(response['Retry-After']), 0)
+
+    def test_the_two_forms_share_one_budget(self):
+        self._post('/admin/login/', 'boss')
+        self._post('/login/', 'boss')
+        self.assertEqual(self._post('/admin/login/', 'boss').status_code, 429)
+
+    def test_spraying_many_accounts_from_one_address_gets_429(self):
+        for number in range(4):
+            self.assertNotEqual(self._post('/admin/login/', f'user{number}').status_code, 429)
+        self.assertEqual(self._post('/admin/login/', 'user-next').status_code, 429)
+
+    def test_the_address_comes_from_the_last_proxy_hop_not_the_clients_claim(self):
+        for number in range(4):
+            self._post('/admin/login/', f'user{number}',
+                       HTTP_X_FORWARDED_FOR=f'1.2.3.{number}, 203.0.113.9')
+        blocked = self._post('/admin/login/', 'user-next',
+                             HTTP_X_FORWARDED_FOR='9.9.9.9, 203.0.113.9')
+        self.assertEqual(blocked.status_code, 429)
+        other = self._post('/admin/login/', 'user-next',
+                           HTTP_X_FORWARDED_FOR='9.9.9.9, 203.0.113.10')
+        self.assertNotEqual(other.status_code, 429)
+
+    def test_a_blocked_address_stops_spending_the_accounts_budget(self):
+        """One attacker's address must not keep the owner locked out of their
+        account from another address."""
+        for number in range(4):
+            self._post('/admin/login/', f'user{number}', HTTP_X_FORWARDED_FOR='203.0.113.9')
+        for _ in range(3):
+            response = self._post('/admin/login/', 'boss', HTTP_X_FORWARDED_FOR='203.0.113.9')
+            self.assertEqual(response.status_code, 429)
+        response = self._post('/admin/login/', 'boss', 'right-password',
+                              HTTP_X_FORWARDED_FOR='203.0.113.10')
+        self.assertEqual(response.status_code, 302)
+
+    def test_loading_the_login_page_is_not_an_attempt(self):
+        for _ in range(5):
+            self.assertEqual(self.client.get('/admin/login/').status_code, 200)
+
+    def test_the_right_password_still_logs_in(self):
+        response = self._post('/admin/login/', 'boss', 'right-password')
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('_auth_user_id', self.client.session)
+        self.client.logout()
+        response = self._post('/login/', 'boss', 'right-password')
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('_auth_user_id', self.client.session)
+
+    def test_an_anonymous_admin_visit_is_sent_to_the_limited_login(self):
+        response = self.client.get('/admin/')
+        self.assertRedirects(response, '/admin/login/?next=/admin/', fetch_redirect_response=False)
+
+    def test_allauth_login_has_its_own_limit(self):
+        """Not ours to enforce, but a silent change there would reopen this form."""
+        for _ in range(6):
+            response = self.client.post('/accounts/login/', {'login': 'boss', 'password': 'wrong'})
+        self.assertContains(response, 'Too many failed login attempts')
+
+
+class BrowsableApiLoginTests(TestCase):
+
+    def test_the_login_form_is_absent_outside_debug(self):
+        self.assertEqual(self.client.get('/api-auth/login/').status_code, 404)
+        self.assertEqual(self.client.post('/api-auth/login/', {}).status_code, 404)
+
+    def test_the_html_api_pages_still_render_without_it(self):
+        """DRF's page template links to this login when the route exists."""
+        response = self.client.get('/api/avatar-presets/', HTTP_ACCEPT='text/html')
+        self.assertEqual(response.status_code, 401)
+        self.assertIn('text/html', response['Content-Type'])
+        self.assertNotContains(response, '/api-auth/login/', status_code=401)
 
 
 class ThrottleConfigTests(TestCase):
