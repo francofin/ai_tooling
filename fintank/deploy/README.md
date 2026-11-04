@@ -367,11 +367,11 @@ Today Postgres runs in the `db` container on the same server (Option B). Backups
 
 1. Lightsail, **Databases**, **Create database**: PostgreSQL 16, region `us-east-1`, the smallest **Standard** plan, **private** access only (not public), same VPC as the instance. Write down the endpoint, user, password and database name (`fintank_api`).
 2. Put the site in maintenance so no writes happen: simplest is to stop the web and api containers on the server: `cd /opt/fintank && export IMAGE_TAG=$(cat .image-tag) && docker compose stop web api worker`. (The site is down from here.)
-3. Dump from the container: `docker compose exec -T db sh -c 'pg_dump -Fc -U "$POSTGRES_USER" "$POSTGRES_DB"' > /tmp/move.dump`.
+3. Dump from the container: `cd /opt/fintank && export IMAGE_TAG=$(cat .image-tag) && docker compose exec -T db sh -c 'pg_dump -Fc -U "$POSTGRES_USER" "$POSTGRES_DB"' > /tmp/move.dump`.
 4. Restore into the managed database. From the server with the endpoint in `PGHOST`: `docker run --rm -i -e PGPASSWORD='MANAGED_PASSWORD' postgres:16-alpine pg_restore --no-owner --clean --if-exists -h MANAGED_ENDPOINT -U MANAGED_USER -d fintank_api < /tmp/move.dump`.
 5. Edit `/opt/fintank/.env`: `DATABASE_HOST=MANAGED_ENDPOINT`, `DATABASE_USER=`, `DATABASE_PASSWORD=`, `DATABASE_NAME=` to the managed values, and `DATABASE_SSLMODE=require`.
 6. Start again: `cd /opt/fintank && export IMAGE_TAG=$(cat .image-tag) && docker compose up -d`. (The `db` container may also start; it is unused now.)
-7. Verify: log in, load a watchlist, check `docker compose logs api` shows no database errors. Then `rm /tmp/move.dump`.
+7. Verify: log in, load a watchlist, check `cd /opt/fintank && export IMAGE_TAG=$(cat .image-tag) && docker compose logs api` shows no database errors. Then `rm /tmp/move.dump`.
 8. After a few days of clean running, remove the `db` service and the `pgdata` volume from `deploy/docker-compose.yml` (a normal commit and deploy), and update `backup_db.sh` to dump from the managed database (or rely on its automatic backups). Do not remove `db` earlier: it is your way back.
 
 ---
@@ -418,7 +418,7 @@ Only needed if the avatar test shows `AccessDenied`. Make only `media/*` public,
 
 ## Troubleshooting
 
-**Caddy cannot get a certificate (browser says connection failed or insecure; `docker compose logs caddy` shows ACME or "no valid A records" errors).** DNS has not propagated or points at the wrong IP. Run the three `dns.google` checks from step 4; fix the records until they all return `SERVER_IP`. Check ports 80 and 443 are open in the Lightsail firewall. Then `cd /opt/fintank && IMAGE_TAG=$(cat .image-tag) docker compose restart caddy` and watch `docker compose logs -f caddy`. Let's Encrypt rate-limits repeated failures, so fix DNS before retrying many times.
+**Caddy cannot get a certificate (browser says connection failed or insecure; `docker compose logs caddy` shows ACME or "no valid A records" errors).** DNS has not propagated or points at the wrong IP. Run the three `dns.google` checks from step 4; fix the records until they all return `SERVER_IP`. Check ports 80 and 443 are open in the Lightsail firewall. Then `cd /opt/fintank && export IMAGE_TAG=$(cat .image-tag) && docker compose restart caddy` and watch `docker compose logs -f caddy`. Let's Encrypt rate-limits repeated failures, so fix DNS before retrying many times.
 
 **The deploy rolled back.** The GitHub Action fails and the log says `redeploying previous tag ...` (or "no previous tag" on the first deploy). The site keeps running on the previous version. Look at what failed: open the failed run in GitHub Actions, then on the server `cd /opt/fintank && export IMAGE_TAG=$(cat .image-tag) && docker compose ps && docker compose logs --tail 100 api`. Common causes: a missing or wrong value in `.env`, a failing migration, or `ghcr.io` login expired (`docker login` again). Fix it and push again, or use **Run workflow**. Database migrations are not rolled back, so keep them backward compatible. To pin a specific old version by hand: `IMAGE_TAG=<sha> docker compose up -d`.
 
