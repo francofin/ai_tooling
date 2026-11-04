@@ -114,6 +114,6 @@ def logout_view(request):
     return redirect("pages:landing")  # or "/"
 
 # Example: protect a lightweight dashboard page
-@login_required(login_url="pages:login")  # adjust if you have a login page
+@login_required(login_url="pages:landing")
 def dashboard(request):
     return render(request, "pages/services.html")
