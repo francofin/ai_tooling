@@ -156,6 +156,29 @@ cold_cache() {
 }
 check "cold cache: api healthy and not OOMKilled after Redis flush" cold_cache
 
+# BACKUP RESTORE. Dumps the smoke database the same way backup_db.sh does,
+# restores it into a scratch database in this smoke project's db, and compares
+# the django_migrations row count. The scratch database is always dropped.
+restore_check() {
+  local want got rc=0
+  want="$(docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "select count(*) from django_migrations"' | tr -d '[:space:]')" || return 1
+  [[ "$want" =~ ^[0-9]+$ && "$want" -gt 0 ]] || { echo "bad source count '$want'"; return 1; }
+  docker compose exec -T db sh -c '
+    set -e
+    pg_dump -Fc -U "$POSTGRES_USER" "$POSTGRES_DB" > /tmp/smoke-restore.dump
+    dropdb -U "$POSTGRES_USER" --if-exists smoke_restore
+    createdb -U "$POSTGRES_USER" smoke_restore
+    pg_restore -U "$POSTGRES_USER" -d smoke_restore --no-owner /tmp/smoke-restore.dump
+  ' || rc=1
+  if [ "$rc" -eq 0 ]; then
+    got="$(docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d smoke_restore -tAc "select count(*) from django_migrations"' | tr -d '[:space:]')" || rc=1
+  fi
+  docker compose exec -T db sh -c 'dropdb -U "$POSTGRES_USER" --if-exists smoke_restore; rm -f /tmp/smoke-restore.dump' >/dev/null 2>&1
+  [ "$rc" -eq 0 ] || { echo "dump/restore failed"; return 1; }
+  [ "$got" = "$want" ] || { echo "django_migrations: source $want, restored '$got'"; return 1; }
+}
+check "pg_dump restores into a scratch db with the same django_migrations count" restore_check
+
 # DEPLOY ROLLBACK. Runs last because it replaces the api container.
 rollback_case() {
   local rc cid
