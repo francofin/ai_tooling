@@ -84,4 +84,5 @@ blockchain/
 # AWS CDK (infra/)
 /infra/.venv/
 /infra/cdk.out/
-/infra/cdk.context.jsondeploy/.image-tag
+/infra/cdk.context.json
+deploy/.image-tag
