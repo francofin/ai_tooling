@@ -110,7 +110,6 @@ npm run anchor-localnet
 
 # Sync program ID after regenerating keypair
 npm run anchor keys sync
-# Then manually update the constant in anchor/src/counter-exports.ts
 ```
 
 ---
@@ -124,7 +123,7 @@ The project uses **two coexisting routing systems** that must not be confused:
 - **`src/app/`** — Next.js App Router (new). Entry layout in `src/app/layout.tsx`. Wraps everything in `AppProviders` (Solana wallet context, React Query, theme) and `AppLayout`.
 - **`src/pages/`** — Next.js Pages Router (legacy). Entry in `src/pages/_app.js`. Wraps in Redux `Provider` + `PersistGate` + legacy `Layout`.
 
-Most of the financial UI lives in the **Pages Router** (`src/pages/`). The App Router hosts the Solana dApp pages (`/account`, `/counter`).
+Most of the financial UI lives in the **Pages Router** (`src/pages/`). The App Router hosts the Solana dApp pages (`/account`).
 
 **State management** (Pages Router pages): Redux (`redux` + `redux-persist` + `redux-thunk`). Store in `src/store.js`, reducers in `src/reducers/`. The legacy components in `src/componentsLegacy/` read state via hooks in `src/hooks/`.
 
@@ -174,7 +173,7 @@ Foundry remappings: `@openzeppelin` → `lib/openzeppelin-contracts/contracts`, 
 
 ### Solana — `anchor/`
 
-Minimal program (`anchor/programs/fintank/src/lib.rs`). Declares a `JounralEntryState` account struct but the `#[program]` module body is empty — no instructions implemented yet. The exported client in `anchor/src/` is the counter template scaffold.
+Minimal program (`anchor/programs/fintank/src/lib.rs`). Declares a `JounralEntryState` account struct but the `#[program]` module body is empty — no instructions implemented yet.
 
 ---
 

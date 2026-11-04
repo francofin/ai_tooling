@@ -21,7 +21,6 @@
     ],
     "baseUrl": ".",
     "paths": {
-      "@project/anchor": ["anchor/src"],
       "@/*": ["./src/*"],
       "@componentsLegacy/*": ["./src/componentsLegacy/*"],
       "@utils/*": ["./src/utils/*"],
