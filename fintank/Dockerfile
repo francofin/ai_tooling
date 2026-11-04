@@ -1,0 +1,41 @@
+FROM node:22-slim AS deps
+WORKDIR /app
+COPY package.json package-lock.json .npmrc ./
+RUN npm ci
+
+FROM node:22-slim AS build
+WORKDIR /app
+# NEXT_PUBLIC_* values are inlined at build time, so they are build args.
+# No defaults: the caller supplies them. They exist only in this stage.
+ARG NEXT_PUBLIC_FINTANK_API_URL
+ARG NEXT_PUBLIC_CONFIRMATION_EMAIL_REDIRECT
+ARG NEXT_PUBLIC_FIREBASE_API
+ARG NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+ARG NEXT_PUBLIC_FIREBASE_PROJECT_ID
+ARG NEXT_PUBLIC_FIREBASE_APP_ID
+ARG NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID
+ENV NEXT_PUBLIC_FINTANK_API_URL=$NEXT_PUBLIC_FINTANK_API_URL \
+    NEXT_PUBLIC_CONFIRMATION_EMAIL_REDIRECT=$NEXT_PUBLIC_CONFIRMATION_EMAIL_REDIRECT \
+    NEXT_PUBLIC_FIREBASE_API=$NEXT_PUBLIC_FIREBASE_API \
+    NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=$NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN \
+    NEXT_PUBLIC_FIREBASE_PROJECT_ID=$NEXT_PUBLIC_FIREBASE_PROJECT_ID \
+    NEXT_PUBLIC_FIREBASE_APP_ID=$NEXT_PUBLIC_FIREBASE_APP_ID \
+    NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=$NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID \
+    NODE_OPTIONS=--max-old-space-size=4096 \
+    NEXT_TELEMETRY_DISABLED=1
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN npm run build
+
+FROM node:22-slim AS runner
+WORKDIR /app
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    HOSTNAME=0.0.0.0 \
+    PORT=3000
+COPY --from=build --chown=node:node /app/.next/standalone ./
+COPY --from=build --chown=node:node /app/.next/static ./.next/static
+COPY --from=build --chown=node:node /app/public ./public
+USER node
+EXPOSE 3000
+CMD ["node", "server.js"]
