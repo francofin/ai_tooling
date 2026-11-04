@@ -18,7 +18,7 @@ echo "docker \$*" >> "$LOG"
 case "\${STUB_DUMP:-ok}" in
   ok) head -c 4096 /dev/zero ;;
   empty) printf 'tiny' ;;
-  fail) printf 'partial' ; echo "pg_dump: secret-conn-detail" >&2; exit 1 ;;
+  fail) head -c 4096 /dev/zero ; echo "pg_dump: secret-conn-detail" >&2; exit 1 ;;
 esac
 STUB
   cat > "$BIN/aws" <<STUB
@@ -57,7 +57,7 @@ t_pg_dump_failure_alerts_and_uploads_nothing() {
   [ "$rc" -ne 0 ] || return 1
   ! grep -q 'aws s3 cp' "$LOG" || return 1
   grep -q 'aws sns publish' "$LOG" || return 1
-  grep -q '20261104' "$LOG" || return 1
+  grep -q 'aws sns publish.*20261104.*step: pg_dump' "$LOG" || return 1
   ! grep -q 'secret-conn-detail' "$LOG" || return 1
 }
 

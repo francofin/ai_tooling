@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Nightly Postgres backup. Cron (host, 07:30 UTC):
-#   30 7 * * * /opt/fintank/deploy/backup_db.sh >> /var/log/fintank-backup.log 2>&1
+#   30 7 * * * /opt/fintank/backup_db.sh >> /var/log/fintank-backup.log 2>&1
 #
 # Dumps the `db` Compose service with pg_dump -Fc, checks the dump is not
 # empty, and uploads it (server-side encrypted) to
