@@ -4,7 +4,7 @@ Status: **the site is not live until you finish this runbook.** The old Heroku b
 
 You do these steps yourself, in order. Each one says how to confirm it worked. Do not move on until it did.
 
-**Cost.** Billing starts at step 1, when the Lightsail instance is created. Expect roughly 43 CAD/month with tax (4 GB instance, static IP, Route 53 zone, small S3 usage). If you stop part-way, delete the instance (see "Stopping and deleting" at the end), or you keep paying.
+**Cost.** Billing starts at step 1, when the Lightsail instance is created. Expect roughly 43 CAD/month with tax (4 GB instance, static IP, Route 53 zone, small S3 usage), plus a little for the automatic snapshots in step 10. If you stop part-way, delete the instance (see "Stopping and deleting" at the end), or you keep paying.
 
 ## What is where
 
@@ -106,7 +106,7 @@ On the server:
 sudo DEPLOY_PUBKEY="$(cat fintank_deploy.pub)" bash bootstrap_server.sh
 ```
 
-It takes a few minutes. It is safe to run again. It installs Docker, AWS CLI, `fail2ban` and automatic security updates, adds 2 GB of swap, creates the `deploy` user and `/opt/fintank`, installs the nightly backup cron entry for `deploy`, and turns off SSH passwords and root login. It only turns those off if `deploy` already has a key, so it cannot lock you out.
+It takes a few minutes. It is safe to run again. It installs Docker, AWS CLI, `fail2ban` and automatic security updates, adds 2 GB of swap, creates the `deploy` user and `/opt/fintank`, installs the nightly backup and disk check cron entries for `deploy`, and turns off SSH passwords and root login. It only turns those off if `deploy` already has a key, so it cannot lock you out.
 
 **Before you close the `ubuntu` session**, open a second terminal on your machine and confirm the deploy key works:
 
@@ -174,8 +174,11 @@ Make a **new** `SECRET_KEY` and Postgres password here. Do not reuse old ones. T
 | `BACKUP_BUCKET` | `fintank-backups-137315715959` |
 | `ALERT_TOPIC_ARN` | `arn:aws:sns:us-east-1:137315715959:fintank-pipeline-alerts` |
 | `SECURE_HSTS_SECONDS` | keep `0` until step 9 |
+| `BACKUP_HEARTBEAT_URL` | filled in step 10 (optional) |
 
-The hostname and Redis lines are already right. Check the file has no blanks you meant to fill: `grep -n '=$' /opt/fintank/.env` (the empty `CADDY_GLOBAL_OPTS=`, `DATABASE_SSLMODE=` and `STRIPE_WEBHOOK_SECRET=` are expected for now).
+The hostname and Redis lines are already right. Check the file has no blanks you meant to fill: `grep -n '=$' /opt/fintank/.env` (the empty `CADDY_GLOBAL_OPTS=`, `DATABASE_SSLMODE=`, `STRIPE_WEBHOOK_SECRET=` and `BACKUP_HEARTBEAT_URL=` are expected for now).
+
+**Save a copy of the finished `.env` in your password manager, and update it whenever you change the file.** The nightly backup holds only the database. Apart from an instance snapshot, nothing else holds these values.
 
 ### 3e. Let the server pull private images
 
@@ -251,7 +254,7 @@ Confirm on the server (as `deploy`):
 ```bash
 cd /opt/fintank && export IMAGE_TAG=$(cat .image-tag)
 echo "$IMAGE_TAG"                   # a commit SHA
-docker compose ps                   # all services Up; api and db "healthy"
+docker compose ps                   # all services Up; api, web and db "healthy"
 curl -s https://api.thefintank.com/healthz/
 ```
 
@@ -332,12 +335,19 @@ Confirm: in Stripe, **Send test webhook** returns `200`.
 
 ## 9. Turn on HSTS
 
-Only after `https://www.thefintank.com` and `https://api.thefintank.com` both load without warnings. On the server set `SECURE_HSTS_SECONDS=3600` in `/opt/fintank/.env` and restart the api (same `up -d --force-recreate api worker` command). Browsers then insist on HTTPS for an hour. Raise it later only when you are sure.
+`www` already sends HSTS for one hour (`max-age=3600`) and `X-Frame-Options: SAMEORIGIN`, from the `header` lines in `deploy/Caddyfile`. Browsers ignore HSTS on a certificate they don't trust, so this is safe from the first deploy. This step does the same for `api`, which gets its header from Django.
+
+Only after `https://www.thefintank.com` and `https://api.thefintank.com` both load without warnings: on the server set `SECURE_HSTS_SECONDS=3600` in `/opt/fintank/.env` and restart the api (same `up -d --force-recreate api worker` command). Browsers then insist on HTTPS for an hour.
+
+Raise it later only when you are sure, in both places: `SECURE_HSTS_SECONDS` in `.env`, and `max-age` in `deploy/Caddyfile`. A deploy copies the Caddyfile but Caddy does not re-read it by itself, so after that deploy run `cd /opt/fintank && export IMAGE_TAG=$(cat .image-tag) && docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile`.
 
 ## 10. Monitoring
 
 - **Lightsail alarms**: instance `fintank`, **Metrics** tab. Add alarms for **CPU utilization** (above 80% for 15 minutes) and **Status check failed**, with **Email** notification to your address. Confirm the email subscription when it arrives.
 - **UptimeRobot** (free): add two HTTP(s) monitors, `https://www.thefintank.com/` and `https://api.thefintank.com/healthz/`, 5 minute interval, email alerts.
+- **Disk.** `bootstrap_server.sh` installed a daily cron entry for `check_disk.sh`, which emails through the alert topic when the disk is over 85% full. Each deploy already prunes images unused for a week. Test the alert once as `deploy` on the server: `DISK_ALERT_PERCENT=1 /opt/fintank/check_disk.sh` should bring an email titled "Fintank disk N% full". To look by hand: `df -h /` and `docker system df`.
+- **Backup dead-man's switch** (optional, free, and worth it). A failed backup emails you, but a dead cron or server sends nothing. At [healthchecks.io](https://healthchecks.io), create a check named `fintank-backup`, schedule **every 1 day**, grace **2 hours**, with email alerts. Copy its ping URL. On the server, set `BACKUP_HEARTBEAT_URL=` to it in `/opt/fintank/.env` (no restart needed; the backup script reads it each run). Treat the URL like a password: anyone holding it can fake a good backup. Step 11 turns the check green.
+- **Lightsail automatic snapshots.** Instance `fintank`, **Snapshots** tab, **Automatic snapshots**, enable, pick a daily time away from 07:30 UTC. They are billed per GB stored (check the rate shown). This is your way back from losing the whole server, including `.env` and the Docker volumes. Lightsail keeps the last 7. Deleting the instance keeps its snapshots, so delete them separately (see "Stopping and deleting").
 
 ## 11. Run one backup by hand
 
@@ -346,7 +356,7 @@ On the server as `deploy`:
 ```bash
 /opt/fintank/backup_db.sh
 tail -n 3 /var/log/fintank-backup.log
-crontab -l          # should contain: 30 7 * * * /opt/fintank/backup_db.sh >> /var/log/fintank-backup.log 2>&1
+crontab -l          # should contain the 30 7 * * * backup_db.sh line and the 15 7 * * * check_disk.sh line
 ```
 
 The first command should print `backup YYYYMMDD ok: s3://fintank-backups-137315715959/postgres/fintank-YYYYMMDD.dump (N bytes)`. Confirm the object exists, on your machine:
@@ -355,7 +365,55 @@ The first command should print `backup YYYYMMDD ok: s3://fintank-backups-1373157
 aws s3 ls s3://fintank-backups-137315715959/postgres/ --profile fintank
 ```
 
-(This uses your own SSO profile; the backup user itself cannot list, which is intended.) To test restore, practice once on a spare machine: `pg_restore --clean --if-exists -d DBNAME fintank-YYYYMMDD.dump`.
+(This uses your own SSO profile; the backup user itself cannot list or read, which is intended.)
+
+If you set `BACKUP_HEARTBEAT_URL`, the healthchecks.io check now shows green.
+
+### Restoring a backup
+
+**Practice once now**, without touching live data, by restoring into a scratch database next to the real one. First copy a dump to the server, from your machine:
+
+```bash
+aws s3 cp s3://fintank-backups-137315715959/postgres/fintank-YYYYMMDD.dump /tmp/restore.dump --profile fintank
+scp -i ~/.ssh/fintank_deploy /tmp/restore.dump deploy@SERVER_IP:restore.dump
+rm /tmp/restore.dump
+```
+
+Then on the server, as `deploy`. The second-to-last line should print a number above zero:
+
+```bash
+cd /opt/fintank && export IMAGE_TAG=$(cat .image-tag)
+docker compose exec -T db sh -c 'createdb -U "$POSTGRES_USER" restore_drill'
+docker compose exec -T db sh -c 'pg_restore --no-owner -U "$POSTGRES_USER" -d restore_drill' < ~/restore.dump
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d restore_drill -tAc "select count(*) from django_migrations"'
+docker compose exec -T db sh -c 'dropdb -U "$POSTGRES_USER" restore_drill'
+```
+
+Then `rm ~/restore.dump`.
+
+**The real thing** replaces the live database with the dump, so anything written since that dump is lost. Copy the dated dump to the server as above, then on the server:
+
+```bash
+cd /opt/fintank && export IMAGE_TAG=$(cat .image-tag)
+# Note the current counts, to compare afterwards.
+docker compose exec -T api python manage.py shell -c "from users.models import CustomUser; from stockuploader.models import Stock; print('users', CustomUser.objects.count(), 'stocks', Stock.objects.count())"
+# Keep a copy of what is there now, in case you need to come back to it.
+docker compose exec -T db sh -c 'pg_dump -Fc -U "$POSTGRES_USER" "$POSTGRES_DB"' > ~/before-restore.dump
+# Check the file is a readable dump. Stop here if this prints an error.
+docker compose exec -T db pg_restore -l < ~/restore.dump > /dev/null && echo readable
+# The site's data stops here.
+docker compose stop api worker
+docker compose exec -T db sh -c 'dropdb -U "$POSTGRES_USER" "$POSTGRES_DB" && createdb -U "$POSTGRES_USER" "$POSTGRES_DB"'
+docker compose exec -T db sh -c 'pg_restore --no-owner --single-transaction -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < ~/restore.dump
+# Brings the schema forward if the dump is older than the running code.
+docker compose run --rm api python manage.py migrate --noinput
+docker compose up -d api worker
+docker compose exec -T api python manage.py shell -c "from users.models import CustomUser; from stockuploader.models import Stock; print('users', CustomUser.objects.count(), 'stocks', Stock.objects.count())"
+```
+
+Compare the counts: they should match the day of the dump, and `stocks` should be `12881` or close to it. Log in on the site to confirm. If the restore fails, the database is left empty: run the same `dropdb`, `createdb` and `pg_restore` lines with `~/before-restore.dump` to go back. When you are happy, `rm ~/restore.dump ~/before-restore.dump`.
+
+**If the whole server is gone:** make a new instance from the latest snapshot (Lightsail, **Snapshots**, **Create new instance**) and attach the static IP `fintank-ip`. With no snapshot, redo steps 1 and 3 (use `.env` from your password manager), run **Fintank deploy** from GitHub Actions, then restore as above.
 
 ## 12. Later: clean up DigitalOcean
 
@@ -363,7 +421,7 @@ After a week of clean running: delete the archived app `thefintank-app` and the 
 
 ## 13. Move to Option A (managed database), before paying users
 
-Today Postgres runs in the `db` container on the same server (Option B). Backups exist but there is no point-in-time restore. Before real paying users, move to a Lightsail managed database (Option A, about 56 CAD/month total).
+Today Postgres runs in the `db` container on the same server (Option B). Backups exist but there is no point-in-time restore. Before real paying users, move to a Lightsail managed database (Option A, about 63 CAD/month total with tax).
 
 1. Lightsail, **Databases**, **Create database**: PostgreSQL 16, region `us-east-1`, the smallest **Standard** plan, **private** access only (not public), same VPC as the instance. Write down the endpoint, user, password and database name (`fintank_api`).
 2. Put the site in maintenance so no writes happen: simplest is to stop the web and api containers on the server: `cd /opt/fintank && export IMAGE_TAG=$(cat .image-tag) && docker compose stop web api worker`. (The site is down from here.)
@@ -382,22 +440,61 @@ Do these on `https://www.thefintank.com` with Stripe in **test mode**. Tick each
 
 - [ ] Sign up a new account, confirm the email link lands on `/completesignup`.
 - [ ] Log in and out.
-- [ ] Upload an avatar. It shows right away. Then restart the api (`cd /opt/fintank && IMAGE_TAG=$(cat .image-tag) docker compose restart api`) and reload: the avatar is still there (stored in S3, not the container).
-- [ ] **The avatar must be publicly readable.** Avatars load from `https://thetradingfloor.s3.amazonaws.com/media/...`. Right-click the avatar, open the image in a new tab. If you see `AccessDenied`, follow "If media is not public" below. Do not assume it works.
+- [ ] Pick an avatar in the profile page. It shows right away, and is still there after a reload. (The UI only offers presets, which the website ships itself, so this does not touch S3.)
+- [ ] **Prove S3 storage works**, with the upload the API accepts but the UI does not send yet. See "Avatar upload test" below.
 - [ ] Add and remove a stock on the watchlist.
 - [ ] Stock search returns results.
 - [ ] An index chart loads.
 - [ ] The heatmap loads.
+- [ ] **Time the heatmap's cold path once.** See "Heatmap timing" below.
 - [ ] News shows articles.
 - [ ] Run a backtest to completion.
 - [ ] Billing: start a checkout with Stripe test card `4242 4242 4242 4242`, finish it, confirm the account shows Pro and Stripe shows a `200` for the webhook delivery.
 - [ ] On the server, after clicking through: `free -m` (swap use should be small) and `docker stats --no-stream` (nothing near its memory limit: api 1500m, worker 800m, web 700m).
 
-When all pass, switch Stripe to live keys (`STRIPE_SECRET_KEY`, prices, a live-mode webhook with its own `STRIPE_WEBHOOK_SECRET`), recreate api and worker, and run one real small payment.
+When all pass, switch Stripe to live keys (`STRIPE_SECRET_KEY`, prices, a live-mode webhook with its own `STRIPE_WEBHOOK_SECRET`), recreate api and worker, and run one real small payment **from a new account**. An account that went through test mode keeps its test `stripe_customer_id`, and live Stripe rejects that.
+
+### Avatar upload test
+
+On your machine, from `fintank/`, with the email of an account you signed up with. Nothing here goes into your shell history or the process list, and no token is printed. `alloc-card.png` is any small image.
+
+```bash
+read -r -p 'Email: ' FINTANK_USER; read -rs -p 'Password: ' FINTANK_PW; echo
+export FINTANK_USER FINTANK_PW
+TOKEN=$(python3 -c 'import json, os; print(json.dumps({"username": os.environ["FINTANK_USER"], "password": os.environ["FINTANK_PW"]}))' \
+  | curl -s https://api.thefintank.com/api/auth/token/ -H 'Content-Type: application/json' -d @- \
+  | python3 -c 'import json, sys; print(json.load(sys.stdin)["access"])')
+unset FINTANK_PW
+printf 'header = "Authorization: Bearer %s"\n' "$TOKEN" \
+  | curl -s -K - -X PATCH https://api.thefintank.com/api/users/me/profile/avatar/ -F 'avatar_upload=@alloc-card.png' \
+  | python3 -c 'import json, sys; print(json.load(sys.stdin)["avatar_url"])'
+unset TOKEN FINTANK_USER
+```
+
+It prints the avatar's address, which must start `https://thetradingfloor.s3.amazonaws.com/media/`. To confirm the object exists, whatever its visibility: `aws s3 ls s3://thetradingfloor/media/avatars/ --recursive --profile fintank | tail -n 3`.
+
+That account now has an uploaded avatar, and opening that address in a browser gives `AccessDenied` unless media is public. **That is fine while the UI only offers presets:** nobody can upload, so nothing needs to be public, and the bucket should stay closed. To put the test account back, pick a preset on its profile page. Only if you later add uploads to the UI, follow "If media is not public" below.
+
+### Heatmap timing
+
+The heatmap's first request after its cache expires builds all six universes inside the web request, and gunicorn kills any request over 120 seconds. Find out how long it takes on this server. On the server:
+
+```bash
+cd /opt/fintank && export IMAGE_TAG=$(cat .image-tag)
+docker compose exec -T redis redis-cli -n 15 --scan --pattern '*home:universe_constituents_returns:*' \
+  | xargs -r docker compose exec -T redis redis-cli -n 15 del
+time curl -s -o /dev/null -w '%{http_code}\n' --max-time 300 https://api.thefintank.com/api/constituent-returns/sp500/
+```
+
+Write the time down in `docs/RECENT_CHANGES.md`.
+
+- **Under about 90 seconds, status 200:** nothing to do.
+- **Over 120 seconds, or status 502:** the first visitor after expiry gets an error and the work is thrown away. Add a Celery beat entry for `analyzer.tasks.update_universe_constituent_performance` (the task exists but is not scheduled, and it skips while the market is closed) so the cache rarely goes cold, and decide then whether gunicorn also needs `--threads`. Until that ships, warm it by hand after each Redis restart, any time of day: `docker compose exec -T worker python manage.py shell -c "from analyzer.analyzer_utils.CorePerformanceTools import get_universe_constituents_returns as f; f()"`.
+- **In between:** it works, but one slow day from FMP would break it. Plan the same change.
 
 ### If media is not public
 
-Only needed if the avatar test shows `AccessDenied`. Make only `media/*` public, never the whole bucket.
+Only needed if the UI starts offering uploads (or you add presets backed by uploaded files), and only then. Until that day, skip this section: it opens part of the bucket to the internet for nothing. Make only `media/*` public, never the whole bucket.
 
 1. S3 console, bucket `thetradingfloor`, **Permissions**, **Block public access**, **Edit**. Untick only **Block public access to buckets and accounts through new public bucket or access point policies** and **Block public and cross-account access to buckets and accounts through any public bucket or access point policies** (leave the two ACL options ticked). Save and confirm.
 2. Same tab, **Bucket policy**, **Edit**. Add this statement to the existing list (keep what is there):
@@ -420,9 +517,19 @@ Only needed if the avatar test shows `AccessDenied`. Make only `media/*` public,
 
 **Caddy cannot get a certificate (browser says connection failed or insecure; `docker compose logs caddy` shows ACME or "no valid A records" errors).** DNS has not propagated or points at the wrong IP. Run the three `dns.google` checks from step 4; fix the records until they all return `SERVER_IP`. Check ports 80 and 443 are open in the Lightsail firewall. Then `cd /opt/fintank && export IMAGE_TAG=$(cat .image-tag) && docker compose restart caddy` and watch `docker compose logs -f caddy`. Let's Encrypt rate-limits repeated failures, so fix DNS before retrying many times.
 
-**The deploy rolled back.** The GitHub Action fails and the log says `redeploying previous tag ...` (or "no previous tag" on the first deploy). The site keeps running on the previous version. Look at what failed: open the failed run in GitHub Actions, then on the server `cd /opt/fintank && export IMAGE_TAG=$(cat .image-tag) && docker compose ps && docker compose logs --tail 100 api`. Common causes: a missing or wrong value in `.env`, a failing migration, or `ghcr.io` login expired (`docker login` again). Fix it and push again, or use **Run workflow**. Database migrations are not rolled back, so keep them backward compatible. To pin a specific old version by hand: `IMAGE_TAG=<sha> docker compose up -d`.
+**The deploy rolled back.** The GitHub Action fails and the log says `not healthy after ...` or `worker is not stable`, then `redeploying previous tag ...` (or "no previous tag" on the first deploy). The site keeps running on the previous version. Look at what failed: open the failed run in GitHub Actions, then on the server `cd /opt/fintank && export IMAGE_TAG=$(cat .image-tag-attempt) && docker compose ps && docker compose logs --tail 100 api web worker`. `.image-tag-attempt` is the tag the last deploy tried, and it always exists; `.image-tag` is the last good one, and does not exist until a first deploy has succeeded. Common causes: a missing or wrong value in `.env`, a failing migration, or `ghcr.io` login expired (`docker login` again). Fix it and push again, or use **Run workflow**. Database migrations are not rolled back, so keep them backward compatible.
 
-**A "Fintank DB backup FAILED" email.** It names the date and step: `pg_dump` (the `db` container is down or unhealthy: `cd /opt/fintank && export IMAGE_TAG=$(cat .image-tag) && docker compose ps`), `dump size check` (empty dump), or `upload` (AWS credentials or bucket: `aws sts get-caller-identity` as `deploy`, check `~/.aws/credentials` and the backup bucket name in `.env`). Details are in `tail -n 50 /var/log/fintank-backup.log`. Fix, then rerun `/opt/fintank/backup_db.sh` to confirm. If you get no email at all for a day, check the log and `crontab -l` as `deploy`, and that you confirmed the SNS email subscription.
+To pin a specific old version by hand, also record it, or the next deploy's rollback and your own commands will use the wrong tag: `cd /opt/fintank && IMAGE_TAG=<sha> docker compose up -d && echo <sha> > .image-tag`. The two most recent versions are always kept on the server (as stopped `fintank-rollback-*` containers in `docker ps -a`, which are expected). An older one is pulled from `ghcr.io`.
+
+**The api or worker can't log in to the database (`password authentication failed`), often after a failed first deploy.** `DATABASE_PASSWORD` only takes effect when the `db` volume is first created, so changing it in `.env` afterwards does not change the database. Put the original password back. If this is a first deploy and there is no data yet, you can instead start clean: `cd /opt/fintank && export IMAGE_TAG=$(cat .image-tag-attempt) && docker compose down -v` (this **deletes the database**), then deploy again.
+
+**The disk alert fired.** `df -h /` and `docker system df` show what is using it. Unused images: `docker image prune -af --filter until=168h`. Then check the size of `/var/log/fintank-backup.log`. Do not run `docker system prune --volumes`: it can delete the database. Lightsail lets you grow the instance from a snapshot if the disk is simply too small.
+
+**Moving Postgres, Redis or Caddy to a newer image.** Deploys pull only `web`, `api` and `worker`, so these three stay on the image already on the server, including its security fixes, until you choose. Pick a quiet time, then `cd /opt/fintank && export IMAGE_TAG=$(cat .image-tag) && docker compose pull caddy redis db && docker compose up -d caddy redis db`. Each one pulled and changed restarts: Postgres drops connections for a few seconds, Redis comes back empty (the site refills its cache, slowly at first), and Caddy keeps its certificates. Do it every few months. Back up first. `postgres:16-alpine` only moves within 16; going to 17 needs a dump and restore, not this.
+
+**A "Fintank DB backup FAILED" email.** It names the date and step: `pg_dump` (the `db` container is down or unhealthy: `cd /opt/fintank && export IMAGE_TAG=$(cat .image-tag) && docker compose ps`), `dump size check` (empty dump), or `upload` (AWS credentials or bucket: `aws sts get-caller-identity` as `deploy`, check `~/.aws/credentials` and the backup bucket name in `.env`). Details are in `tail -n 50 /var/log/fintank-backup.log`. Fix, then rerun `/opt/fintank/backup_db.sh` to confirm. No email is the normal state: this alert only fires on failure, so silence cannot tell you a backup ran. That is what the healthchecks.io check is for (step 10). If it alerts, or to check by hand, look at the log and `crontab -l` as `deploy`, and that the day's object exists (step 11). To prove the failure email itself still works, confirm you accepted the SNS email subscription, then run the disk alert test from step 10, which uses the same topic.
+
+**A login gets `429` or "Request was throttled".** The auth endpoints are rate limited: 10 attempts a minute per account, 60 logins a minute across `www` (they all reach Django from the server's own address), and 20 signups an hour per address. It clears within the period shown. Rates are `AUTH_THROTTLE_RATES` in `backend/fintank_backend/settings.py`. The Django admin login is not covered, so use a long password there.
 
 **Locked out of SSH.** The `ubuntu` user still works with the Lightsail default key. As a last resort, use the Lightsail console's browser SSH (instance, **Connect**).
 
