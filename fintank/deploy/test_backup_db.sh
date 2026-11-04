@@ -28,6 +28,12 @@ if [ "\$1 \$2" = "s3 cp" ] && [ "\${STUB_CP_FAIL:-}" = 1 ]; then exit 1; fi
 if [ "\$1 \$2" = "sns publish" ] && [ "\${STUB_SNS_FAIL:-}" = 1 ]; then exit 1; fi
 exit 0
 STUB
+  cat > "$BIN/curl" <<STUB
+#!/usr/bin/env bash
+echo "curl \$*" >> "$LOG"
+if [ "\${STUB_CURL_FAIL:-}" = 1 ]; then echo "curl: (6) could not resolve \$*" >&2; exit 6; fi
+exit 0
+STUB
   cat > "$BIN/date" <<'STUB'
 #!/usr/bin/env bash
 echo 20261104
@@ -88,9 +94,57 @@ t_missing_config_fails() {
   ! grep -q 'aws s3 cp' "$LOG"
 }
 
+HEARTBEAT=https://hc-ping.example.test/secret-check-id
+
+t_heartbeat_pinged_after_success() {
+  new_case hb; STUB_DUMP=ok BACKUP_HEARTBEAT_URL="$HEARTBEAT" run_backup hb; local rc=$?
+  [ "$rc" -eq 0 ] || return 1
+  grep -q "curl .*$HEARTBEAT" "$LOG" || return 1
+  # The ping comes after the upload, so it means the backup really reached S3.
+  [ "$(grep -n 'aws s3 cp' "$LOG" | cut -d: -f1)" -lt "$(grep -n 'curl ' "$LOG" | cut -d: -f1)" ]
+}
+
+t_heartbeat_url_read_from_env_file() {
+  new_case hf
+  printf 'BACKUP_HEARTBEAT_URL=%s\n' "$HEARTBEAT" > "$WORK/env-hf"
+  PATH="$BIN:$PATH" BACKUP_BUCKET=test-bucket ALERT_TOPIC_ARN=arn:aws:sns:us-east-1:1:topic \
+    BACKUP_ENV_FILE="$WORK/env-hf" bash "$DEPLOY_DIR/backup_db.sh" >"$WORK/out-hf" 2>&1 || return 1
+  grep -q "curl .*$HEARTBEAT" "$LOG"
+}
+
+t_heartbeat_not_pinged_when_unset() {
+  new_case hn; STUB_DUMP=ok run_backup hn || return 1
+  ! grep -q 'curl ' "$LOG"
+}
+
+t_heartbeat_not_pinged_on_failure() {
+  for failure in dump upload; do
+    new_case "hx$failure"
+    if [ "$failure" = dump ]; then
+      STUB_DUMP=fail BACKUP_HEARTBEAT_URL="$HEARTBEAT" run_backup "hx$failure" && return 1
+    else
+      STUB_CP_FAIL=1 BACKUP_HEARTBEAT_URL="$HEARTBEAT" run_backup "hx$failure" && return 1
+    fi
+    ! grep -q 'curl ' "$LOG" || return 1
+  done
+}
+
+t_heartbeat_failure_does_not_fail_the_backup() {
+  new_case hk; STUB_DUMP=ok STUB_CURL_FAIL=1 BACKUP_HEARTBEAT_URL="$HEARTBEAT" run_backup hk; local rc=$?
+  [ "$rc" -eq 0 ] || return 1
+  grep -q 'backup 20261104 ok' "$WORK/out-hk" || return 1
+  grep -qi 'heartbeat' "$WORK/out-hk" || return 1
+  ! grep -q 'sns publish' "$LOG" || return 1
+  # The URL is a credential of sorts: anyone holding it can fake a good backup.
+  ! grep -q 'secret-check-id' "$WORK/out-hk"
+}
+
 for t in success_uploads_dated_key pg_dump_failure_alerts_and_uploads_nothing \
          empty_dump_alerts_and_uploads_nothing upload_failure_alerts \
-         alert_failure_still_exits_nonzero missing_config_fails; do
+         alert_failure_still_exits_nonzero missing_config_fails \
+         heartbeat_pinged_after_success heartbeat_url_read_from_env_file \
+         heartbeat_not_pinged_when_unset heartbeat_not_pinged_on_failure \
+         heartbeat_failure_does_not_fail_the_backup; do
   "t_$t"; report "$t" $?
 done
 

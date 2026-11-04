@@ -10,8 +10,12 @@
 # error output) goes to $ALERT_TOPIC_ARN. Exits non-zero on any failure.
 #
 # BACKUP_BUCKET and ALERT_TOPIC_ARN come from the environment, or else from
-# the .env next to the compose file (only those two keys are read; the file is
+# the .env next to the compose file (only those keys are read; the file is
 # never sourced). BACKUP_ENV_FILE overrides the .env path.
+#
+# BACKUP_HEARTBEAT_URL (optional, same sources) is pinged after a successful
+# upload, for a dead-man's switch that alerts when this script stops running at
+# all. A failed ping is noted in the log and does not fail the backup.
 set -euo pipefail
 
 # Cron has a minimal PATH; append the standard dirs (existing entries win).
@@ -28,6 +32,7 @@ read_env_key() { # read_env_key <KEY>: print the value from the env file, if any
 }
 if [ -z "${BACKUP_BUCKET:-}" ]; then BACKUP_BUCKET="$(read_env_key BACKUP_BUCKET)"; fi
 if [ -z "${ALERT_TOPIC_ARN:-}" ]; then ALERT_TOPIC_ARN="$(read_env_key ALERT_TOPIC_ARN)"; fi
+if [ -z "${BACKUP_HEARTBEAT_URL:-}" ]; then BACKUP_HEARTBEAT_URL="$(read_env_key BACKUP_HEARTBEAT_URL)"; fi
 : "${BACKUP_BUCKET:?BACKUP_BUCKET is required}"
 : "${ALERT_TOPIC_ARN:?ALERT_TOPIC_ARN is required}"
 
@@ -71,3 +76,10 @@ if ! aws s3 cp --sse AES256 --only-show-errors "$TMPFILE" "s3://$BACKUP_BUCKET/$
 fi
 
 echo "backup $DATE ok: s3://$BACKUP_BUCKET/$KEY ($SIZE bytes)"
+
+# Output discarded: the URL is enough to fake a good backup, so keep it out of logs.
+if [ -n "$BACKUP_HEARTBEAT_URL" ]; then
+  if ! curl -fsS --max-time 15 --retry 2 -o /dev/null "$BACKUP_HEARTBEAT_URL" >/dev/null 2>&1; then
+    echo "backup $DATE: heartbeat ping failed (the backup itself succeeded)" >&2
+  fi
+fi
