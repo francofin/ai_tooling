@@ -5,6 +5,10 @@
 }
 
 {$SITE_HOST} {
+	# One hour, as a first step: see "Turn on HSTS" in README.md. The api's HSTS
+	# comes from Django (SECURE_HSTS_SECONDS).
+	header Strict-Transport-Security "max-age=3600"
+	header X-Frame-Options SAMEORIGIN
 	reverse_proxy web:3000
 }
 

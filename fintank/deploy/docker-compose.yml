@@ -35,6 +35,18 @@ services:
     image: ghcr.io/francofin/fintank-web:${IMAGE_TAG:?IMAGE_TAG is required}
     restart: unless-stopped
     mem_limit: 700m
+    healthcheck:
+      # /login is prerendered, so this stays independent of the api. deploy.sh
+      # requires it healthy.
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/login').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 10s
+      timeout: 8s
+      retries: 5
+      start_period: 30s
     logging: *logging
 
   api:
@@ -65,6 +77,8 @@ services:
     <<: *api-env
     command: ["celery", "-A", "fintank_backend", "worker", "-B", "-l", "info", "--concurrency", "1", "-s", "/tmp/celerybeat-schedule"]
     restart: unless-stopped
+    # Long enough for a running task to finish on a deploy; Compose's default is 10s.
+    stop_grace_period: 120s
     mem_limit: 800m
     depends_on:
       db:

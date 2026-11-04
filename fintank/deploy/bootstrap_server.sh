@@ -6,7 +6,7 @@
 #
 # It installs Docker + Compose, AWS CLI, unattended-upgrades and fail2ban, adds
 # 2 GB swap, creates the `deploy` user (docker group) and /opt/fintank, installs
-# the nightly backup cron entry, and hardens SSH (key-only, no root login).
+# the nightly backup and disk check cron entries, and hardens SSH (key-only, no root login).
 #
 # Lock-out protection: SSH hardening is skipped (with a warning) unless `deploy`
 # already has a non-empty authorized_keys, and the new config is checked with
@@ -22,6 +22,7 @@ DEPLOY_USER=deploy
 APP_DIR=/opt/fintank
 BACKUP_LOG=/var/log/fintank-backup.log
 CRON_LINE="30 7 * * * $APP_DIR/backup_db.sh >> $BACKUP_LOG 2>&1"
+DISK_CRON_LINE="15 7 * * * $APP_DIR/check_disk.sh >> $BACKUP_LOG 2>&1"
 export DEBIAN_FRONTEND=noninteractive
 
 echo "== packages"
@@ -97,6 +98,10 @@ chmod 640 "$BACKUP_LOG"
 EXISTING="$(crontab -u "$DEPLOY_USER" -l 2>/dev/null || true)"
 if ! printf '%s\n' "$EXISTING" | grep -qF "$APP_DIR/backup_db.sh"; then
   { printf '%s\n' "$EXISTING" | sed '/^$/d'; echo "$CRON_LINE"; } | crontab -u "$DEPLOY_USER" -
+fi
+EXISTING="$(crontab -u "$DEPLOY_USER" -l 2>/dev/null || true)"
+if ! printf '%s\n' "$EXISTING" | grep -qF "$APP_DIR/check_disk.sh"; then
+  { printf '%s\n' "$EXISTING" | sed '/^$/d'; echo "$DISK_CRON_LINE"; } | crontab -u "$DEPLOY_USER" -
 fi
 
 echo "== fail2ban"

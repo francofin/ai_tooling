@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2329  # the check functions are invoked through `check`/`retry`
 # Local smoke test for the production stack. Run: sg docker -c 'bash deploy/smoke.sh'
 #
 # Needs fintank-api:test and fintank-web:test in the local image store. Brings
@@ -23,13 +24,15 @@ export COMPOSE_ENV_FILES="$TMP/env"
 export ENV_FILE="$TMP/env"
 export IMAGE_TAG=smoke-good
 export DEPLOY_SKIP_PULL=1
+# Pruning here would delete unused images on the machine running the test.
+export DEPLOY_SKIP_PRUNE=1
 export IMAGE_TAG_FILE="$TMP/image-tag"
 export DEPLOY_HEALTH_TIMEOUT=45
 
 cleanup() {
   docker compose down -v --remove-orphans >/dev/null 2>&1
-  docker rmi fintank-api:smoke-good fintank-api:smoke-bad \
-    fintank-web:smoke-good fintank-web:smoke-bad >/dev/null 2>&1
+  docker rmi fintank-api:smoke-good fintank-api:smoke-bad fintank-api:smoke-badweb fintank-api:smoke-badworker \
+    fintank-web:smoke-good fintank-web:smoke-bad fintank-web:smoke-badweb fintank-web:smoke-badworker >/dev/null 2>&1
   rm -rf "$TMP"
 }
 trap cleanup EXIT
@@ -70,6 +73,15 @@ docker tag fintank-web:test fintank-web:smoke-bad
 # A "bad release": same image, but the default command exits 1, so the api never gets healthy.
 printf 'FROM fintank-api:smoke-good\nCMD ["sh", "-c", "exit 1"]\n' | docker build -q -t fintank-api:smoke-bad - >/dev/null \
   || { echo "could not build the bad api image" >&2; exit 1; }
+# A release whose site is down: api and worker fine, web exits at once.
+docker tag fintank-api:test fintank-api:smoke-badweb
+printf 'FROM fintank-web:smoke-good\nCMD ["sh", "-c", "exit 1"]\n' | docker build -q -t fintank-web:smoke-badweb - >/dev/null \
+  || { echo "could not build the bad web image" >&2; exit 1; }
+# A release whose worker crash-loops: api and web fine, only `celery` is broken.
+docker tag fintank-web:test fintank-web:smoke-badworker
+printf "FROM fintank-api:smoke-good\nUSER root\nRUN printf '#!/bin/sh\\\\nexit 1\\\\n' > /app/.venv/bin/celery\nUSER app\n" \
+  | docker build -q -t fintank-api:smoke-badworker - >/dev/null \
+  || { echo "could not build the bad worker image" >&2; exit 1; }
 
 # --- dummy env (no real secrets, no AWS credentials) -------------------------
 rnd() { head -c 24 /dev/urandom | base64 | tr -d '/+=\n'; }
@@ -119,6 +131,17 @@ check "GET api /healthz/ -> 200, db and redis true" retry 60 healthz_ok
 
 www_ok() { [ "$(hcurl www.smoke.test / -o /dev/null -w '%{http_code}')" = 200 ]; }
 check "GET www / -> 200" retry 60 www_ok
+
+web_healthy() { [ "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q web)")" = healthy ]; }
+check "web container reports healthy" web_healthy
+
+www_headers() {
+  local headers
+  headers="$(hcurl www.smoke.test / -o /dev/null -D -)" || return 1
+  grep -qi '^strict-transport-security: max-age=' <<<"$headers" || { echo "no HSTS"; return 1; }
+  grep -qi '^x-frame-options: SAMEORIGIN' <<<"$headers" || { echo "no frame protection"; return 1; }
+}
+check "www sends HSTS and SAMEORIGIN frame protection" www_headers
 
 apex_redirect() {
   local r
@@ -179,19 +202,23 @@ restore_check() {
 }
 check "pg_dump restores into a scratch db with the same django_migrations count" restore_check
 
-# DEPLOY ROLLBACK. Runs last because it replaces the api container.
-rollback_case() {
+# DEPLOY ROLLBACK. Runs last because it replaces the containers.
+rollback_case() { # rollback_case <bad-tag>
   local rc cid
-  bash "$DEPLOY_DIR/deploy.sh" smoke-bad >"$TMP/rollback.log" 2>&1
+  bash "$DEPLOY_DIR/deploy.sh" "$1" >"$TMP/rollback.log" 2>&1
   rc=$?
   [ "$rc" -eq 1 ] || { echo "deploy.sh exit code $rc, expected 1"; tail -n 5 "$TMP/rollback.log"; return 1; }
   [ "$(cat "$IMAGE_TAG_FILE")" = smoke-good ] || { echo ".image-tag changed"; return 1; }
+  [ "$(cat "$IMAGE_TAG_FILE-attempt")" = "$1" ] || { echo ".image-tag-attempt not recorded"; return 1; }
+  grep -q 'rolled back to smoke-good' "$TMP/rollback.log" || { echo "rollback did not finish"; tail -n 5 "$TMP/rollback.log"; return 1; }
   cid="$(docker compose ps -q api)"
   [ "$(docker inspect -f '{{.Config.Image}}' "$cid")" = fintank-api:smoke-good ] || { echo "api is not on smoke-good"; return 1; }
   [ "$(docker inspect -f '{{.State.Health.Status}}' "$cid")" = healthy ] || { echo "api not healthy after rollback"; return 1; }
   healthz_ok
 }
-check "deploy.sh with a failing tag exits 1 and the previous tag stays up" rollback_case
+check "deploy.sh with a failing api exits 1 and the previous tag stays up" rollback_case smoke-bad
+check "deploy.sh with a failing web exits 1 and the previous tag stays up" rollback_case smoke-badweb
+check "deploy.sh with a crash-looping worker exits 1 and the previous tag stays up" rollback_case smoke-badworker
 
 echo
 if [ "$FAILS" -eq 0 ]; then echo "SMOKE: all checks passed"; exit 0; fi
