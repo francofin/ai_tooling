@@ -59,7 +59,7 @@ aws s3api put-bucket-lifecycle-configuration --bucket "$BUCKET" --lifecycle-conf
 
 (No `LocationConstraint` is needed in `us-east-1`.)
 
-**Two IAM users, one per job.** The policy files are `deploy/iam-django-policy.json` (read `thetradingfloor`, write only `media/*`) and `deploy/iam-backup-policy.json` (upload only to the backup bucket's `postgres/*`, publish only to the alert topic). Never reuse the pipeline or your admin keys.
+**Two IAM users, one per job.** The policy files are `deploy/iam-django-policy.json` (read `thetradingfloor`, write only `media/*` and `backtest_results/*`) and `deploy/iam-backup-policy.json` (upload only to the backup bucket's `postgres/*`, publish only to the alert topic). Never reuse the pipeline or your admin keys.
 
 ```bash
 aws iam create-user --user-name fintank-django

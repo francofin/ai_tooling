@@ -14,10 +14,16 @@
       "Resource": "arn:aws:s3:::thetradingfloor/*"
     },
     {
-      "Sid": "WriteMediaOnly",
+      "Sid": "WriteMedia",
       "Effect": "Allow",
       "Action": ["s3:PutObject", "s3:DeleteObject"],
       "Resource": "arn:aws:s3:::thetradingfloor/media/*"
+    },
+    {
+      "Sid": "WriteBacktestResults",
+      "Effect": "Allow",
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::thetradingfloor/backtest_results/*"
     }
   ]
 }

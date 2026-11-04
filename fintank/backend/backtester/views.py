@@ -114,10 +114,12 @@ def submit_run(request):
     request_hash = _request_hash(parsed)
 
     # Rule 1: an identical request serves from the existing run and is free.
-    # Without this, toggling a chart option burns a credit.
+    # Without this, toggling a chart option burns a credit. A run with no durable
+    # result is skipped: once Redis expires it can only answer 410, for good.
     existing = (BacktestRun.objects
                 .filter(user=request.user, request_hash=request_hash,
                         status=BacktestRun.STATUS_COMPLETE)
+                .exclude(result_key='')
                 .order_by('-created_at')
                 .first())
     if existing:

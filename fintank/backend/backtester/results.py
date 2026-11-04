@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import logging
 
 import numpy as np
 import pandas as pd
@@ -20,6 +21,8 @@ from .engine.config import optimizer_config
 from .engine.diagnostics import build_diagnostics
 from .engine.frontier import sample_frontier
 from .engine.metrics import compute_metrics
+
+logger = logging.getLogger(__name__)
 
 data_getter = GetData()
 
@@ -181,9 +184,11 @@ def store_payload(user_id, task_id, payload: dict) -> str:
     key = f"{S3_PREFIX}/{user_id}/{task_id}.json"
     try:
         _write_to_s3(key, payload)
-    except Exception:
+    except Exception as exc:
         # Redis already has it and the UI reads from there; a durable-write
-        # failure must not fail a completed run.
+        # failure must not fail a completed run. An empty key also stops the
+        # submit view reusing this run once Redis expires.
+        logger.error("Backtest result not stored in S3: %s", type(exc).__name__)
         return ''
     return key
 

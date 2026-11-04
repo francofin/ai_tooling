@@ -301,7 +301,8 @@ class SubmitRunTests(TestCase):
         response, _ = self._submit()
         run = BacktestRun.objects.get(task_id=response.data['task_id'])
         run.status = BacktestRun.STATUS_COMPLETE
-        run.save(update_fields=['status'])
+        run.result_key = 'backtest_results/1/done.json'
+        run.save(update_fields=['status', 'result_key'])
 
         repeat, enqueue = self._submit()
 
@@ -311,12 +312,29 @@ class SubmitRunTests(TestCase):
         enqueue.assert_not_called()
         self.assertEqual(BacktestRun.objects.count(), 1)
 
+    def test_a_repeat_of_a_run_with_no_durable_result_runs_again(self):
+        """A run whose S3 write failed ends on 410 once Redis expires, so serving
+        it again would leave that request stuck on 410 forever."""
+        response, _ = self._submit()
+        run = BacktestRun.objects.get(task_id=response.data['task_id'])
+        run.status = BacktestRun.STATUS_COMPLETE
+        run.result_key = ''
+        run.save(update_fields=['status', 'result_key'])
+
+        repeat, enqueue = self._submit()
+
+        self.assertEqual(repeat.status_code, 202)
+        self.assertFalse(repeat.data['cached'])
+        self.assertNotEqual(repeat.data['task_id'], response.data['task_id'])
+        enqueue.assert_called_once()
+
     def test_the_hash_ignores_irrelevant_key_order_and_casing(self):
         first, _ = self._submit({'holdings': [{'symbol': 'aapl'}, {'symbol': 'vti'}],
                                  'rebalance_frequency': 'annual'})
         run = BacktestRun.objects.get(task_id=first.data['task_id'])
         run.status = BacktestRun.STATUS_COMPLETE
-        run.save(update_fields=['status'])
+        run.result_key = 'backtest_results/1/done.json'
+        run.save(update_fields=['status', 'result_key'])
 
         repeat, _ = self._submit({'rebalance_frequency': 'annual',
                                   'holdings': [{'symbol': 'AAPL'}, {'symbol': 'VTI'}]})
