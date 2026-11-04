@@ -150,13 +150,23 @@ apex_redirect() {
 }
 check "GET apex -> 301/308 to www" apex_redirect
 
-redis_policy() { docker compose exec -T redis redis-cli config get maxmemory-policy | grep -qx volatile-lru; }
+redis_policy() {
+  local out
+  out="$(docker compose exec -T redis redis-cli config get maxmemory-policy)" || return 1
+  grep -qx volatile-lru <<<"$out"
+}
 check "redis maxmemory-policy = volatile-lru" redis_policy
 
 redis_save_empty() { [ -z "$(docker compose exec -T redis redis-cli config get save | sed -n 2p | tr -d '\r')" ]; }
 check "redis persistence disabled (save empty)" redis_save_empty
 
-celery_ping() { docker compose exec -T worker celery -A fintank_backend inspect ping 2>&1 | grep -q pong; }
+# Output is captured first: under pipefail, `| grep -q` closes the pipe at the
+# first match and the writer's resulting failure would fail the check.
+celery_ping() {
+  local out
+  out="$(docker compose exec -T worker celery -A fintank_backend inspect ping 2>&1)" || return 1
+  grep -q pong <<<"$out"
+}
 check "worker answers celery inspect ping" retry 60 celery_ping
 
 check "manage.py check --deploy has no errors" \
