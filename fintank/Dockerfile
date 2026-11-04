@@ -7,6 +7,8 @@ FROM node:22-slim AS build
 WORKDIR /app
 # NEXT_PUBLIC_* values are inlined at build time, so they are build args.
 # No defaults: the caller supplies them. They exist only in this stage.
+# Real Firebase values are required at build: with them empty, prerender fails
+# (auth/invalid-api-key). Dummy values are for test builds only.
 ARG NEXT_PUBLIC_FINTANK_API_URL
 ARG NEXT_PUBLIC_CONFIRMATION_EMAIL_REDIRECT
 ARG NEXT_PUBLIC_FIREBASE_API
