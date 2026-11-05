@@ -1,6 +1,6 @@
 # Recent changes and how we operate now
 
-Last updated 2026-11-04. Read this first in a new session, then the linked docs for detail.
+Last updated 2026-11-05. Read this first in a new session, then the linked docs for detail.
 
 ## TL;DR
 
@@ -106,6 +106,7 @@ Other flags: `-c always_hold=false` (auto-publish clean runs), `-c news_notify=w
 
 ## Next steps / open items
 
+- **Remind the owner at go-live: is the admin login limit still right?** `/admin/login/` and `/login/` allow **30 attempts an hour** per address and per account (`form_login` and `form_login_account` in `AUTH_THROTTLE_RATES`, `backend/fintank_backend/settings.py`). The owner accepted 30 for now and wants to revisit how strict it is. Raise it during the go-live login check, and again before moving to paying users.
 1. Approve `lean-20261024-1000` if not yet done; redeploy for `f1eea95`. Next run Sat 2026-10-31.
 2. Delete the deactivated old AWS access key (around 2026-10-24).
 3. After 3 clean weekly runs (Oct 24, Oct 31, Nov 7): redeploy with `-c always_hold=false`.
