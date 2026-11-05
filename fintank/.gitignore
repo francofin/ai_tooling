@@ -85,3 +85,5 @@ blockchain/
 /infra/.venv/
 /infra/cdk.out/
 /infra/cdk.context.json
+deploy/.image-tag
+deploy/.image-tag-attempt

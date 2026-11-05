@@ -1,6 +1,6 @@
 # Recent changes and how we operate now
 
-Last updated 2026-11-04. Read this first in a new session, then the linked docs for detail.
+Last updated 2026-11-05. Read this first in a new session, then the linked docs for detail.
 
 ## TL;DR
 
@@ -9,6 +9,16 @@ Last updated 2026-11-04. Read this first in a new session, then the linked docs 
 - **Daily news run**: 09:30 UTC. Tests each file, uploads only the ones that pass, no approval needed.
 - Weekly runs currently **hold for manual approval** even when every check passes (`always_hold`). After 3 clean weekly runs, redeploy with `-c always_hold=false` so clean runs publish themselves.
 - Price downloads are **incremental** since 2026-10-18 (commit `c333bd0`), after FMP's monthly bandwidth cap was hit.
+
+## Web hosting (not live yet)
+
+**The site is not live until the owner finishes the server runbook `deploy/README.md`.** The old Heroku backend is deleted and the DigitalOcean app is archived.
+
+- Planned hosting: one Lightsail 4 GB instance in `us-east-1` running Docker Compose (Caddy, web, api, worker, redis, Postgres in a container) at `/opt/fintank`. DNS in Route 53.
+- Deploys: `.github/workflows/fintank-deploy.yml` on pushes to `main` (test, build images to GHCR, then SSH deploy via `deploy/deploy.sh`, only when the repo variable `DEPLOY_ENABLED` is `true`). A failed health check redeploys the previous image tag.
+- Nightly Postgres backup to `s3://fintank-backups-137315715959/postgres/` via `deploy/backup_db.sh` (cron on the server, SNS email on failure).
+- Local dev after this change: run `npm install` in `fintank/` (Next moved to 15.5.29) and set `DEBUG=True` in `backend/.env` (`DEBUG` now defaults to False).
+- Design and decisions: `docs/AWS_HOSTING_PLAN.md`. Move to a managed database before paying users: last section of the runbook.
 
 ## Where things live
 
@@ -96,7 +106,8 @@ Other flags: `-c always_hold=false` (auto-publish clean runs), `-c news_notify=w
 
 ## Next steps / open items
 
-1. Approve `lean-20261024-1000` if not yet done; redeploy for `f1eea95`. Next run Sat 2026-10-31.
+- **Bring this up with the owner at go-live: are the login limits still right?** `/admin/login/` and `/login/` allow **20 attempts an hour per address and 100 per account** (`form_login` and `form_login_account` in `AUTH_THROTTLE_RATES`, `backend/fintank_backend/settings.py`). The owner asked to be reminded of how strict this is. The account limit must stay well above the address limit, or one address can lock them out; the higher it is, the more guesses many addresses get. Ask during the go-live login check, and again before paying users. Other routes that test the same password have higher limits: see "A login gets `429`" in `deploy/README.md`.
+1. `lean-20261031-1000` is approved and published (2026-11-03). Redeploy for `f1eea95`, if not yet done. Next run Sat 2026-11-07, the first full run.
 2. Delete the deactivated old AWS access key (around 2026-10-24).
 3. After 3 clean weekly runs (Oct 24, Oct 31, Nov 7): redeploy with `-c always_hold=false`.
 4. Decide whether to drop the FMP data boost once real usage is known.

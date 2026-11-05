@@ -1,0 +1,123 @@
+# Fintank production stack. Run from /opt/fintank via deploy.sh <image-tag>.
+# Secrets live only in .env (never inline here); see env.example.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-api-env: &api-env
+  env_file:
+    - ${ENV_FILE:-.env}
+
+services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SITE_HOST: ${SITE_HOST}
+      APEX_HOST: ${APEX_HOST}
+      API_HOST: ${API_HOST}
+      CADDY_GLOBAL_OPTS: ${CADDY_GLOBAL_OPTS:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+      - api
+    logging: *logging
+
+  web:
+    image: ghcr.io/francofin/fintank-web:${IMAGE_TAG:?IMAGE_TAG is required}
+    restart: unless-stopped
+    mem_limit: 700m
+    healthcheck:
+      # /login is prerendered, so this stays independent of the api. deploy.sh
+      # requires it healthy.
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/login').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 10s
+      timeout: 8s
+      retries: 5
+      start_period: 30s
+    logging: *logging
+
+  api:
+    image: ghcr.io/francofin/fintank-api:${IMAGE_TAG:?IMAGE_TAG is required}
+    <<: *api-env
+    restart: unless-stopped
+    mem_limit: 1500m
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      # No curl in the image; Host defaults to localhost, which ALLOWED_HOSTS must include.
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz/', timeout=5).status == 200 else 1)"
+      interval: 10s
+      timeout: 8s
+      retries: 5
+      start_period: 30s
+    logging: *logging
+
+  worker:
+    image: ghcr.io/francofin/fintank-api:${IMAGE_TAG:?IMAGE_TAG is required}
+    <<: *api-env
+    command: ["celery", "-A", "fintank_backend", "worker", "-B", "-l", "info", "--concurrency", "1", "-s", "/tmp/celerybeat-schedule"]
+    restart: unless-stopped
+    # Long enough for a running task to finish on a deploy; Compose's default is 10s.
+    stop_grace_period: 120s
+    mem_limit: 800m
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    logging: *logging
+
+  redis:
+    image: redis:7-alpine
+    # Each argument is its own list item so the empty --save "" survives.
+    command: ["redis-server", "--maxmemory", "300mb", "--maxmemory-policy", "volatile-lru", "--save", "", "--appendonly", "no"]
+    restart: unless-stopped
+    mem_limit: 350m
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    logging: *logging
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    mem_limit: 512m
+    environment:
+      POSTGRES_DB: ${DATABASE_NAME}
+      POSTGRES_USER: ${DATABASE_USER}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    logging: *logging
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

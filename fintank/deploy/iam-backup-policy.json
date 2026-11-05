@@ -1,0 +1,17 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "UploadDumps",
+      "Effect": "Allow",
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::fintank-backups-137315715959/postgres/*"
+    },
+    {
+      "Sid": "PublishFailureAlerts",
+      "Effect": "Allow",
+      "Action": "sns:Publish",
+      "Resource": "arn:aws:sns:us-east-1:137315715959:fintank-pipeline-alerts"
+    }
+  ]
+}

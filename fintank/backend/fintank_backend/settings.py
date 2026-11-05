@@ -12,13 +12,27 @@ https://docs.djangoproject.com/en/4.0/ref/settings/
 
 from pathlib import Path
 import os
+import sys
 from datetime import timedelta
 from dotenv import load_dotenv
 from decouple import config
 import dj_database_url
 from celery.schedules import crontab
 
-load_dotenv()
+if not os.environ.get('DJANGO_SKIP_DOTENV'):
+    load_dotenv()
+
+
+def env_list(name: str, default: list[str]) -> list[str]:
+    """Comma-separated env var as a list; `default` when unset or blank."""
+    raw = os.environ.get(name, '')
+    items = [item.strip() for item in raw.split(',') if item.strip()]
+    return items or list(default)
+
+
+# True under `manage.py test`.
+TESTING = 'test' in sys.argv
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -30,9 +44,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.environ.get('SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get('DEBUG', 'True') == 'True'
+DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 
-ALLOWED_HOSTS = ['fintank.herokuapp.com', 'localhost', '127.0.0.1']
+ALLOWED_HOSTS = env_list('ALLOWED_HOSTS', ['localhost', '127.0.0.1'])
 
 
 # Application definition
@@ -44,7 +58,6 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'django.contrib.gis',
     'django.contrib.sites',
     'django.contrib.postgres',
     'storages',
@@ -120,15 +133,12 @@ DATA_UPLOAD_MAX_NUMBER_FIELDS = 60000
 
 DATA_UPLOAD_MAX_MEMORY_SIZE = 104857600  
 
-REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/1")
-
-CELERY_RESULT_BACKEND = "django-db"
 CELERY_CACHE_BACKEND = "default"
 
 CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": REDIS_URL,
+        "LOCATION": os.environ.get("CACHE_REDIS_URL", "redis://127.0.0.1:6379/15"),
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
         },
@@ -136,12 +146,10 @@ CACHES = {
     }
 }
 
-CACHES["default"]["LOCATION"] = "redis://127.0.0.1:6379/15" 
-
-CELERY_BROKER_URL = "redis://localhost:6379/0"
+CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://localhost:6379/0")
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
-CELERY_RESULT_BACKEND = "redis://localhost:6379/0"
+CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
 
 CELERY_TIMEZONE = "UTC"
 CELERY_ENABLE_UTC = True
@@ -170,7 +178,7 @@ CELERY_BEAT_SCHEDULE = {
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.contrib.gis.db.backends.postgis',
+        'ENGINE': 'django.db.backends.postgresql',
         'NAME': os.environ.get('DATABASE_NAME'),
         'USER':os.environ.get('DATABASE_USER'),
         'PASSWORD':os.environ.get('DATABASE_PASSWORD'),
@@ -178,16 +186,72 @@ DATABASES = {
         'PORT':os.environ.get('DATABASE_PORT')
     }
 }
+if os.environ.get('DATABASE_SSLMODE'):
+    DATABASES['default']['OPTIONS'] = {'sslmode': os.environ['DATABASE_SSLMODE']}
 
 LIST_PER_PAGE = 10000
 
 AUTH_USER_MODEL = 'users.CustomUser'
+
+# Limits on unauthenticated credential endpoints. `www` logins go through the
+# Next.js server, so Django sees the web server's address for all of them:
+# auth_login is therefore effectively a site-wide ceiling, and the strict limit
+# is auth_login_account, per submitted username (see fintank_backend/auth_views.py).
+# dj_rest_auth is the scope that package's own views declare.
+AUTH_THROTTLE_RATES = {
+    'auth_login': '60/min',
+    'auth_login_account': '10/min',
+    'auth_register': '20/hour',
+    'auth_token': '120/min',
+    'dj_rest_auth': '20/min',
+    # /admin/login/ and /login/, shared. These reach Django directly through
+    # Caddy, so the address here is the real client's. Keep the account limit well
+    # above the address limit, or one address can lock the owner out.
+    'form_login': '20/hour',
+    'form_login_account': '100/hour',
+}
+
+# Caddy is the one proxy, so allauth's own login limits need the last
+# X-Forwarded-For entry. Otherwise every client looks like Caddy's address.
+ALLAUTH_TRUSTED_PROXY_COUNT = 1
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ],
     'EXCEPTION_HANDLER': 'utils.custom_exception_handler.custom_exception_handler',
+    # Only applies to views that declare a throttle_scope.
+    'DEFAULT_THROTTLE_CLASSES': ['rest_framework.throttling.ScopedRateThrottle'],
+    'DEFAULT_THROTTLE_RATES': (
+        {scope: '100000/min' for scope in AUTH_THROTTLE_RATES} if TESTING else AUTH_THROTTLE_RATES
+    ),
+    # Caddy is the one proxy in front of gunicorn, so the client address is the
+    # last X-Forwarded-For entry. Without this a forged header evades the limits.
+    'NUM_PROXIES': 1,
+}
+
+# DEBUG=False silences Django's default console handler, which would lose 500
+# tracebacks. The handler level keeps the test run quiet; assertLogs still works.
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'plain': {
+            '()': 'fintank_backend.logging_utils.RedactingFormatter',
+            'fmt': '%(asctime)s %(levelname)s %(name)s: %(message)s',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'plain',
+            'level': 'CRITICAL' if TESTING else 'INFO',
+        },
+    },
+    'root': {'handlers': ['console'], 'level': 'INFO'},
+    'loggers': {
+        'django': {'handlers': ['console'], 'level': 'INFO', 'propagate': False},
+    },
 }
 
 
@@ -201,20 +265,20 @@ SIMPLE_JWT = {
     'UPDATE_LAST_LOGIN': False,
 }
 
-CORS_ALLOWED_ORIGINS = [
-    'https://fintank.vercel.app',
-    'https://www.thefintank.com',
-    'https://thefintank.com',
-    'https://thefintank-app-96rnt.ondigitalocean.app',
-    'https://thefintank.vercel.app',
+CORS_ALLOWED_ORIGINS = env_list('CORS_ALLOWED_ORIGINS', [
     'http://localhost:3000',
     'http://127.0.0.1:3000',
     'http://localhost:8020',
     'http://127.0.0.1:8020',
     'http://localhost:3001',
     'http://127.0.0.1:3001',
-    'http://0.0.0.0:8020'
-]
+    'http://0.0.0.0:8020',
+])
+
+CSRF_TRUSTED_ORIGINS = env_list('CSRF_TRUSTED_ORIGINS', [
+    'http://localhost:8020',
+    'http://127.0.0.1:8020',
+])
 
 # Password validation
 # https://docs.djangoproject.com/en/4.0/ref/settings/#auth-password-validators
@@ -279,13 +343,34 @@ AWS_S3_OBJECT_PARAMETERS = {
     "CacheControl": "max-age=31536000, s-maxage=31536000, immutable",
 }
 
+MEDIA_S3_LOCATION = os.environ.get("MEDIA_S3_LOCATION", "media").strip("/")
+
 if DEBUG:
-    DEFAULT_FILE_STORAGE = "django.core.files.storage.FileSystemStorage"
-    MEDIA_ROOT =  BASE_DIR / "media" 
+    _default_storage = {"BACKEND": "django.core.files.storage.FileSystemStorage"}
+    MEDIA_ROOT = BASE_DIR / "media"
     MEDIA_URL = '/media/'
 else:
-    DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'           # let bucket policy control ACL        # keep both files if same name
-    MEDIA_URL = f"https://{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com/"
+    _default_storage = {
+        "BACKEND": "storages.backends.s3.S3Storage",
+        "OPTIONS": {"location": MEDIA_S3_LOCATION},
+    }
+    MEDIA_URL = f"https://{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com/{MEDIA_S3_LOCATION}/"
+
+STORAGES = {
+    "default": _default_storage,
+    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"},
+}
+
+# Behind the Caddy reverse proxy in production. SECURE_SSL_REDIRECT is left
+# off on purpose: Caddy redirects to HTTPS and internal health checks use HTTP.
+if DEBUG:
+    SESSION_COOKIE_SECURE = False
+    CSRF_COOKIE_SECURE = False
+else:
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = int(os.environ.get("SECURE_HSTS_SECONDS", 0))
 
 AZURE_API_KEY = os.getenv("AZURE_BING_KEY")
 
@@ -308,9 +393,6 @@ CLOUDINARY_API_KEY = os.getenv("CLOUDINARY_API_KEY")
 CLOUDINARY_API_SECRET= os.getenv("CLOUDINARY_SECRET_API")
 CLOUDINARY_URL= os.getenv("CLOUDINARY_URL")
 
-
-GEOS_LIBRARY_PATH = os.getenv("GEOS_LIBRARY_PATH")
-GDAL_LIBRARY_PATH = os.getenv("GDAL_LIBRARY_PATH")
 
 # Concurrency for the backtester's per-symbol price loads. These are I/O bound
 # (S3 or FMP), so the worker count is about hiding latency, not CPU.

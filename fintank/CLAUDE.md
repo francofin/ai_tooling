@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Fintank is a financial data platform with three distinct sub-projects:
 
 1. **Next.js frontend** (root) — stock screener, market data dashboards, crypto/ETF/index analytics, Solana wallet integration
-2. **Django REST backend** (`backend/`) — market data API, user auth, Celery background jobs, PostGIS database
+2. **Django REST backend** (`backend/`) — market data API, user auth, Celery background jobs, PostgreSQL database
 3. **Solidity smart contracts** (`stables/`) — `Loonie` (LCAD), an algorithmic stablecoin pegged to the Canadian dollar, built with Foundry
 4. **Solana Anchor program** (`anchor/`) — on-chain journal entry state (scaffold-level, mostly empty)
 
@@ -74,6 +74,10 @@ cd ../infra && .venv/bin/python -m pytest -q                # CDK stack tests
 ```
 
 **Start here:** `docs/RECENT_CHANGES.md` — current state, how the AWS pipeline is operated, open items. Runbook: `backend/pipelines/README.md`. Design + AWS setup: `docs/superpowers/specs/2026-10-14-automated-data-pipeline-design.md`. The notebooks in `class_files/` no longer upload; `class_files/stock_pipeline.py` and `pipeline_config.py` are shims over `pipelines/`.
+
+### Web hosting and deploys (`deploy/`, `.github/workflows/fintank-deploy.yml`)
+
+Lightsail + Docker Compose, deployed from GitHub Actions on push to `main`. **Not live until the owner finishes the runbook `deploy/README.md`** (server setup, IAM, DNS, secrets, seed, go-live tests). Server files: `deploy/bootstrap_server.sh`, `deploy.sh`, `docker-compose.yml`, `Caddyfile`, `backup_db.sh`, `env.example`. Local dev needs `DEBUG=True` in `backend/.env`.
 
 ### Solidity (Foundry — `stables/`)
 
@@ -161,7 +165,7 @@ Django project at `backend/fintank_backend/`. Apps:
 - `update_market_datasets` — every 15 min
 - All tasks respect `is_market_open_now()` guard (skip when market closed)
 
-**Database**: PostgreSQL + PostGIS (`django.contrib.gis.db.backends.postgis`). Requires `libgeos` and `libgdal` on the host (configured via `GEOS_LIBRARY_PATH` / `GDAL_LIBRARY_PATH` env vars).
+**Database**: plain PostgreSQL (`django.db.backends.postgresql`); no GeoDjango or native geo libraries needed.
 
 ### Solidity — `stables/`
 
@@ -188,6 +192,11 @@ Minimal program (`anchor/programs/fintank/src/lib.rs`). Declares a `JounralEntry
 - `FMP_API` / `FMP_URL` — Financial Modeling Prep API key and base URL
 - `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_BUCKET_NAME` — S3 access (`thetradingfloor` bucket, `us-east-1`)
 - `AZURE_BING_KEY` — Bing News API key for `news` app
-- `GEOS_LIBRARY_PATH` / `GDAL_LIBRARY_PATH` — GeoDjango native lib paths (Linux: `/usr/lib/x86_64-linux-gnu/`)
-- `REDIS_URL` — defaults to `redis://127.0.0.1:6379/1`
+- `DEBUG` — defaults to **False**; local `backend/.env` must set `DEBUG=True` (otherwise media goes to S3 and secure cookies are on)
+- `ALLOWED_HOSTS`, `CORS_ALLOWED_ORIGINS`, `CSRF_TRUSTED_ORIGINS` — comma-separated; default to localhost entries only
+- `CACHE_REDIS_URL` — Django cache, defaults to `redis://127.0.0.1:6379/15`
+- `CELERY_BROKER_URL` / `CELERY_RESULT_BACKEND` — default to `redis://localhost:6379/0`
+- `DATABASE_SSLMODE` — optional, e.g. `require`
+- `MEDIA_S3_LOCATION` — S3 key prefix for uploaded media (default `media`)
+- `SECURE_HSTS_SECONDS` — default 0
 - `STRIPE_SECRET_KEY` / `CLOUDINARY_*` — payment and image storage

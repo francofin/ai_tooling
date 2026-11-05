@@ -1,0 +1,13 @@
+backend
+stables
+infra
+anchor
+docs
+specs
+.next
+node_modules
+.env*
+/*.png
+/*.jpeg
+class_files
+.git

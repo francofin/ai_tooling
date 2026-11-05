@@ -1,0 +1,11 @@
+class_files
+media
+.env*
+**/.env*
+.venv
+**/__pycache__
+*.whl
+*.whl:Zone.Identifier
+celerybeat-schedule*
+notes.txt
+pipelines/tests

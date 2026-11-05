@@ -332,10 +332,10 @@ def get_financial_statements_resolved(symbol: str, statement_type: str) -> dict:
         except KeyError:
             continue
         except Exception as exc:
-            logger.warning("Statements: %s %s from %s failed: %r",
-                           symbol, statement_type, universe, exc)
+            logger.warning("Statements: %s %s from %s failed: %s",
+                           symbol, statement_type, universe, type(exc).__name__)
             cache.set(failed_key, 1, timeout=STATEMENT_FAILURE_TIMEOUT)
-            errors.append(f"{universe}: {exc!r}")
+            errors.append(f"{universe}: {type(exc).__name__}")
 
     if errors:
         raise RuntimeError(

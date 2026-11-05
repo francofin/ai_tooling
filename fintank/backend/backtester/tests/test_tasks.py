@@ -140,6 +140,20 @@ class StoreAndLoadTests(TestCase):
         self.assertEqual(key, f"backtest_results/{self.user.pk}/abc123.json")
         writer.assert_called_once()
 
+    def test_a_failed_s3_write_returns_no_key_and_logs_only_the_exception_class(self):
+        from backtester import results
+
+        error = PermissionError('AccessDenied for s3://bucket/key?apikey=SECRET')
+        with patch.object(results, '_write_to_s3', side_effect=error), \
+                self.assertLogs('backtester.results', level='ERROR') as logs:
+            key = results.store_payload(self.user.pk, 'abc123', {'ok': True})
+
+        self.assertEqual(key, '')
+        output = '\n'.join(logs.output)
+        self.assertIn('PermissionError', output)
+        self.assertNotIn('SECRET', output)
+        self.assertNotIn('AccessDenied', output)
+
     def test_loading_comes_from_redis_without_touching_s3(self):
         from backtester import results
 

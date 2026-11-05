@@ -1,0 +1,21 @@
+{
+	# Empty in production. The smoke test sets it to "local_certs" so Caddy
+	# issues internal certificates instead of calling Let's Encrypt.
+	{$CADDY_GLOBAL_OPTS}
+}
+
+{$SITE_HOST} {
+	# One hour, as a first step: see "Turn on HSTS" in README.md. The api's HSTS
+	# comes from Django (SECURE_HSTS_SECONDS).
+	header Strict-Transport-Security "max-age=3600"
+	header X-Frame-Options SAMEORIGIN
+	reverse_proxy web:3000
+}
+
+{$APEX_HOST} {
+	redir https://{$SITE_HOST}{uri} permanent
+}
+
+{$API_HOST} {
+	reverse_proxy api:8000
+}

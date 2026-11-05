@@ -1,3 +1,5 @@
+import logging
+
 from django.shortcuts import render, get_object_or_404, redirect
 from requests import get
 from django.conf import settings
@@ -8,7 +10,10 @@ from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from rest_framework.response import Response
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
+from utils.safe_errors import server_error_response
 from .getNews import GetNewsArticles, CACHE_KEY
+
+logger = logging.getLogger(__name__)
 
 all_news_articles = GetNewsArticles()
 
@@ -33,4 +38,4 @@ def get_articles(request, item):
     except KeyError:
         return Response({"error": f"Unknown article category: {item!r}"}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
-        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return server_error_response(logger, "get_articles", e, key="error")

@@ -1,3 +1,5 @@
+import logging
+
 from django.shortcuts import render, HttpResponseRedirect, get_object_or_404, redirect
 from django.http import HttpResponse
 from pytz import timezone
@@ -8,6 +10,7 @@ import json
 from django.conf import settings
 from .analyzer_utils.CorePerformanceTools import home_crypto_cache, home_etf_cache, economic_data_cache, json_safe, _load_cached_json
 from utils.StockCalculations import GetData
+from utils.safe_errors import client_safe_message, server_error_response
 from django.core.cache import cache
 from datetime import date
 from rest_framework import status, mixins, generics, viewsets, parsers
@@ -18,6 +21,8 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from .serializers import StockSerializer
 from rest_framework.pagination import PageNumberPagination
+
+logger = logging.getLogger(__name__)
 
 data_getter = GetData()
 
@@ -68,7 +73,7 @@ def get_index_history_task(request, symbol):
         if compressed:
             return _decompress_and_respond(compressed)
     except Exception as e:
-        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return server_error_response(logger, "get_index_history_task", e, key="error")
 
     return Response({"error": "Index data not found"}, status=status.HTTP_404_NOT_FOUND)
 
@@ -171,7 +176,7 @@ def get_sector_industry_task(request, exchange):
             decompressed_data = json.loads(gzip.decompress(compressed))
             return Response(decompressed_data, status=status.HTTP_200_OK)
     except Exception as e:
-        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return server_error_response(logger, "get_sector_industry_task", e, key="error")
 
     return Response({"detail": "Data temporarily unavailable"}, status=503)
 
@@ -209,7 +214,7 @@ def get_constituent_returns(request, universe):
                 status=status.HTTP_200_OK,
             )
     except Exception as e:
-        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return server_error_response(logger, "get_constituent_returns", e, key="error")
 
     return Response({"detail": "Data temporarily unavailable"}, status=503)
 
@@ -227,7 +232,7 @@ def get_economic_data_task(request):
             get_economic_data()
             compressed = cache.get(economic_data_cache)
         except Exception as e:
-            return Response({"detail": str(e)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            return server_error_response(logger, "get_economic_data_task", e, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
     if not compressed:
         return Response({"detail": "Data temporarily unavailable"},
@@ -276,7 +281,7 @@ def get_universe_profiles_task(request, universe):
         data = get_universe_profiles(universe)
         return Response(data, status=status.HTTP_200_OK)
     except Exception as e:
-        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return server_error_response(logger, "get_universe_profiles_task", e, key="error")
 
 
 @api_view(['GET'])
@@ -321,7 +326,7 @@ def get_stock_price_data(request, symbol):
         payload = _getter(symbol)
         return Response(payload, status=status.HTTP_200_OK)
     except Exception as e:
-        return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return server_error_response(logger, "get_stock_price_data", e)
 
 
 @api_view(['GET'])
@@ -333,7 +338,7 @@ def get_stock_long_profile(request, symbol):
     except KeyError:
         return Response({"detail": f"Symbol '{symbol}' not found"}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
-        return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return server_error_response(logger, "get_stock_long_profile", e)
 
 
 @api_view(['GET'])
@@ -345,9 +350,9 @@ def get_stock_quote(request, symbol):
     except KeyError:
         return Response({"detail": f"No quote for '{symbol}'"}, status=status.HTTP_404_NOT_FOUND)
     except QuoteUnavailable as e:
-        return Response({"detail": str(e)}, status=status.HTTP_502_BAD_GATEWAY)
+        return Response({"detail": client_safe_message(e)}, status=status.HTTP_502_BAD_GATEWAY)
     except Exception as e:
-        return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return server_error_response(logger, "get_stock_quote", e)
 
 
 @api_view(['GET'])
@@ -357,7 +362,7 @@ def get_stock_price_data_monthly(request, symbol):
         payload = _getter(symbol)
         return Response(payload, status=status.HTTP_200_OK)
     except Exception as e:
-        return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return server_error_response(logger, "get_stock_price_data_monthly", e)
 
 
 @api_view(['GET'])
@@ -371,9 +376,9 @@ def get_financial_statements(request, symbol, universe, statement_type):
         payload = _getter(symbol, universe, statement_type)
         return Response(payload, status=status.HTTP_200_OK)
     except KeyError as e:
-        return Response({"detail": str(e)}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"detail": client_safe_message(e)}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
-        return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return server_error_response(logger, "get_financial_statements", e)
 
 
 @api_view(['GET'])
@@ -387,11 +392,11 @@ def get_financial_statements_auto(request, symbol, statement_type):
         payload = _getter(symbol, statement_type)
         return Response(payload, status=status.HTTP_200_OK)
     except UniverseIndexUnavailable as e:
-        return Response({"detail": str(e)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        return Response({"detail": client_safe_message(e)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
     except KeyError as e:
-        return Response({"detail": str(e)}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"detail": client_safe_message(e)}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
-        return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return server_error_response(logger, "get_financial_statements_auto", e)
 
 
 @api_view(['GET'])
@@ -410,11 +415,11 @@ def get_index_page_series(request, slug):
         )
         return Response(payload, status=status.HTTP_200_OK)
     except KeyError as e:
-        return Response({"detail": str(e)}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"detail": client_safe_message(e)}, status=status.HTTP_404_NOT_FOUND)
     except (ValueError, TypeError) as e:
-        return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"detail": client_safe_message(e)}, status=status.HTTP_400_BAD_REQUEST)
     except Exception as e:
-        return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return server_error_response(logger, "get_index_page_series", e)
 
 
 @api_view(['GET'])
@@ -425,11 +430,11 @@ def get_index_page_comparison(request, slug, peer_key):
         payload = _getter(slug, peer_key, years=request.GET.get('years', 5))
         return Response(payload, status=status.HTTP_200_OK)
     except KeyError as e:
-        return Response({"detail": str(e)}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"detail": client_safe_message(e)}, status=status.HTTP_404_NOT_FOUND)
     except (ValueError, TypeError) as e:
-        return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"detail": client_safe_message(e)}, status=status.HTTP_400_BAD_REQUEST)
     except Exception as e:
-        return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return server_error_response(logger, "get_index_page_comparison", e)
 
 
 @api_view(['GET'])
@@ -440,11 +445,11 @@ def get_index_page_risk(request, slug):
         payload = _getter(slug, limit=request.GET.get('limit', 20))
         return Response(payload, status=status.HTTP_200_OK)
     except KeyError as e:
-        return Response({"detail": str(e)}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"detail": client_safe_message(e)}, status=status.HTTP_404_NOT_FOUND)
     except (ValueError, TypeError) as e:
-        return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"detail": client_safe_message(e)}, status=status.HTTP_400_BAD_REQUEST)
     except Exception as e:
-        return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return server_error_response(logger, "get_index_page_risk", e)
 
 
 @api_view(['GET'])
@@ -455,11 +460,11 @@ def get_index_page_sector_contribution(request, slug):
         payload = _getter(slug)
         return Response(payload, status=status.HTTP_200_OK)
     except KeyError as e:
-        return Response({"detail": str(e)}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"detail": client_safe_message(e)}, status=status.HTTP_404_NOT_FOUND)
     except (ValueError, TypeError) as e:
-        return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"detail": client_safe_message(e)}, status=status.HTTP_400_BAD_REQUEST)
     except Exception as e:
-        return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return server_error_response(logger, "get_index_page_sector_contribution", e)
 
 
 @api_view(['GET'])
@@ -470,9 +475,9 @@ def get_index_page_quotes(request, slug):
         payload = _getter(slug)
         return Response(payload, status=status.HTTP_200_OK)
     except KeyError as e:
-        return Response({"detail": str(e)}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"detail": client_safe_message(e)}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
-        return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return server_error_response(logger, "get_index_page_quotes", e)
 
 
 @api_view(['GET'])
@@ -483,11 +488,11 @@ def get_stock_quintiles_task(request, frequency, universe):
         payload = _getter(frequency, universe)
         return Response(payload, status=status.HTTP_200_OK)
     except KeyError as e:
-        return Response({"detail": str(e)}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"detail": client_safe_message(e)}, status=status.HTTP_404_NOT_FOUND)
     except (ValueError, TypeError) as e:
-        return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"detail": client_safe_message(e)}, status=status.HTTP_400_BAD_REQUEST)
     except Exception as e:
-        return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return server_error_response(logger, "get_stock_quintiles_task", e)
 
 
 @api_view(['GET'])
@@ -591,9 +596,9 @@ def get_technicals(request, symbol):
         return Response(payload, status=status.HTTP_200_OK)
     except KeyError as e:
         # str(KeyError('msg')) is "'msg'" -- args[0] avoids shipping the quotes.
-        detail = e.args[0] if e.args else str(e)
+        detail = client_safe_message(e.args[0] if e.args else e)
         return Response({"detail": detail}, status=status.HTTP_404_NOT_FOUND)
     except (ValueError, TypeError) as e:
-        return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"detail": client_safe_message(e)}, status=status.HTTP_400_BAD_REQUEST)
     except Exception as e:
-        return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return server_error_response(logger, "get_technicals", e)

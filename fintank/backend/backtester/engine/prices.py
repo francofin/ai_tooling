@@ -150,7 +150,8 @@ def load_price_panel(symbols, start=None, end=None) -> PricePanel:
             try:
                 series, source = future.result()
             except Exception as error:
-                missing[symbol] = f"{type(error).__name__}: {error}"
+                # Ends up in the result payload; exception text can hold an FMP URL.
+                missing[symbol] = f"Could not load prices ({type(error).__name__})."
                 continue
             series = series.dropna()
             if series.empty:

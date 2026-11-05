@@ -301,7 +301,7 @@ path("api/", include("stockuploader.urls"))
 path("api/", include("analyzer.urls"))
 # path("api/", include("journal.urls"))     <- commented out
 path("api/", include("news.urls"))
-path("api-auth/", include("rest_framework.urls"))
+path("api-auth/", include("rest_framework.urls"))   <- only when DEBUG is on
 path("api/auth/token/",         TokenObtainPairView)
 path("api/auth/token/refresh/", TokenRefreshView)
 path("api/auth/token/verify/",  TokenVerifyView)

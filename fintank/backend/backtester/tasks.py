@@ -1,5 +1,7 @@
 """The Celery task. Celery's autodiscover_tasks() picks this up with no config
 change (§16)."""
+import logging
+
 from django.utils import timezone
 
 from celery import shared_task
@@ -16,6 +18,8 @@ from .engine.prices import load_benchmark_series, load_price_panel
 from .models import BacktestRun
 from .quota import refund
 from .results import build_payload, store_payload, summarize
+
+logger = logging.getLogger(__name__)
 
 PROGRESS_STAGES = ('loading_prices', 'optimizing', 'simulating', 'computing_metrics')
 
@@ -74,7 +78,9 @@ def run_portfolio_backtest(self, run_id):
         _fail(run, str(error))
         return None
     except Exception as error:                      # noqa: BLE001
-        _fail(run, f"{type(error).__name__}: {error}")
+        # run.error is shown to the user, and exception text can hold an FMP URL.
+        logger.error("Backtest %s failed: %s", run.task_id, type(error).__name__)
+        _fail(run, 'The backtest failed unexpectedly. Your credit was refunded.')
         return None
 
 

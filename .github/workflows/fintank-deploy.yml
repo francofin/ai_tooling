@@ -1,0 +1,166 @@
+name: Fintank deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'fintank/**'
+      - '!fintank/docs/**'
+      - '!fintank/backend/pipelines/**'
+      - '!fintank/infra/**'
+      - '!fintank/**/*.md'
+      # The api image includes this file and the app imports it, so a change
+      # to it must deploy even though pipelines/ is excluded above.
+      - 'fintank/backend/pipelines/factor_windows.py'
+      - '.github/workflows/fintank-deploy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deploy at a time; a deploy in progress is never cancelled.
+concurrency:
+  group: fintank-deploy
+  cancel-in-progress: false
+
+env:
+  WEB_IMAGE: ghcr.io/francofin/fintank-web
+  API_IMAGE: ghcr.io/francofin/fintank-api
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: fintank_ci
+          POSTGRES_USER: fintank
+          POSTGRES_PASSWORD: ci-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U fintank -d fintank_ci"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      # DEBUG=True keeps default storage off S3, so tests cannot reach AWS.
+      DEBUG: 'True'
+      SECRET_KEY: ci-only
+      DATABASE_NAME: fintank_ci
+      DATABASE_USER: fintank
+      DATABASE_PASSWORD: ci-only
+      DATABASE_HOST: localhost
+      DATABASE_PORT: '5432'
+      CACHE_REDIS_URL: redis://localhost:6379/15
+      CELERY_BROKER_URL: redis://localhost:6379/0
+      CELERY_RESULT_BACKEND: redis://localhost:6379/0
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          python-version: '3.12'
+      - name: Install backend dependencies (with dev group)
+        working-directory: fintank/backend
+        run: uv sync --frozen
+      - name: Django tests
+        working-directory: fintank/backend
+        run: .venv/bin/python manage.py test
+      - name: Backup script test
+        run: bash fintank/deploy/test_backup_db.sh
+      - name: Disk check script test
+        run: bash fintank/deploy/test_check_disk.sh
+      - name: Proxy guard test
+        run: node --test fintank/src/utils/safeFetch.test.mjs
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      # An empty value would build a site that calls no API, and the build would pass.
+      - name: Require the API URL
+        env:
+          API_URL: ${{ vars.NEXT_PUBLIC_FINTANK_API_URL }}
+        run: |
+          if [ -z "$API_URL" ]; then
+            echo "::error::Repository variable NEXT_PUBLIC_FINTANK_API_URL is empty. Set it under Settings, Secrets and variables, Actions, Variables."
+            exit 1
+          fi
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push web image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: fintank
+          push: true
+          tags: ${{ env.WEB_IMAGE }}:${{ github.sha }}
+          cache-from: type=gha,scope=fintank-web
+          cache-to: type=gha,mode=max,scope=fintank-web
+          # Public values inlined into the browser bundle: vars, never secrets.
+          build-args: |
+            NEXT_PUBLIC_FINTANK_API_URL=${{ vars.NEXT_PUBLIC_FINTANK_API_URL }}
+            NEXT_PUBLIC_CONFIRMATION_EMAIL_REDIRECT=${{ vars.NEXT_PUBLIC_CONFIRMATION_EMAIL_REDIRECT }}
+            NEXT_PUBLIC_FIREBASE_API=${{ vars.NEXT_PUBLIC_FIREBASE_API }}
+            NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${{ vars.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }}
+            NEXT_PUBLIC_FIREBASE_PROJECT_ID=${{ vars.NEXT_PUBLIC_FIREBASE_PROJECT_ID }}
+            NEXT_PUBLIC_FIREBASE_APP_ID=${{ vars.NEXT_PUBLIC_FIREBASE_APP_ID }}
+            NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=${{ vars.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID }}
+      - name: Build and push api image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: fintank/backend
+          push: true
+          tags: ${{ env.API_IMAGE }}:${{ github.sha }}
+          cache-from: type=gha,scope=fintank-api
+          cache-to: type=gha,mode=max,scope=fintank-api
+
+  deploy:
+    needs: build
+    if: ${{ vars.DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Write SSH key and known_hosts
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 600 /dev/null "$RUNNER_TEMP/deploy_key"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$RUNNER_TEMP/deploy_key"
+          install -m 600 /dev/null "$RUNNER_TEMP/known_hosts"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
+      - name: Copy deploy files and run deploy.sh
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          SSH_OPTS=(-i "$RUNNER_TEMP/deploy_key" -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$RUNNER_TEMP/known_hosts")
+          cd fintank/deploy
+          # Named files only: never .env, never the smoke/test helpers.
+          scp "${SSH_OPTS[@]}" deploy.sh docker-compose.yml Caddyfile backup_db.sh check_disk.sh env.example \
+            "$DEPLOY_USER@$DEPLOY_HOST:/opt/fintank/"
+          # Client-side expansion of IMAGE_TAG (a commit SHA) is intended.
+          # shellcheck disable=SC2029
+          ssh "${SSH_OPTS[@]}" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "cd /opt/fintank && chmod +x deploy.sh backup_db.sh check_disk.sh && ./deploy.sh '$IMAGE_TAG'"
+      - name: Remove SSH key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/deploy_key" "$RUNNER_TEMP/known_hosts"

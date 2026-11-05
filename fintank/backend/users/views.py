@@ -38,6 +38,9 @@ def register(request):
         status=status.HTTP_201_CREATED,
     )
 
+# @api_view does not carry a scope over from the function, so set it on the view class.
+register.cls.throttle_scope = "auth_register"
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Current user getters
 # ─────────────────────────────────────────────────────────────────────────────

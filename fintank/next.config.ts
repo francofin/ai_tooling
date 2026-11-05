@@ -4,7 +4,7 @@ import type { NextConfig } from 'next';
 
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  output: 'standalone',
   experimental: {
     // Targets `next build`, which is the memory-hungry step here (see FRONTEND.md).
     // Measured effect on `next dev` is ~1% (2084 MB vs 2108 MB after compiling four
