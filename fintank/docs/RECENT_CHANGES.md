@@ -106,8 +106,8 @@ Other flags: `-c always_hold=false` (auto-publish clean runs), `-c news_notify=w
 
 ## Next steps / open items
 
-- **Remind the owner at go-live: is the admin login limit still right?** `/admin/login/` and `/login/` allow **30 attempts an hour** per address and per account (`form_login` and `form_login_account` in `AUTH_THROTTLE_RATES`, `backend/fintank_backend/settings.py`). The owner accepted 30 for now and wants to revisit how strict it is. Raise it during the go-live login check, and again before moving to paying users.
-1. Approve `lean-20261024-1000` if not yet done; redeploy for `f1eea95`. Next run Sat 2026-10-31.
+- **Bring this up with the owner at go-live: are the login limits still right?** `/admin/login/` and `/login/` allow **20 attempts an hour per address and 100 per account** (`form_login` and `form_login_account` in `AUTH_THROTTLE_RATES`, `backend/fintank_backend/settings.py`). The owner asked to be reminded of how strict this is. The account limit must stay well above the address limit, or one address can lock them out; the higher it is, the more guesses many addresses get. Ask during the go-live login check, and again before paying users. Other routes that test the same password have higher limits: see "A login gets `429`" in `deploy/README.md`.
+1. `lean-20261031-1000` is approved and published (2026-11-03). Redeploy for `f1eea95`, if not yet done. Next run Sat 2026-11-07, the first full run.
 2. Delete the deactivated old AWS access key (around 2026-10-24).
 3. After 3 clean weekly runs (Oct 24, Oct 31, Nov 7): redeploy with `-c always_hold=false`.
 4. Decide whether to drop the FMP data boost once real usage is known.

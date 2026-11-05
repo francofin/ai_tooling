@@ -189,6 +189,29 @@ cold_cache() {
 }
 check "cold cache: api healthy and not OOMKilled after Redis flush" cold_cache
 
+# LOGIN LIMIT, through Caddy, including the runbook's unlock command. Each attempt
+# uses a new username, so this reaches the address limit (20 an hour).
+form_login_limit() {
+  local jar="$TMP/jar" url=/admin/login/ token code i
+  hcurl api.smoke.test "$url" -c "$jar" -o /dev/null || return 1
+  token="$(awk '$6 == "csrftoken" { print $7 }' "$jar")"
+  [ -n "$token" ] || { echo "no csrf cookie"; return 1; }
+  attempt() {
+    hcurl api.smoke.test "$url" -b "$jar" -e "https://api.smoke.test:$PORT$url" -o /dev/null -w '%{http_code}' \
+      -d "username=smoke-$1" -d password=wrong -d "csrfmiddlewaretoken=$token"
+  }
+  for i in $(seq 1 20); do
+    code="$(attempt "$i")"
+    [ "$code" = 200 ] || { echo "attempt $i got $code, expected 200"; return 1; }
+  done
+  code="$(attempt 21)"
+  [ "$code" = 429 ] || { echo "attempt 21 got $code, expected 429"; return 1; }
+  docker compose exec -T redis sh -c "redis-cli -n 15 --scan --pattern '*throttle_form_login*' | xargs -r redis-cli -n 15 del" >/dev/null || return 1
+  code="$(attempt 22)"
+  [ "$code" = 200 ] || { echo "after clearing the limit got $code, expected 200"; return 1; }
+}
+check "admin login limit gives 429 through Caddy and the runbook command clears it" form_login_limit
+
 # BACKUP RESTORE. Dumps the smoke database the same way backup_db.sh does,
 # restores it into a scratch database in this smoke project's db, and compares
 # the django_migrations row count. The scratch database is always dropped.

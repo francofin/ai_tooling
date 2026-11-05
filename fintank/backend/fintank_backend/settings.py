@@ -205,10 +205,15 @@ AUTH_THROTTLE_RATES = {
     'auth_token': '120/min',
     'dj_rest_auth': '20/min',
     # /admin/login/ and /login/, shared. These reach Django directly through
-    # Caddy, so the address here is the real client's.
-    'form_login': '30/hour',
-    'form_login_account': '30/hour',
+    # Caddy, so the address here is the real client's. Keep the account limit well
+    # above the address limit, or one address can lock the owner out.
+    'form_login': '20/hour',
+    'form_login_account': '100/hour',
 }
+
+# Caddy is the one proxy, so allauth's own login limits need the last
+# X-Forwarded-For entry. Otherwise every client looks like Caddy's address.
+ALLAUTH_TRUSTED_PROXY_COUNT = 1
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [

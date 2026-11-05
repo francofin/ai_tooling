@@ -529,7 +529,25 @@ To pin a specific old version by hand, also record it, or the next deploy's roll
 
 **A "Fintank DB backup FAILED" email.** It names the date and step: `pg_dump` (the `db` container is down or unhealthy: `cd /opt/fintank && export IMAGE_TAG=$(cat .image-tag) && docker compose ps`), `dump size check` (empty dump), or `upload` (AWS credentials or bucket: `aws sts get-caller-identity` as `deploy`, check `~/.aws/credentials` and the backup bucket name in `.env`). Details are in `tail -n 50 /var/log/fintank-backup.log`. Fix, then rerun `/opt/fintank/backup_db.sh` to confirm. No email is the normal state: this alert only fires on failure, so silence cannot tell you a backup ran. That is what the healthchecks.io check is for (step 10). If it alerts, or to check by hand, look at the log and `crontab -l` as `deploy`, and that the day's object exists (step 11). To prove the failure email itself still works, confirm you accepted the SNS email subscription, then run the disk alert test from step 10, which uses the same topic.
 
-**A login gets `429` or "Request was throttled".** The auth endpoints are rate limited: 10 attempts a minute per account, 60 logins a minute across `www` (they all reach Django from the server's own address), and 20 signups an hour per address. It clears within the period shown. Rates are `AUTH_THROTTLE_RATES` in `backend/fintank_backend/settings.py`. The password forms at `/admin/login/` and `/login/` on `api` share a limit of 30 attempts an hour per address and per account, so a lockout there clears within the hour.
+**A login gets `429` or "Request was throttled".** Login limits by route, with rates in `AUTH_THROTTLE_RATES` in `backend/fintank_backend/settings.py`:
+
+| Route | Limit |
+|---|---|
+| `/api/auth/token/` (`www` logins) and `/api/auth/login/` | 10 a minute per account, shared |
+| `/api/auth/token/` | 60 a minute by address, which covers all of `www`, since it reaches Django from the server's own address |
+| `/api/auth/login/` | 20 a minute per address |
+| `/admin/login/` and `/login/` | 20 an hour per address and 100 an hour per account, shared |
+| `/accounts/login/` | allauth's own: 10 failures a minute per address and 5 per 5 minutes per account. A login here also works on `/admin/` |
+| `/api/auth/register/` | 20 signups an hour per address |
+
+A limit clears once attempts stop, within the period shown. If someone keeps guessing, it may not: enough addresses together can hold the account limit full. Try `/accounts/login/`, or clear the form limits on the server:
+
+```bash
+cd /opt/fintank && export IMAGE_TAG=$(cat .image-tag)
+docker compose exec -T redis sh -c "redis-cli -n 15 --scan --pattern '*throttle_form_login*' | xargs -r redis-cli -n 15 del"
+```
+
+These limits slow guessing but don't stop it, so use a long password and a username that isn't guessable.
 
 **Locked out of SSH.** The `ubuntu` user still works with the Lightsail default key. As a last resort, use the Lightsail console's browser SSH (instance, **Connect**).
 

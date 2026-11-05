@@ -19,6 +19,7 @@ from django.conf.urls.static import static
 from django.conf import settings
 
 from .auth_views import (
+    ThrottledRestAuthLoginView,
     ThrottledTokenObtainPairView,
     ThrottledTokenRefreshView,
     ThrottledTokenVerifyView,
@@ -41,6 +42,7 @@ urlpatterns = [
     path("api/auth/token/", ThrottledTokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("api/auth/token/refresh/", ThrottledTokenRefreshView.as_view(), name="token_refresh"),
     path("api/auth/token/verify/", ThrottledTokenVerifyView.as_view(), name="token_verify"),
+    path("api/auth/login/", ThrottledRestAuthLoginView.as_view(), name="rest_login"),
     path("api/auth/", include("dj_rest_auth.urls")),
     path("api/auth/registration/", include("dj_rest_auth.registration.urls")),
     path("accounts/", include("allauth.urls")),  # admin/social flows

@@ -1,11 +1,13 @@
 """Rate limits for login endpoints. Scopes and rates are in settings."""
 import hashlib
 import math
+import unicodedata
 from collections.abc import Mapping
 from functools import wraps
 
 from django.contrib.auth import get_user_model
 from django.http import HttpResponse
+from dj_rest_auth.views import LoginView
 from rest_framework.throttling import ScopedRateThrottle, SimpleRateThrottle
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
@@ -18,7 +20,10 @@ def _username_ident(username):
     """A stable, non-reversible bucket name, or None when no username was sent."""
     if not isinstance(username, str) or not username.strip():
         return None
-    return hashlib.sha256(username.strip().lower().encode('utf-8')).hexdigest()
+    # NFKC first: Django's login form applies it, so other spellings log in as
+    # the same user and must not get a budget of their own.
+    normalized = unicodedata.normalize('NFKC', username).strip().lower()
+    return hashlib.sha256(normalized.encode('utf-8')).hexdigest()
 
 
 class LoginAccountThrottle(SimpleRateThrottle):
@@ -36,6 +41,26 @@ class LoginAccountThrottle(SimpleRateThrottle):
         if ident is None:
             return None
         return self.cache_format % {'scope': self.scope, 'ident': ident}
+
+
+class RestAuthLoginAccountThrottle(LoginAccountThrottle):
+    """The same budget as LoginAccountThrottle, for a view that also takes email.
+
+    It reads email first, as dj_rest_auth's login does, so that sending a second
+    field cannot buy a fresh bucket.
+    """
+
+    def get_cache_key(self, request, view):
+        data = request.data if isinstance(request.data, Mapping) else {}
+        ident = _username_ident(data.get('email') or data.get('username'))
+        if ident is None:
+            return None
+        return self.cache_format % {'scope': self.scope, 'ident': ident}
+
+
+class ThrottledRestAuthLoginView(LoginView):
+    throttle_scope = 'dj_rest_auth'
+    throttle_classes = [RestAuthLoginAccountThrottle, ScopedRateThrottle]
 
 
 class ThrottledTokenObtainPairView(TokenObtainPairView):
@@ -73,8 +98,11 @@ class FormLoginAccountThrottle(SimpleRateThrottle):
 def limit_form_login(view):
     """Limits POSTs to an HTML password form, which DRF throttling cannot reach.
 
-    The address is checked first so that a blocked address stops spending the
-    account's budget, and cannot keep the owner locked out from elsewhere.
+    The address is checked first, so a blocked address stops spending the
+    account's budget. One address can therefore spend only the address limit,
+    which is why the account limit in settings must stay well above it: that
+    leaves the owner able to log in from elsewhere. Enough addresses together can
+    still fill the account limit.
     """
     @wraps(view)
     def wrapped(request, *args, **kwargs):
@@ -83,7 +111,10 @@ def limit_form_login(view):
                 if not throttle.allow_request(request, None):
                     response = HttpResponse('Too many login attempts. Try again later.',
                                             status=429, content_type='text/plain')
-                    response['Retry-After'] = str(math.ceil(throttle.wait()))
+                    # None when the rate was lowered while history existed.
+                    wait = throttle.wait()
+                    if wait is not None:
+                        response['Retry-After'] = str(math.ceil(wait))
                     return response
         return view(request, *args, **kwargs)
     return wrapped

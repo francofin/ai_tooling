@@ -1,9 +1,10 @@
 from unittest.mock import patch
 
+from allauth.account.adapter import get_adapter
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
-from django.test import TestCase, override_settings
+from django.test import RequestFactory, TestCase, override_settings
 from rest_framework.test import APIClient
 from rest_framework.throttling import ScopedRateThrottle
 
@@ -102,6 +103,75 @@ class AuthThrottleTests(TestCase):
             self.assertNotEqual(self.client.get('/api/avatar-presets/').status_code, 429)
 
 
+@override_settings(CACHES=LOCMEM_CACHE,
+                   PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'])
+class ProductionRateTests(TestCase):
+    """The real rates, because the relation between the two limits is the point."""
+
+    def setUp(self):
+        cache.clear()
+        patcher = patch.dict(ScopedRateThrottle.THROTTLE_RATES, settings.AUTH_THROTTLE_RATES)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        get_user_model().objects.create_superuser(
+            username='boss', email='boss@example.com', password='right-password',
+            first_name='Test', last_name='Owner')
+
+    def _post(self, password, address):
+        return self.client.post('/admin/login/', {'username': 'boss', 'password': password},
+                                HTTP_X_FORWARDED_FOR=address)
+
+    def test_one_address_cannot_lock_the_owner_out(self):
+        for _ in range(20):
+            self.assertEqual(self._post('wrong', '203.0.113.9').status_code, 200)
+        self.assertEqual(self._post('wrong', '203.0.113.9').status_code, 429)
+        self.assertEqual(self._post('right-password', '203.0.113.10').status_code, 302)
+
+    def test_many_addresses_do_hit_the_account_limit(self):
+        for number in range(100):
+            self.assertEqual(self._post('wrong', f'198.51.100.{number}').status_code, 200)
+        self.assertEqual(self._post('wrong', '203.0.113.9').status_code, 429)
+
+
+@override_settings(CACHES=LOCMEM_CACHE)
+class RestAuthLoginThrottleTests(TestCase):
+    """/api/auth/login/ tests the same passwords as the other login routes."""
+
+    def setUp(self):
+        cache.clear()
+        patcher = patch.dict(ScopedRateThrottle.THROTTLE_RATES,
+                             {**LOW_RATES, 'dj_rest_auth': '100/min'})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _post(self, address='203.0.113.9', **fields):
+        return self.client.post('/api/auth/login/', {'password': 'wrong', **fields},
+                                HTTP_X_FORWARDED_FOR=address)
+
+    def test_rotating_addresses_hit_the_account_limit(self):
+        self.assertEqual(self._post('198.51.100.1', username='boss').status_code, 400)
+        self.assertEqual(self._post('198.51.100.2', username='boss').status_code, 400)
+        self.assertEqual(self._post('198.51.100.3', username='boss').status_code, 429)
+
+    def test_the_limit_follows_email_which_login_tries_first(self):
+        self._post(email='boss@example.com')
+        self._post(email='boss@example.com', username='a')
+        response = self._post(email='BOSS@example.com', username='b')
+        self.assertEqual(response.status_code, 429)
+
+    def test_it_shares_a_budget_with_the_token_route(self):
+        self._post(username='boss')
+        self.client.post('/api/auth/token/', {'username': 'boss', 'password': 'wrong'})
+        self.assertEqual(self._post(username='boss').status_code, 429)
+
+
+class AllauthClientAddressTests(TestCase):
+
+    def test_allauth_uses_the_last_proxy_hop(self):
+        request = RequestFactory().get('/', HTTP_X_FORWARDED_FOR='1.2.3.4, 203.0.113.9')
+        self.assertEqual(get_adapter().get_client_ip(request), '203.0.113.9')
+
+
 @override_settings(CACHES=LOCMEM_CACHE)
 class FormLoginThrottleTests(TestCase):
     """The HTML password forms on the api host: /admin/login/ and /login/."""
@@ -160,6 +230,21 @@ class FormLoginThrottleTests(TestCase):
         response = self._post('/admin/login/', 'boss', 'right-password',
                               HTTP_X_FORWARDED_FOR='203.0.113.10')
         self.assertEqual(response.status_code, 302)
+
+    def test_unicode_spellings_of_a_username_share_its_budget(self):
+        """Django's login form applies NFKC, so these log in as `boss`."""
+        self._post('/admin/login/', 'boss')
+        self._post('/admin/login/', '\uff42\uff4f\uff53\uff53')   # fullwidth
+        self.assertEqual(self._post('/admin/login/', 'bo\u017fs').status_code, 429)   # long s
+
+    def test_lowering_a_rate_with_history_present_still_gives_429(self):
+        """DRF's wait() returns None here. Redis keeps the history across deploys."""
+        with patch.dict(ScopedRateThrottle.THROTTLE_RATES,
+                        {'form_login': '5/min', 'form_login_account': '5/min'}):
+            for _ in range(4):
+                self._post('/admin/login/', 'boss')
+        with patch.dict(ScopedRateThrottle.THROTTLE_RATES, {'form_login': '1/min'}):
+            self.assertEqual(self._post('/admin/login/', 'boss').status_code, 429)
 
     def test_loading_the_login_page_is_not_an_attempt(self):
         for _ in range(5):
