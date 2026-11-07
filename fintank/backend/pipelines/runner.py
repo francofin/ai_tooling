@@ -18,9 +18,10 @@ import pandas as pd
 
 from pipelines import pipeline_config as cfg
 from pipelines import state
-from pipelines.checks import (PASS, CheckResult, check_constituents, check_counts,
+from pipelines.checks import (PASS, CheckResult, check_attribution, check_build_stage,
+                              check_constituents, check_counts,
                               check_econ, check_factor_coverage,
-                              check_factor_staleness, check_fetch, check_minimums,
+                              check_factor_staleness, check_minimums,
                               check_freshness, check_outputs_readable,
                               check_price_sanity, check_staging, recent_nyse_sessions)
 from pipelines.notify import held_message
@@ -220,7 +221,7 @@ def run_checks(ctx: RunContext, report: RunReport) -> None:
         results += check_constituents(stages["refresh_constituents"])
     # Same failure-rate rule for builds as for fetches: a build that quietly skips
     # most of its inputs must not reach the site.
-    results += [check_fetch(r) for name, r in stages.items()
+    results += [check_build_stage(r) for name, r in stages.items()
                 if name.startswith(("fetch_", "build_"))]
     ctx.log("── checks: freshness")
     modal = {sub: info["modal_last_date"] for sub, info in p.modal_last_dates().items()}
@@ -236,6 +237,8 @@ def run_checks(ctx: RunContext, report: RunReport) -> None:
     results += check_factor_staleness(report.factor_staleness,
                                       baseline.get("factor_staleness"))
     results += check_factor_coverage(report.factor_staleness, constituent_counts(p))
+    if "build_index_attribution" in stages:
+        results += check_attribution(stages["build_index_attribution"].detail)
     ctx.log("── checks: recent price moves")
     results += check_price_sanity(recent_adj_close(outputs))
     results += check_econ(fred_last_dates(p), ctx.today)

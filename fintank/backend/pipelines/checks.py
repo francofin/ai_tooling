@@ -79,6 +79,14 @@ def check_fetch(result: StageResult) -> CheckResult:
                        t.FETCH_FAILURE_WARN, detail)
 
 
+def check_build_stage(result: StageResult) -> CheckResult:
+    """check_fetch, except that a WARN_ONLY_STAGES stage never fails the run."""
+    out = check_fetch(result)
+    if result.name in t.WARN_ONLY_STAGES and out.status == FAIL:
+        out.status = t.ATTRIBUTION_FAILURE_STATUS
+    return out
+
+
 def recent_nyse_sessions(today: dt.date, days: int = 30) -> list[dt.date]:
     """Completed NYSE sessions in the `days` before `today` (today excluded: a
     run during market hours must not expect today's close)."""
@@ -188,6 +196,58 @@ def check_factor_coverage(lists: dict, members: dict) -> list[CheckResult]:
             f"factor_coverage.{sub}", FAIL if share < t.FACTOR_MIN_COVERAGE else PASS,
             round(share, 4), t.FACTOR_MIN_COVERAGE,
             f"{info['rows']:,} rows for {total:,} constituents ({share:.0%})"))
+    return out
+
+
+def check_attribution(detail: dict,
+                      expected_lists: int = len(cfg.CONSTITUENT_PROXY_ETFS)) -> list[CheckResult]:
+    """Per list: price coverage, the sectors-equal-index identity, non-finite
+    values and the residual against the proxy ETF, worst window shown. Every
+    problem is t.ATTRIBUTION_FAILURE_STATUS (WARN in v1)."""
+    bad = t.ATTRIBUTION_FAILURE_STATUS
+    lists = {sub: info for sub, info in detail.items()
+             if isinstance(info, dict) and "windows" in info}
+    out = [CheckResult("attribution.lists", bad if len(lists) < expected_lists else PASS,
+                       len(lists), expected_lists,
+                       f"{len(lists)} of {expected_lists} lists attributed")]
+    for sub, info in sorted(lists.items()):
+        windows = info["windows"]
+        name = f"attribution.{sub}"
+
+        floor = (t.ATTRIBUTION_MIN_COVERAGE_LONG_TAIL if sub in t.ATTRIBUTION_LONG_TAIL
+                 else t.ATTRIBUTION_MIN_COVERAGE)
+        w, cov = min(((w, v["covered_weight_pct"]) for w, v in windows.items()),
+                     key=lambda x: x[1])
+        out.append(CheckResult(f"{name}.coverage", bad if cov < floor else PASS,
+                               round(cov, 2), floor, f"{cov:.1f}% of weight priced ({w})"))
+
+        w, err = max(((w, v["identity_error_pp"]) for w, v in windows.items()),
+                     key=lambda x: x[1])
+        out.append(CheckResult(f"{name}.identity",
+                               bad if err > t.ATTRIBUTION_IDENTITY_TOL_PP else PASS,
+                               err, t.ATTRIBUTION_IDENTITY_TOL_PP,
+                               f"sectors vs index / weights vs 100%: {err:.2e}pp ({w})"))
+
+        nf = sum(v["non_finite"] for v in windows.values())
+        out.append(CheckResult(f"{name}.non_finite", bad if nf else PASS, nf, 0,
+                               f"{nf} non-finite served values"))
+
+        residuals = {w: v["residual_pp"] for w, v in windows.items()
+                     if v["residual_pp"] is not None}
+        if not residuals:
+            out.append(CheckResult(f"{name}.residual", PASS, None, None, "no reference"))
+            continue
+        w, res = max(residuals.items(), key=lambda x: abs(x[1]))
+        if sub in t.ATTRIBUTION_UNCHECKED_RESIDUAL:
+            out.append(CheckResult(f"{name}.residual", PASS, res, None,
+                                   f"{res:+.2f}pp vs ETF ({w}); local currency, not checked"))
+            continue
+        column = 1 if sub in t.ATTRIBUTION_SMALL else 0
+        over = {w: abs(r) * 100 for w, r in residuals.items()
+                if abs(r) * 100 > t.ATTRIBUTION_RESIDUAL_WARN_BP.get(w, (150, 250))[column]}
+        out.append(CheckResult(f"{name}.residual", bad if over else PASS, res, None,
+                               f"worst {res:+.2f}pp vs ETF ({w})"
+                               + (f"; over limit: {', '.join(over)}" if over else "")))
     return out
 
 

@@ -146,3 +146,82 @@ def test_factor_coverage_against_constituent_lists():
     members = {"sp500": 504, "nas": 101}
     assert statuses(c.check_factor_coverage(lists, members)) == {
         "factor_coverage.sp500": c.PASS, "factor_coverage.nas": c.FAIL}
+
+
+def _window(cov=100.0, res=0.0, ident=0.0, nf=0):
+    return {"covered_weight_pct": cov, "residual_pp": res,
+            "identity_error_pp": ident, "non_finite": nf}
+
+
+def _attr_detail(sub="sp500", **window):
+    return {sub: {"rows": 10, "currency_basis": "USD",
+                  "windows": {w: _window(**window) for w in t.ATTRIBUTION_RESIDUAL_WARN_BP}}}
+
+
+def _by_name(results):
+    return {r.name: r.status for r in results}
+
+
+def test_attribution_clean_lists_pass():
+    detail = {**_attr_detail("sp500"), **_attr_detail("nas")}
+    out = _by_name(c.check_attribution(detail, expected_lists=2))
+    assert set(out.values()) == {c.PASS}
+    assert {"attribution.sp500.coverage", "attribution.sp500.identity",
+            "attribution.sp500.non_finite", "attribution.sp500.residual",
+            "attribution.lists"} <= set(out)
+
+
+def test_attribution_low_coverage_warns_but_long_tail_floor_is_lower():
+    assert _by_name(c.check_attribution(_attr_detail("sp500", cov=95.0), 1))[
+        "attribution.sp500.coverage"] == c.WARN
+    assert _by_name(c.check_attribution(_attr_detail("rmicro", cov=95.0), 1))[
+        "attribution.rmicro.coverage"] == c.PASS
+
+
+def test_attribution_identity_and_non_finite_warn():
+    out = _by_name(c.check_attribution(_attr_detail("sp500", ident=1e-3, nf=2), 1))
+    assert out["attribution.sp500.identity"] == c.WARN
+    assert out["attribution.sp500.non_finite"] == c.WARN
+
+
+def test_attribution_residual_thresholds_by_group():
+    assert _by_name(c.check_attribution(_attr_detail("sp500", res=0.30), 1))[
+        "attribution.sp500.residual"] == c.WARN          # 30bp > 25bp at 1W
+    detail = {"tsx": {"rows": 1, "currency_basis": "CAD",
+                      "windows": {"1W": _window(res=0.30)}}}
+    assert _by_name(c.check_attribution(detail, 1))["attribution.tsx.residual"] == c.PASS
+
+
+def test_attribution_local_currency_residual_is_reported_not_checked():
+    res = c.check_attribution(_attr_detail("msci_eafe", res=-4.0), 1)
+    r = next(x for x in res if x.name == "attribution.msci_eafe.residual")
+    assert r.status == c.PASS and r.value == pytest.approx(-4.0)
+
+
+def test_attribution_missing_reference_passes():
+    res = c.check_attribution(_attr_detail("sp500", res=None), 1)
+    r = next(x for x in res if x.name == "attribution.sp500.residual")
+    assert r.status == c.PASS and "no reference" in r.detail
+
+
+def test_attribution_fewer_lists_than_expected_warns():
+    assert _by_name(c.check_attribution(_attr_detail("sp500"), expected_lists=8))[
+        "attribution.lists"] == c.WARN
+
+
+@pytest.mark.parametrize("window", [
+    dict(cov=0.0), dict(res=1e6), dict(ident=1e6), dict(nf=10**6)])
+def test_attribution_never_fails_in_v1(window):
+    out = c.check_attribution({**_attr_detail("sp500", **window), "junk": "x"}, 8)
+    assert c.FAIL not in {r.status for r in out}
+
+
+def test_attribution_stage_failure_rate_is_capped_at_warn():
+    r = StageResult("build_index_attribution")
+    for ok in (False, False, True):
+        r.record(ok, "x")
+    assert c.check_build_stage(r).status == c.WARN
+    other = StageResult("build_contr_to_var")
+    for ok in (False, False, True):
+        other.record(ok, "x")
+    assert c.check_build_stage(other).status == c.FAIL

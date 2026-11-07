@@ -32,6 +32,26 @@ MIN_COUNTS = {
     "profile_rows.company_profiles": 11000,
     "profile_rows.long_profiles": 5000,
 }
+# Index attribution (check_attribution). Every attribution check is WARN-only
+# in v1: a FAIL fails the whole weekly run, and a bug in this new dataset must
+# not block prices and fundamentals. After three clean runs set
+# ATTRIBUTION_FAILURE_STATUS = "fail" (spec 2026-11-07-index-attribution-design).
+ATTRIBUTION_FAILURE_STATUS = "warn"
+ATTRIBUTION_MIN_COVERAGE = 97.0             # % of declared weight priced, any window
+ATTRIBUTION_MIN_COVERAGE_LONG_TAIL = 90.0
+ATTRIBUTION_LONG_TAIL = {"rmicro", "msci_sm"}
+ATTRIBUTION_IDENTITY_TOL_PP = 1e-6
+# |sum of contributions - proxy ETF price return| per window, in basis points:
+# (core lists, small/Canadian lists). Tune after the first few runs.
+ATTRIBUTION_RESIDUAL_WARN_BP = {
+    "1W": (25, 40), "2W": (25, 40), "1M": (40, 60), "3M": (75, 100),
+    "ytd": (150, 250), "1Y": (150, 250)}
+ATTRIBUTION_SMALL = {"tsx", "tsx_small_cap", "rmicro"}
+# Local-currency attribution against a USD ETF: the residual carries FX.
+ATTRIBUTION_UNCHECKED_RESIDUAL = {"msci_eafe", "msci_sm"}
+# Build stages whose failure rate may only warn.
+WARN_ONLY_STAGES = {"build_index_attribution"}
+
 # Factor rows per list vs the list's constituent count.
 FACTOR_MIN_COVERAGE = 0.80
 
