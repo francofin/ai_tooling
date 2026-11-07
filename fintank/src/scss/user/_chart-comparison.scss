@@ -1,3 +1,10 @@
+// Ported from the orphaned `src/styles/` tree (2026-11-07). That tree was a
+// second, unreferenced copy of the template's stylesheets: nothing imported
+// it, so these rules never reached the browser and /build-comparison rendered
+// unstyled. The live chain is _app.js -> scss/style.default.scss -> _core ->
+// user/_user. Deleting src/styles/ without moving this first would have
+// dropped the only copy.
+
 // Horizontal scroll-snap rail for /build-comparison. Only the rail scrolls --
 // the indicator controls stay fixed in the left column, since a scroller that
 // carried them along would put the settings off-screen while comparing.
