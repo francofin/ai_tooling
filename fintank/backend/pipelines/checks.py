@@ -22,6 +22,7 @@ REQUIRED_COLUMNS = {
     "stock_prices": {"adjClose", "returns"},
     "index_prices": {"adjClose", "returns"},
     "factor_metrics": set(FACTOR_METRICS_COLUMNS),
+    "attribution": {"window", "level", "key", "contribution_pp"},
     "profile_aggregates": set(cfg.FIELD_MAPPINGS["long_profiles"].values()),
 }
 

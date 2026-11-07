@@ -12,7 +12,8 @@ from pipelines.stock_pipeline import cfg
 # "LIVE" last, so a page never sees new aggregates before their inputs.
 DATASET_ORDER = ["constituents", "constituents_history", "index_prices",
                  "stock_prices", "fundamentals", "revenue_segments",
-                 "contr_to_var", "factor_metrics", "profile_aggregates", "econ"]
+                 "contr_to_var", "factor_metrics", "attribution",
+                 "profile_aggregates", "econ"]
 
 
 @dataclass(frozen=True)
@@ -57,6 +58,7 @@ def collect_outputs(p) -> list[Output]:
     add(p.revenue_segments_dir, "stock_data/revenue_segments", "revenue_segments")
     add(p.contr_to_var_dir, "index_data/contr_to_var", "contr_to_var")
     add(p.factor_metrics_dir, "stock_data/factor_metrics", "factor_metrics")
+    add(p.attribution_dir, "index_data/attribution", "attribution")
     for name in p.PROFILE_AGGREGATES:
         path = os.path.join(p.parquet_root, name, f"{name}.parquet")
         if os.path.isfile(path):

@@ -32,8 +32,8 @@ from pipelines.store import LAST_PUBLISHED_REPORT, LIVE_MANIFEST, S3Store, run_k
 
 BUILD_STAGES = [
     "build_price_parquets", "build_fundamentals_parquets", "build_profile_aggregate",
-    "build_factor_metrics", "build_contr_to_var", "build_econ_parquets",
-    "build_relative_performance",
+    "build_factor_metrics", "build_contr_to_var", "build_index_attribution",
+    "build_econ_parquets", "build_relative_performance",
 ]
 LEAN_STAGES = [
     "refresh_constituents", "fetch_stock_prices", "fetch_etf_prices",

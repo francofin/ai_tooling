@@ -19,6 +19,7 @@ def test_keys_match_the_upload_methods(pipeline):
     touch(os.path.join(p.revenue_segments_dir, "AAA_segments.json"))
     touch(os.path.join(p.contr_to_var_dir, "sp500_contr_to_var.parquet"))
     touch(os.path.join(p.factor_metrics_dir, "sp500_metrics_returns.parquet"))
+    touch(os.path.join(p.attribution_dir, "sp500_attribution.parquet"))
     touch(os.path.join(p.parquet_root, "company_profiles", "company_profiles.parquet"))
     touch(os.path.join(p.parquet_root, "long_profiles", "long_profiles.parquet"))
     touch(os.path.join(p.econ_dir, "cpi.parquet"))
@@ -34,6 +35,7 @@ def test_keys_match_the_upload_methods(pipeline):
         ("revenue_segments", "stock_data/revenue_segments/AAA_segments.json"),
         ("contr_to_var", "index_data/contr_to_var/sp500_contr_to_var.parquet"),
         ("factor_metrics", "stock_data/factor_metrics/sp500_metrics_returns.parquet"),
+        ("attribution", "index_data/attribution/sp500_attribution.parquet"),
         ("profile_aggregates", "stock_data/company_profiles/company_profiles.parquet"),
         ("profile_aggregates", "stock_data/long_profiles/long_profiles.parquet"),
         ("econ", "econ_data/cpi.parquet"),

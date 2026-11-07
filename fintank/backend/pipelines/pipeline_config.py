@@ -43,6 +43,12 @@ CONSTITUENT_PROXY_ETFS = {
     "msci_sm_const":       "WSML",
 }
 
+# Currency of each list's attribution (build_index_attribution). Prices are
+# local-currency closes; the MSCI lists are NOT converted to USD in v1, so their
+# residual against the USD proxy ETF carries the FX move. Unlisted → "USD".
+ATTRIBUTION_CURRENCY = {"msci_eafe": "local", "msci_sm": "local",
+                        "tsx": "CAD", "tsx_small_cap": "CAD"}
+
 # [v3-only] stable/etf-list returns only {symbol, name} — no 'exchange' field
 # to apply this filter to.
 ETF_EXCHANGE_FILTER = [

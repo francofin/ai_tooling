@@ -95,6 +95,7 @@ if BACKEND_DIR not in sys.path:
     sys.path.insert(0, BACKEND_DIR)
 
 from pipelines import pipeline_config as cfg  # noqa: E402
+from pipelines.attribution import compute_attribution  # noqa: E402
 from pipelines.factor_windows import WINDOWS, window_return_and_std  # noqa: E402
 from pipelines.results import StageResult, redact  # noqa: E402
 
@@ -236,6 +237,10 @@ class StockDataPipeline:
     @property
     def contr_to_var_dir(self):
         return os.path.join(self.index_root, "contr_to_var")
+
+    @property
+    def attribution_dir(self):
+        return os.path.join(self.index_root, "attribution")
 
     @property
     def constituents_history_dir(self):
@@ -1910,6 +1915,100 @@ class StockDataPipeline:
             result.detail[sub] = len(df)
             print(f"{sub}: {len(df)} stocks ({len(missing)} no local prices, "
                   f"{len(dropped)} gappy window) → {out_path}")
+        return result
+
+    def holdings_date(self, const_key):
+        """Date part of the holdings' own 'updated' field, or None."""
+        with open(self.constituents_path(const_key)) as f:
+            rows = json.load(f)
+        date = str(rows[0].get("updated") or "")[:10] if rows else ""
+        return pd.Timestamp(date) if re.fullmatch(r"\d{4}-\d{2}-\d{2}", date) else None
+
+    def _close_series(self, sub_universe, symbol):
+        """One symbol's daily close from a local price parquet, or None."""
+        path = os.path.join(self.price_parquet_dir("daily", sub_universe),
+                            f"{symbol}_prices.parquet")
+        if not os.path.isfile(path):
+            return None
+        s = pd.read_parquet(path, columns=["close"])["close"]
+        s.index = pd.to_datetime(s.index)
+        return s
+
+    def _sectors(self, sub_universe):
+        path = os.path.join(self.factor_metrics_dir,
+                            f"{sub_universe}_metrics_returns.parquet")
+        if not os.path.isfile(path):
+            return pd.Series(dtype=object)
+        df = pd.read_parquet(path, columns=["symbol", "sector"])
+        return df.drop_duplicates("symbol").set_index("symbol")["sector"]
+
+    @staticmethod
+    def _attribution_detail(df):
+        """Per-window numbers the attribution check reads (checks.py)."""
+        windows = {}
+        for window, g in df.groupby("window", sort=False):
+            idx = g[g.level == "index"].iloc[0]
+            sectors = g.loc[g.level == "sector", "contribution_pp"].sum()
+            buckets = g.loc[g.level.isin(["joined", "unattributed", "non_equity"]),
+                            "weight_end_pct"].sum()
+            served = g.loc[g.level.isin(["index", "sector", "constituent"]),
+                           ["weight_start_pct", "return_pct", "contribution_pp"]]
+            windows[window] = {
+                "covered_weight_pct": float(idx.covered_weight_pct),
+                "residual_pp": (None if pd.isna(idx.residual_pp)
+                                else float(idx.residual_pp)),
+                "identity_error_pp": float(max(
+                    abs(sectors - idx.contribution_pp),
+                    abs(idx.covered_weight_pct + buckets - 100))),
+                "non_finite": int((~np.isfinite(served.to_numpy(dtype=float))).sum()),
+            }
+        return windows
+
+    def build_index_attribution(self, constituent_keys=None, today=None):
+        """Buy-and-hold return attribution per index list, six windows
+        (pipelines/attribution.py): index_data/attribution/{sub}_attribution.parquet,
+        overwritten each run. Local only — needs constituents, build_price_parquets'
+        daily parquets, build_factor_metrics' sectors and the proxy ETF's prices.
+
+        A list that fails keeps last week's parquet. detail[sub] carries the
+        per-window coverage, residual and identity error for check_attribution."""
+        keys = (list(cfg.CONSTITUENT_PROXY_ETFS) if constituent_keys is None
+                else constituent_keys)
+        today = pd.Timestamp(today or datetime.date.today())
+        os.makedirs(self.attribution_dir, exist_ok=True)
+        result = StageResult("build_index_attribution")
+        for const_key in keys:
+            sub = self.sub_universe_for(const_key)
+            try:
+                weights = pd.Series(self.constituent_weights(const_key), dtype=float)
+                held = self.holdings_date(const_key) or today
+                since = min(held, today) - pd.DateOffset(years=1, days=30)
+                prices, missing = self._load_adj_close_matrix(
+                    sub, list(weights.index), column="close", since=since,
+                    any_folder=True)
+                prices.index = pd.to_datetime(prices.index)
+                etf = cfg.CONSTITUENT_PROXY_ETFS[const_key]
+                df = compute_attribution(
+                    prices, weights, self._sectors(sub), held,
+                    reference=self._close_series("etfs", etf), ref_symbol=etf,
+                    currency_basis=cfg.ATTRIBUTION_CURRENCY.get(sub, "USD"))
+            except (FileNotFoundError, ValueError) as e:
+                result.record(False, sub)
+                print(f"{sub}: SKIPPED — {redact(str(e))}; existing parquet left untouched")
+                continue
+            if df.empty:
+                result.record(False, sub)
+                print(f"{sub}: SKIPPED — nothing to attribute "
+                      f"({len(missing)} no local prices); existing parquet left untouched")
+                continue
+            out_path = os.path.join(self.attribution_dir, f"{sub}_attribution.parquet")
+            df.to_parquet(out_path, index=False)
+            result.record(True)
+            result.detail[sub] = {"rows": len(df),
+                                  "currency_basis": cfg.ATTRIBUTION_CURRENCY.get(sub, "USD"),
+                                  "windows": self._attribution_detail(df)}
+            print(f"{sub}: {len(df)} rows, {df.window.nunique()} windows "
+                  f"({len(missing)} no local prices) → {out_path}")
         return result
 
     def _load_fred_series(self, series_id, column=None):
