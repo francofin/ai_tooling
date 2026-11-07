@@ -3,8 +3,21 @@ import Link from "next/link"
 import { Table } from "react-bootstrap"
 
 import SectionUnavailable from "./SectionUnavailable"
+import SortableHeaderCell from "@componentsLegacy/Table/SortableHeaderCell"
+import TablePager from "@componentsLegacy/Table/TablePager"
+import { useSortedTable } from "@hooks/useSortedTable"
 
-const VISIBLE_ROWS = 25
+// Module scope on purpose: `useSortedTable` memoises its sort on this
+// reference, so an inline array would re-sort ~500 rows every render.
+const COLUMNS = [
+  { key: "symbol", label: "Stock", type: "string" },
+  { key: "name", label: "Name", type: "string" },
+  { key: "pe", label: "P/E", type: "number" },
+  { key: "eps", label: "EPS", type: "number" },
+  { key: "changesPercentage", label: "% Change", type: "number" },
+  { key: "price", label: "Price", type: "number" },
+  { key: "marketCap", label: "Market Cap", type: "number" },
+]
 
 const fmtMarketCap = (value) => {
   if (value == null) return "—"
@@ -18,17 +31,38 @@ const fmtNumber = (value, digits = 2) =>
   value == null ? "—" : Number(value).toFixed(digits)
 
 /**
- * Constituents ranked cheapest first on trailing PE.
+ * Every constituent with a positive trailing PE, sortable and paginated.
  *
  * The backend excludes non-positive multiples, so loss-making names no longer
  * head the table -- sorting a raw PE ascending put a -5188 multiple at the top.
- * Only the cheapest {VISIBLE_ROWS} are rendered; the full ranking runs to
- * several hundred rows and was previously dumped into the DOM in one go.
+ * It sends all ~494 records in the one cached quotes payload; this used to
+ * render only the cheapest 25 of them, which made "which names are the most
+ * expensive?" unanswerable from the page.
+ *
+ * Sorting runs over the whole dataset, not the visible page, so a descending
+ * PE sort surfaces the genuinely priciest constituents. Missing values sort to
+ * the end of both directions -- see `useSortedTable`.
  */
 const ValuationsSection = ({ quotes }) => {
-  const valuations = quotes?.valuations ?? []
+  const {
+    pageRows,
+    requestSort,
+    ariaSortFor,
+    page,
+    pageCount,
+    setPage,
+    rowsPerPage,
+    setRowsPerPage,
+    totalRows,
+    rangeStart,
+    rangeEnd,
+  } = useSortedTable(quotes?.valuations, COLUMNS, {
+    initialSortKey: "pe",
+    initialDirection: "asc",
+    initialRowsPerPage: 25,
+  })
 
-  if (!valuations.length) {
+  if (!totalRows) {
     return (
       <SectionUnavailable
         title="Stock Valuations"
@@ -41,23 +75,24 @@ const ValuationsSection = ({ quotes }) => {
     <div className="text-block">
       <h4 className="mb-2">Stock Valuations</h4>
       <p className="text-muted text-sm">
-        The {Math.min(VISIBLE_ROWS, valuations.length)} lowest trailing P/E ratios of{" "}
-        {valuations.length} constituents with positive earnings.
+        All {totalRows} constituents with positive trailing earnings, ranked by P/E from
+        lowest by default. Select any column heading to re-rank the full list.
       </p>
       <Table striped responsive hover className="text-gray-700 text-sm">
         <thead>
           <tr>
-            <th className="py-3 align-middle">Stock</th>
-            <th className="py-3 align-middle">Name</th>
-            <th className="py-3 align-middle">P/E</th>
-            <th className="py-3 align-middle">EPS</th>
-            <th className="py-3 align-middle">% Change</th>
-            <th className="py-3 align-middle">Price</th>
-            <th className="py-3 align-middle">Market Cap</th>
+            {COLUMNS.map((column) => (
+              <SortableHeaderCell
+                key={column.key}
+                column={column}
+                ariaSort={ariaSortFor(column.key)}
+                onSort={requestSort}
+              />
+            ))}
           </tr>
         </thead>
         <tbody>
-          {valuations.slice(0, VISIBLE_ROWS).map((item) => (
+          {pageRows.map((item) => (
             <tr key={item.symbol} className="py-3 align-middle">
               <td>
                 <Link href={`/stock-data/${item.symbol}`}>{item.symbol}</Link>
@@ -74,6 +109,17 @@ const ValuationsSection = ({ quotes }) => {
           ))}
         </tbody>
       </Table>
+      <TablePager
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        rowsPerPage={rowsPerPage}
+        onRowsPerPageChange={setRowsPerPage}
+        rangeStart={rangeStart}
+        rangeEnd={rangeEnd}
+        totalRows={totalRows}
+        label="constituents"
+      />
     </div>
   )
 }
