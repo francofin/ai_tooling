@@ -590,9 +590,15 @@ class StockDataPipeline:
                         "feed? (seen 2026-08-02: IEFA served 138 of ~2,600 "
                         "holdings for a day)")
                 self._save_json(rows, path)
+                # A snapshot problem must never mark a good refresh as failed.
+                try:
+                    snapshot = self._save_holdings_snapshot(key, rows)
+                except Exception as e:
+                    snapshot = None
+                    print(f"{key}: snapshot not saved: {redact(str(e))}")
                 lists[key] = {"status": "updated", "previous": previous,
                               "new": len(rows), "error": None,
-                              "snapshot": self._save_holdings_snapshot(key, rows)}
+                              "snapshot": snapshot}
                 result.record(True)
                 print(f"{key}: {len(rows)} members")
             except Exception as e:

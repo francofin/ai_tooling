@@ -120,6 +120,19 @@ def test_rows_without_updated_write_no_snapshot(pipeline, monkeypatch):
     assert not os.path.exists(os.path.join(pipeline.constituents_history_dir, "sp500"))
 
 
+def test_snapshot_failure_never_fails_the_refresh(pipeline, monkeypatch):
+    monkeypatch.setattr(sp.cfg, "CONSTITUENT_PROXY_ETFS", {"sp500_const": "SPY"})
+    pipeline._get = fake_get({"etf-holder/SPY": HOLDINGS})
+
+    def broken(key, rows):
+        raise OSError("disk full")
+    monkeypatch.setattr(pipeline, "_save_holdings_snapshot", broken)
+    result = pipeline.refresh_constituents(include_etf_list=False)
+    info = result.detail["lists"]["sp500_const"]
+    assert (info["status"], info["snapshot"]) == ("updated", None)
+    assert (result.saved, result.failed) == (1, 0)
+
+
 def test_revenue_segments_buckets(pipeline, monkeypatch):
     monkeypatch.setattr(sp.cfg, "SEGMENTATION_CONSTITUENT_KEYS", ["sp500_const"])
     write_constituents(pipeline, "sp500_const", ["AAA", "NONE", "ERR"])
