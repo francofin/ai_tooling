@@ -264,8 +264,8 @@ skipped universe keeps last week's file.
   owner, who can discard it. After three clean runs, promote non-finite,
   identity and coverage to FAIL (one-line change in `thresholds.py`).
 
-- `thresholds.py`: `MIN_COUNTS["attribution"] = 8`,
-  `MIN_COUNTS["constituents_history"] = 8`, plus
+- `thresholds.py`: `MIN_COUNTS["attribution"] = 8` (no floor for the
+  ever-growing `constituents_history`; `check_counts` catches a shrink), plus
   `ATTRIBUTION_MIN_COVERAGE`, `ATTRIBUTION_MIN_COVERAGE_LONG_TAIL`,
   `ATTRIBUTION_RESIDUAL_WARN_BP`.
 - `check_counts` skips datasets with no baseline (`checks.py:148-153`), so the

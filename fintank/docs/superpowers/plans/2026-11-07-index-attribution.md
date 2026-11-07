@@ -103,7 +103,6 @@ def test_rows_without_updated_write_no_snapshot(pipeline, monkeypatch):
   - **Outputs** (`outputs.py`):
     - Insert `"constituents_history"` into `DATASET_ORDER` after `"constituents"`.
     - Add one `add(os.path.join(p.constituents_history_dir, sub), f"index_data/constituents_history/{sub}", "constituents_history")` for each `sub` in `[p.sub_universe_for(k) for k in cfg.CONSTITUENT_PROXY_ETFS]`.
-  - **Thresholds:** add `MIN_COUNTS["constituents_history"] = 8`.
 
 - [ ] **Step 4: Run the full pipeline suite and confirm it passes**
 
@@ -171,7 +170,7 @@ cdk deploy --profile fintank -c alert_email="$ALERT_EMAIL" -c news_schedule=on -
   Expected: `✅ FintankPipeline`.
 
 - [ ] **Step 5: After the next weekly run (Sat Nov 14), check the held email.**
-  - `minimum.constituents_history` passes, with 8.
+  - `counts.constituents_history` is absent or passes (first run has no baseline), and the run log shows 8 `snapshot` dates.
   - The staged files include `index_data/constituents_history/*/2026-11-1?.json`.
   - Then `approve <run-id>`.
 

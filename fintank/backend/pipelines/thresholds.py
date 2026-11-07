@@ -23,7 +23,6 @@ COUNT_RATIO_FAIL = 0.90
 # long_profiles 6,375 rows); floors are ~80%. Raise them as the universe grows.
 MIN_COUNTS = {
     "constituents": 9,
-    "constituents_history": 8,
     "index_prices": 120,
     "stock_prices": 22000,
     "fundamentals": 43000,

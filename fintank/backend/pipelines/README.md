@@ -37,7 +37,8 @@ often serves the same holdings for weeks), and a refresh that kept the old list
 saves nothing. The files live in the `index_data` state unit **and** are
 published to `thetradingfloor` (dataset `constituents_history`), because the
 state bucket keeps old versions for only 14 days and this history can't be
-re-downloaded. Held emails show `minimum.constituents_history` (8 lists).
+re-downloaded. It only grows, so it has no minimum count; `counts.constituents_history`
+in the held email fails if it ever shrinks (e.g. the state unit lost it).
 
 If the state unit ever comes back without the history, restore it from the
 live bucket. Pull first, so `seed-state --force` pushes the current state back
