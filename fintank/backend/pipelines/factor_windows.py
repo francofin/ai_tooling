@@ -18,12 +18,32 @@ import pandas as pd
 
 WINDOWS = {"1M": 1, "3M": 3, "6M": 6}
 
+# Index attribution windows (pipelines/attribution.py). Kept apart from WINDOWS,
+# which shapes the factor_metrics schema; both share calendar_start so the two
+# can never disagree on where a window begins. None means year to date.
+ATTRIBUTION_WINDOWS = {
+    "1W": pd.DateOffset(days=7),
+    "2W": pd.DateOffset(days=14),
+    "1M": pd.DateOffset(months=1),
+    "3M": pd.DateOffset(months=3),
+    "ytd": None,
+    "1Y": pd.DateOffset(years=1),
+}
+
+
+def calendar_start(as_of, offset):
+    """Calendar start of a window ending at `as_of`: as_of - offset, or the
+    prior year's Dec 31 when offset is None. The caller resolves it to a
+    trading day."""
+    if offset is None:
+        return pd.Timestamp(year=as_of.year - 1, month=12, day=31)
+    return as_of - offset
+
 
 def _anchor_date(as_of, label):
     """Calendar start of the window; the caller resolves it to a trading day."""
-    if label == "ytd":
-        return pd.Timestamp(year=as_of.year - 1, month=12, day=31)
-    return as_of - pd.DateOffset(months=WINDOWS[label])
+    return calendar_start(
+        as_of, None if label == "ytd" else pd.DateOffset(months=WINDOWS[label]))
 
 
 def window_return_and_std(adj_close, label):

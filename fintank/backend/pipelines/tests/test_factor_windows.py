@@ -2,7 +2,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from pipelines.factor_windows import WINDOWS, window_return_and_std
+from pipelines.factor_windows import (ATTRIBUTION_WINDOWS, WINDOWS, calendar_start,
+                                      window_return_and_std)
 
 
 def _series(dates, values):
@@ -62,3 +63,21 @@ def test_empty_series_returns_none():
 
 def test_window_labels_cover_the_frontend_periods():
     assert set(WINDOWS) == {"1M", "3M", "6M"}
+
+
+def test_calendar_start_matches_each_attribution_window():
+    t = pd.Timestamp("2026-11-13")
+    starts = {k: calendar_start(t, v) for k, v in ATTRIBUTION_WINDOWS.items()}
+    assert list(starts) == ["1W", "2W", "1M", "3M", "ytd", "1Y"]
+    assert starts == {"1W": pd.Timestamp("2026-11-06"), "2W": pd.Timestamp("2026-10-30"),
+                      "1M": pd.Timestamp("2026-10-13"), "3M": pd.Timestamp("2026-08-13"),
+                      "ytd": pd.Timestamp("2025-12-31"), "1Y": pd.Timestamp("2025-11-13")}
+
+
+def test_month_end_offset_clamps():
+    assert (calendar_start(pd.Timestamp("2026-03-31"), pd.DateOffset(months=1))
+            == pd.Timestamp("2026-02-28"))
+
+
+def test_factor_windows_unchanged():
+    assert WINDOWS == {"1M": 1, "3M": 3, "6M": 6}
