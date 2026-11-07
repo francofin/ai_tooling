@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from pipelines.attribution import COLUMNS, common_end_date, compute_attribution
+from pipelines.attribution import COLUMNS, common_end_date, compute_attribution, index_stats
 
 END = "2026-11-13"   # a Friday
 
@@ -223,3 +223,48 @@ def test_ragged_calendars_end_on_majority_date():
     out = _attrib(prices, {s: .2 for s in "ABCDE"})
     assert "D" in _rows(out, "1W", "constituent").index
     assert _rows(out, "1W", "unattributed").iloc[0]["count"] == 1
+
+
+def test_index_stats_hand_computed():
+    r = pd.Series({"A": 10.0, "B": -5.0, "C": 2.0, "D": 0.0})
+    w0 = pd.Series({"A": .4, "B": .3, "C": .2, "D": .1})
+    s = index_stats(r, w0, w0 * r)                     # R = 2.9
+    assert s["breadth_up"] == 2 and s["breadth_pct_up"] == 50.0
+    assert s["breadth_pct_beat"] == 25.0               # only A beats 2.9
+    assert s["median_return_pct"] == pytest.approx(1.0)
+    assert s["effective_n"] == pytest.approx(1 / .30)
+    assert s["ew_return_pct"] == pytest.approx(1.75)
+    assert s["cap_minus_ew_pp"] == pytest.approx(1.15)
+    assert s["names_to_50pct"] == 1                    # A alone = 4.0 >= 1.45
+    assert s["top10_contribution_pp"] == pytest.approx(2.9)
+
+
+def test_names_to_50pct_is_none_near_zero_return():
+    r = pd.Series({"A": 1.0, "B": -0.4})
+    w0 = pd.Series({"A": .5, "B": .5})
+    assert index_stats(r, w0, w0 * r)["names_to_50pct"] is None   # R = 0.3pp
+
+
+def test_negative_return_counts_detractors_first():
+    r = pd.Series({"A": -20.0, "B": -2.0, "C": 3.0, "D": -1.0})
+    w0 = pd.Series({"A": .25, "B": .25, "C": .25, "D": .25})
+    s = index_stats(r, w0, w0 * r)                     # R = -5.0; A alone = -5.0
+    assert s["names_to_50pct"] == 1
+    assert s["top10_contribution_pp"] == pytest.approx(-5.0)
+
+
+def test_index_rows_carry_the_stats():
+    out = _attrib(_three_names(), {"A": .5, "B": .3, "C": .2})
+    idx = _index(out, "1M")
+    assert idx["breadth_up"] == 2 and np.isfinite(idx["effective_n"])
+
+
+def test_residual_against_reference():
+    prices = _three_names()
+    flat = pd.Series(100.0, index=prices.index)
+    out = _attrib(prices, {"A": .5, "B": .3, "C": .2}, reference=flat, ref_symbol="SPY")
+    idx = _index(out, "1M")
+    assert idx["ref_symbol"] == "SPY" and idx["ref_return_pct"] == pytest.approx(0.0)
+    assert idx["residual_pp"] == pytest.approx(idx["contribution_pp"])
+    none = _index(_attrib(prices, {"A": .5, "B": .3, "C": .2}), "1M")
+    assert np.isnan(none["ref_return_pct"]) and np.isnan(none["residual_pp"])

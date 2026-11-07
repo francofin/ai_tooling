@@ -94,6 +94,46 @@ def _start_prices(raw, grid, pos):
     return start, first_print
 
 
+# Below this absolute index return (pp), shares of the return are meaningless.
+MIN_RETURN_FOR_SHARES_PP = 0.5
+
+
+def index_stats(returns_pct: pd.Series, w0: pd.Series, contrib_pp: pd.Series) -> dict:
+    """Breadth, concentration and the cap-weighted vs equal-weighted gap for
+    one window's covered names (w0 decimal, summing to 1)."""
+    total = float(contrib_pp.sum())
+    count = len(returns_pct)
+    ew = float(returns_pct.mean())
+    # Contributors in the direction of the return come first.
+    ordered = contrib_pp.sort_values(ascending=total < 0)
+    names_to_50 = None
+    if abs(total) >= MIN_RETURN_FOR_SHARES_PP:
+        reached = (ordered.cumsum() / total) >= 0.5
+        names_to_50 = int(reached.to_numpy().argmax()) + 1 if reached.any() else None
+    return {
+        "breadth_up": int((returns_pct > 0).sum()),
+        "breadth_pct_up": float((returns_pct > 0).sum() / count * 100),
+        "breadth_pct_beat": float((returns_pct > total).sum() / count * 100),
+        "median_return_pct": float(returns_pct.median()),
+        "effective_n": float(1 / (w0 ** 2).sum()),
+        "names_to_50pct": names_to_50,
+        "top10_contribution_pp": float(ordered.iloc[:10].sum()),
+        "ew_return_pct": ew,
+        "cap_minus_ew_pp": total - ew,
+    }
+
+
+def _reference_return(reference, start, end):
+    """Percent change of the reference series between two dates (asof)."""
+    if reference is None:
+        return np.nan
+    ref = _clean(reference.to_frame()).iloc[:, 0].dropna()
+    if ref.empty:
+        return np.nan
+    first, last = ref.asof(start), ref.asof(end)
+    return float((last / first - 1) * 100) if pd.notna(first) and pd.notna(last) else np.nan
+
+
 def _typed(rows: list[dict]) -> pd.DataFrame:
     out = pd.DataFrame(rows, columns=COLUMNS)
     for col in COLUMNS:
@@ -181,13 +221,15 @@ def compute_attribution(prices: pd.DataFrame,
         contrib = w0 * ret
         index_return = float(contrib.sum())
 
+        ref_return = _reference_return(reference, dates[pos], end)
         base = {**common, "window": label, "start_date": dates[pos]}
         rows.append({**base, "level": "index", "key": INDEX_KEY,
                      "weight_start_pct": 100.0, "weight_end_pct": 100.0,
                      "return_pct": index_return, "contribution_pp": index_return,
                      "count": len(cov), "return_basis": "price",
                      "currency_basis": currency_basis, "ref_symbol": ref_symbol,
-                     "covered_weight_pct": share(cov)})
+                     "ref_return_pct": ref_return, "residual_pp": index_return - ref_return,
+                     "covered_weight_pct": share(cov), **index_stats(ret, w0, contrib)})
 
         names = pd.DataFrame({"sector": sector_of[cov], "w0": w0, "wt": wt,
                               "ret": ret, "contrib": contrib})
