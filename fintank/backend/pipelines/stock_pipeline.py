@@ -1768,19 +1768,48 @@ class StockDataPipeline:
                 weights[sym] = float(pct) / 100
         return weights
 
-    def _load_adj_close_matrix(self, sub_universe, symbols, lookback=100):
-        """date x symbol adjClose frame from the local daily metric parquets
-        (adjClose column only — cheap even for r2000). Returns (prices, missing);
-        symbols with no local parquet are skipped, never fetched."""
+    def _price_file_index(self, sub_universe):
+        """symbol → daily price parquet path across every list's folder.
+
+        A symbol is saved under whichever list fetched it, so a member of one
+        index can live only in another's folder (SJ.TO, 1.2% of XCS, sits in
+        tsx/ and msci_sm/ but not tsx_small_cap/). `sub_universe`'s own folder
+        wins, then the others in ALL_SUB_UNIVERSES order."""
+        order = [sub_universe] + [s for s in cfg.ALL_SUB_UNIVERSES if s != sub_universe]
+        index = {}
+        for sub in order:
+            folder = self.price_parquet_dir("daily", sub)
+            if not os.path.isdir(folder):
+                continue
+            for name in os.listdir(folder):
+                if name.endswith("_prices.parquet"):
+                    index.setdefault(name.removesuffix("_prices.parquet"),
+                                     os.path.join(folder, name))
+        return index
+
+    def _load_adj_close_matrix(self, sub_universe, symbols, lookback=100,
+                               column="adjClose", since=None, any_folder=False):
+        """date x symbol frame of one price column from the local daily metric
+        parquets (one column only — cheap even for r2000). Returns (prices,
+        missing); symbols with no local parquet are skipped, never fetched.
+
+        lookback keeps the last N rows; since (a date) replaces it with every
+        row on or after that date. any_folder also looks in the other lists'
+        folders (see _price_file_index)."""
         folder = self.price_parquet_dir("daily", sub_universe)
+        paths = self._price_file_index(sub_universe) if any_folder else None
         series, missing = [], []
         for sym in symbols:
-            path = os.path.join(folder, f"{sym}_prices.parquet")
-            if not os.path.isfile(path):
+            path = (paths.get(sym) if any_folder
+                    else os.path.join(folder, f"{sym}_prices.parquet"))
+            if not path or not os.path.isfile(path):
                 missing.append(sym)
                 continue
-            s = pd.read_parquet(path, columns=["adjClose"])["adjClose"]
-            series.append(s.iloc[-lookback:].rename(sym))
+            s = pd.read_parquet(path, columns=[column])[column]
+            # The index stays as stored (contr_to_var's as_of comes from it).
+            s = (s[pd.to_datetime(s.index) >= since] if since is not None
+                 else s.iloc[-lookback:])
+            series.append(s.rename(sym))
         if not series:
             raise FileNotFoundError(f"no price parquets under {folder} — run "
                                     "build_price_parquets() first")
