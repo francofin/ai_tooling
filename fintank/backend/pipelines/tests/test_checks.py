@@ -243,3 +243,10 @@ def test_attribution_coverage_counts_joined_names_as_priced():
         w["priced_weight_pct"] = 99.8          # 2.9% joined this year, 0.2% unpriced
     r = next(x for x in c.check_attribution(detail, 1) if x.name == "attribution.nas.coverage")
     assert r.status == c.PASS and r.value == pytest.approx(99.8)
+
+
+def test_a_missing_attribution_list_only_warns_on_counts():
+    out = statuses(c.check_counts({"attribution": 7, "stock_prices": 7},
+                                  {"attribution": 8, "stock_prices": 8}))
+    assert out["counts.attribution"] == c.WARN
+    assert out["counts.stock_prices"] == c.FAIL     # other datasets unchanged

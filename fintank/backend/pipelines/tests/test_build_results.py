@@ -158,3 +158,16 @@ def test_attribution_sectors_come_from_the_profile_aggregate(pipeline, monkeypat
     out = pd.read_parquet(os.path.join(pipeline.attribution_dir, "sp500_attribution.parquet"))
     cons = out[(out.window == "1M") & (out.level == "constituent")].set_index("key")
     assert cons.loc["AAA", "sector"] == "Utilities" and cons.loc["BBB", "sector"] == "Energy"
+
+
+def test_attribution_stage_survives_any_error_in_one_list(pipeline, monkeypatch):
+    today = _attribution_fixture(pipeline, monkeypatch)
+    real = pipeline._sectors
+
+    def sectors(sub):
+        if sub == "nas":
+            raise KeyError("sector")          # e.g. a parquet missing the column
+        return real(sub)
+    monkeypatch.setattr(pipeline, "_sectors", sectors)
+    result = pipeline.build_index_attribution(today=today)
+    assert (result.saved, result.failed, result.failed_items) == (1, 1, ["nas"])

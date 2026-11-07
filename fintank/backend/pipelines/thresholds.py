@@ -56,6 +56,9 @@ ATTRIBUTION_UNCHECKED_RESIDUAL = {"msci_eafe", "msci_sm"}
 # not checked, for these windows until history-linked attribution replaces it.
 ATTRIBUTION_MIGRATING = {"r2000", "rmicro", "tsx_small_cap", "msci_sm"}
 ATTRIBUTION_LONG_WINDOWS = {"ytd", "1Y"}
+# Output datasets whose count drop vs the last publish may only warn: built
+# parquets are not state, so a list skipped this run is simply missing locally.
+WARN_ONLY_DATASETS = {"attribution"}
 # Build stages whose failure rate may only warn.
 WARN_ONLY_STAGES = {"build_index_attribution"}
 

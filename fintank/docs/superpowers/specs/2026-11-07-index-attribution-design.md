@@ -243,9 +243,10 @@ is one atomic publish unit.
 
 inf → NaN before writing; `to_parquet(index=False)` like `:1843`.
 
-The local folder is under `index_data/`, so it is also archived in the
-`index_data` state unit. That's the same as `contr_to_var` today and means a
-skipped universe keeps last week's file.
+Built parquets are not state (state is pushed only after fetch stages), so a
+universe skipped this run has no local file; the live copy stays as last
+published because publish never deletes keys. `counts.attribution` and the
+build failure rate are capped at WARN for this reason (review finding C1).
 
 ### Registration and checks
 

@@ -303,3 +303,16 @@ def test_symbol_with_no_recent_rows_falls_back_to_full_history(pipeline):
 
     assert "from=1999-01-01" in urls[1]
     assert (result.saved, result.detail["full"]) == (1, 1)
+
+
+def test_a_truncated_snapshot_is_rewritten(pipeline, monkeypatch):
+    monkeypatch.setattr(sp.cfg, "CONSTITUENT_PROXY_ETFS", {"sp500_const": "SPY"})
+    path = _snapshot_path(pipeline, "sp500", "2026-11-12")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        f.write('[{"asset": "A", "weig')                  # died mid-write
+    pipeline._get = fake_get({"etf-holder/SPY": HOLDINGS})
+    result = pipeline.refresh_constituents(include_etf_list=False)
+    assert result.detail["lists"]["sp500_const"]["snapshot"] == "2026-11-12"
+    with open(path) as f:
+        assert len(json.load(f)) == 2

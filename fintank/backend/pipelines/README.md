@@ -67,7 +67,7 @@ after three clean runs):
 
 | Line | Warns when |
 |---|---|
-| `attribution.lists` | fewer than 8 lists were attributed (a skipped list keeps last week's file) |
+| `attribution.lists` | fewer than 8 lists were attributed (a skipped list is missing from this run; the live copy stays as last published) |
 | `attribution.<sub>.coverage` | priced weight below 97% (90% for rmicro, msci_sm) in any window |
 | `attribution.<sub>.identity` | sectors don't add up to the index, or buckets don't add to 100% |
 | `attribution.<sub>.non_finite` | a served value is NaN/inf |

@@ -647,7 +647,12 @@ class StockDataPipeline:
         path = os.path.join(self.constituents_history_dir,
                             self.sub_universe_for(key), f"{date}.json")
         if os.path.exists(path):
-            return None
+            try:
+                with open(path) as f:
+                    json.load(f)
+                return None
+            except ValueError:
+                pass  # a run died mid-write; an unreadable file would fail every run
         self._save_json(rows, path)
         return date
 
@@ -1982,8 +1987,10 @@ class StockDataPipeline:
         overwritten each run. Local only — needs constituents, build_price_parquets'
         daily parquets, build_factor_metrics' sectors and the proxy ETF's prices.
 
-        A list that fails keeps last week's parquet. detail[sub] carries the
-        per-window coverage, residual and identity error for check_attribution."""
+        A list that fails is skipped: built parquets are not state, so nothing
+        is written for it locally and the live bucket keeps last published
+        copy (publish never deletes). detail[sub] carries the per-window
+        coverage, residual and identity error for check_attribution."""
         keys = (list(cfg.CONSTITUENT_PROXY_ETFS) if constituent_keys is None
                 else constituent_keys)
         today = pd.Timestamp(today or datetime.date.today())
@@ -2004,21 +2011,21 @@ class StockDataPipeline:
                     prices, weights, self._sectors(sub), held,
                     reference=self._close_series("etfs", etf), ref_symbol=etf,
                     currency_basis=cfg.ATTRIBUTION_CURRENCY.get(sub, "USD"))
-            except (FileNotFoundError, ValueError) as e:
+                if df.empty:
+                    raise ValueError(f"nothing to attribute ({len(missing)} no local prices)")
+                detail = {"rows": len(df),
+                          "currency_basis": cfg.ATTRIBUTION_CURRENCY.get(sub, "USD"),
+                          "windows": self._attribution_detail(df)}
+                out_path = os.path.join(self.attribution_dir, f"{sub}_attribution.parquet")
+                df.to_parquet(out_path, index=False)
+            # Any error skips this list only: a new dataset must never crash the run.
+            except Exception as e:
                 result.record(False, sub)
-                print(f"{sub}: SKIPPED — {redact(str(e))}; existing parquet left untouched")
+                print(f"{sub}: SKIPPED — {type(e).__name__}: {redact(str(e))}; "
+                      "the live copy stays as last published")
                 continue
-            if df.empty:
-                result.record(False, sub)
-                print(f"{sub}: SKIPPED — nothing to attribute "
-                      f"({len(missing)} no local prices); existing parquet left untouched")
-                continue
-            out_path = os.path.join(self.attribution_dir, f"{sub}_attribution.parquet")
-            df.to_parquet(out_path, index=False)
             result.record(True)
-            result.detail[sub] = {"rows": len(df),
-                                  "currency_basis": cfg.ATTRIBUTION_CURRENCY.get(sub, "USD"),
-                                  "windows": self._attribution_detail(df)}
+            result.detail[sub] = detail
             print(f"{sub}: {len(df)} rows, {df.window.nunique()} windows "
                   f"({len(missing)} no local prices) → {out_path}")
         return result

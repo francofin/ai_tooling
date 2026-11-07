@@ -163,7 +163,8 @@ def check_counts(current: dict, baseline: dict | None) -> list[CheckResult]:
         now = current.get(name, 0)
         ratio = now / base
         if ratio < t.COUNT_RATIO_FAIL:
-            status = FAIL
+            status = (t.ATTRIBUTION_FAILURE_STATUS if name in t.WARN_ONLY_DATASETS
+                      else FAIL)
         elif ratio < t.COUNT_RATIO_WARN:
             status = WARN
         else:
