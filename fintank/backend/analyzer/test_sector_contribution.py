@@ -9,6 +9,7 @@ the equal-weighted sector average already served by factor_tools._sector_pack(),
 which answers "how did the typical stock in this sector do" rather than "how much
 did this sector move the index".
 """
+import json
 from unittest import TestCase
 
 import numpy as np
@@ -251,3 +252,141 @@ def _has_non_finite(obj):
     if isinstance(obj, float):
         return not np.isfinite(obj)
     return False
+
+
+# --- Precomputed attribution (pipelines/attribution.py output) ---------------
+
+from unittest.mock import MagicMock, patch  # noqa: E402
+
+
+def attribution_frame(windows=('ytd', '1M')):
+    """A long frame shaped like index_data/attribution/{sub}_attribution.parquet:
+    12 Tech/Energy constituents, one joined name, unattributed and non-equity
+    buckets, per window."""
+    rows = []
+    names = [(f"S{i:02d}", 'Tech' if i % 2 else 'Energy', 1 / 12, 12.0 - 2 * i) for i in range(12)]
+    for w in windows:
+        base = {'window': w, 'start_date': pd.Timestamp('2025-12-31'),
+                'end_date': pd.Timestamp('2026-11-13'), 'holdings_date': pd.Timestamp('2026-11-12')}
+        contrib = {s: wt * r for s, _, wt, r in names}
+        total = sum(contrib.values())
+        rows.append({**base, 'level': 'index', 'key': '__index__', 'return_pct': total,
+                     'contribution_pp': total, 'weight_start_pct': 100.0, 'count': 12,
+                     'return_basis': 'price', 'currency_basis': 'USD', 'ref_symbol': 'SPY',
+                     'ref_return_pct': total - 0.1, 'residual_pp': 0.1,
+                     'covered_weight_pct': 97.0, 'breadth_up': 6, 'breadth_pct_up': 50.0,
+                     'breadth_pct_beat': 41.7, 'median_return_pct': 1.0, 'effective_n': 12.0,
+                     'names_to_50pct': 2, 'top10_contribution_pp': total, 'ew_return_pct': 1.0,
+                     'cap_minus_ew_pp': total - 1.0})
+        for sector in ('Tech', 'Energy'):
+            members = [n for n in names if n[1] == sector]
+            c = sum(contrib[s] for s, *_ in members)
+            rows.append({**base, 'level': 'sector', 'key': sector, 'count': len(members),
+                         'weight_start_pct': 50.0, 'contribution_pp': c, 'return_pct': c / 0.5})
+        for s, sector, wt, r in names:
+            rows.append({**base, 'level': 'constituent', 'key': s, 'sector': sector,
+                         'weight_start_pct': wt * 100, 'return_pct': r, 'contribution_pp': contrib[s]})
+        rows.append({**base, 'level': 'joined', 'key': 'NEW', 'sector': 'Tech',
+                     'weight_end_pct': 1.0, 'return_pct': 40.0})
+        rows.append({**base, 'level': 'unattributed', 'key': '__unattributed__',
+                     'weight_end_pct': 1.5, 'count': 3})
+        rows.append({**base, 'level': 'non_equity', 'key': '__non_equity__',
+                     'weight_end_pct': 0.5, 'count': 1})
+    return pd.DataFrame(rows)
+
+
+class PipelinePayloadTests(TestCase):
+
+    def test_pipeline_payload_keeps_the_existing_contract(self):
+        payload = it._payload_from_attribution(attribution_frame())
+        for key in ('weights_as_of', 'returns_as_of', 'matched', 'windows'):
+            self.assertIn(key, payload)
+        self.assertEqual(payload['weights_as_of'], '2026-11-12')
+        self.assertEqual(payload['returns_as_of'], '2026-11-13')
+        self.assertEqual(set(payload['matched']), {'count', 'total', 'weight_pct'})
+        window = payload['windows']['ytd']
+        self.assertEqual(set(window['breadth']), {'positive', 'total', 'pct'})
+        record = window['contribution'][0]
+        self.assertEqual(set(record) >= {'sector', 'weight_pct', 'contribution_pp',
+                                         'average_return', 'count'}, True)
+        self.assertAlmostEqual(window['index_return_pp'],
+                               sum(r['contribution_pp'] for r in window['contribution']))
+        tech = next(r for r in window['contribution'] if r['sector'] == 'Tech')
+        self.assertAlmostEqual(tech['average_return'], np.mean([12.0 - 2 * i for i in range(1, 12, 2)]))
+
+    def test_pipeline_payload_adds_windows_in_order(self):
+        payload = it._payload_from_attribution(attribution_frame(('ytd', '1W', '1Y')))
+        self.assertEqual(payload['windows_available'], ['1W', 'ytd', '1Y'])
+        self.assertEqual(payload['source'], 'pipeline')
+        self.assertEqual((payload['return_basis'], payload['currency_basis']), ('price', 'USD'))
+        self.assertEqual(payload['holdings_as_of'], '2026-11-12')
+
+    def test_top_and_bottom_contributors_are_ten_each_and_sorted(self):
+        window = it._payload_from_attribution(attribution_frame())['windows']['1M']
+        top, bottom = window['top_contributors'], window['bottom_contributors']
+        self.assertEqual((len(top), len(bottom)), (10, 10))
+        self.assertEqual(top[0]['symbol'], 'S00')
+        self.assertEqual(bottom[0]['symbol'], 'S11')
+        self.assertEqual([r['contribution_pp'] for r in top],
+                         sorted((r['contribution_pp'] for r in top), reverse=True))
+        self.assertEqual(set(top[0]), {'symbol', 'sector', 'weight_start_pct',
+                                       'return_pct', 'contribution_pp'})
+
+    def test_window_extras(self):
+        window = it._payload_from_attribution(attribution_frame())['windows']['ytd']
+        self.assertEqual(window['reconciliation']['ref_symbol'], 'SPY')
+        self.assertAlmostEqual(window['coverage']['joined_pct'], 1.0)
+        self.assertAlmostEqual(window['coverage']['unattributed_pct'], 1.5)
+        self.assertEqual(window['concentration']['names_to_50pct'], 2)
+
+    def test_payload_has_no_non_finite(self):
+        frame = attribution_frame()
+        frame.loc[frame.level == 'index', 'ref_return_pct'] = np.inf
+        frame.loc[frame.level == 'index', 'residual_pp'] = np.nan
+        payload = it._payload_from_attribution(frame)
+        json.dumps(payload, allow_nan=False)
+
+
+class SectorContributionSourceTests(TestCase):
+
+    def setUp(self):
+        self.cache = MagicMock()
+        self.cache.get.return_value = None
+        patcher = patch.object(it, 'cache', self.cache)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_cache_key_is_v2(self):
+        with patch.object(it.data_getter, 'load_index_attribution',
+                          return_value=attribution_frame(), create=True):
+            it.get_index_sector_contribution('sp500')
+        key = self.cache.set.call_args[0][0]
+        self.assertEqual(key, 'index:sector_contribution:sp500:v2')
+        self.assertEqual(self.cache.set.call_args[1]['timeout'], it.CACHE_TTL)
+
+    def test_missing_parquet_falls_back_to_live_with_short_ttl(self):
+        constituents, metrics = frames([('A', 'Tech', 60, 10.0, 1.0), ('B', 'Energy', 40, -5.0, 2.0)])
+        with patch.object(it.data_getter, 'load_index_attribution',
+                          side_effect=FileNotFoundError('no file'), create=True), \
+             patch.object(it.data_getter, 'get_index_constituents',
+                          return_value=constituents.to_dict('records')), \
+             patch.object(it.data_getter, 'load_factor_metrics', return_value=metrics):
+            payload = it.get_index_sector_contribution('sp500')
+        self.assertEqual(payload['source'], 'live')
+        self.assertEqual(payload['windows_available'], ['ytd', '1M'])
+        self.assertEqual(self.cache.set.call_args[1]['timeout'], it.FALLBACK_TTL)
+        self.assertEqual(it.FALLBACK_TTL, 900)
+
+    def test_both_sources_missing_raises_key_error(self):
+        with patch.object(it.data_getter, 'load_index_attribution',
+                          side_effect=FileNotFoundError('no file'), create=True), \
+             patch.object(it.data_getter, 'get_index_constituents', return_value=[]):
+            with self.assertRaises(KeyError):
+                it.get_index_sector_contribution('sp500')
+
+    def test_null_sector_is_unclassified_in_live_path(self):
+        constituents, metrics = frames([('A', None, 60, 10.0, 1.0), ('B', 'Energy', 40, -5.0, 2.0)])
+        payload = it._sector_contribution(constituents, metrics)
+        sectors = by_sector(payload['windows']['ytd'])
+        self.assertIn('Unclassified', sectors)
+        self.assertAlmostEqual(sum(sectors.values()), payload['windows']['ytd']['index_return_pp'])

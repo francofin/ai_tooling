@@ -119,6 +119,21 @@ class GetData:
             df['as_of'] = df['as_of'].astype(str)
         return df
 
+    def load_index_attribution(self, universe: str) -> pd.DataFrame:
+        """index_data/attribution/{universe}_attribution.parquet -- buy-and-hold
+        constituent/sector attribution over 1W..1Y written by the pipeline's
+        build_index_attribution. Long format, one block of rows per window,
+        overwritten each run. Raises FileNotFoundError (an OSError) when absent."""
+        bucket = 'thetradingfloor'
+        key = f"index_data/attribution/{universe}_attribution.parquet"
+        path = f"s3://{bucket}/{key}"
+        table = pq.read_table(path, filesystem=self.fs)
+        df = table.to_pandas()
+        for column in ('start_date', 'end_date', 'holdings_date'):
+            if column in df.columns:
+                df[column] = pd.to_datetime(df[column]).dt.strftime('%Y-%m-%d')
+        return df
+
     def load_parquet_stock_profiles(self):
         bucket = 'thetradingfloor'
         key = f"stock_data/company_profiles/company_profiles.parquet"

@@ -598,6 +598,7 @@ def _contribution_for_window(merged, window):
         return _empty_window()
 
     frame = merged[['weightPercentage', 'sector', window]].copy()
+    frame['sector'] = frame['sector'].where(frame['sector'].notna(), 'Unclassified')
     frame[window] = pd.to_numeric(frame[window], errors='coerce')
     frame['weightPercentage'] = pd.to_numeric(frame['weightPercentage'], errors='coerce')
     # Drop non-finite on either side: a name with no return for this window
@@ -674,8 +675,128 @@ def _sector_contribution(constituents, metrics, windows=SECTOR_WINDOWS):
     }
 
 
+# --- Precomputed attribution --------------------------------------------------
+#
+# The pipeline's build_index_attribution writes buy-and-hold attribution for six
+# windows: weights are the holdings snapshot drifted back to each window's
+# start, so contributions sum to the index's price return. It replaces the live
+# path below, which multiplies TODAY's weights by each window's return and so
+# overstates winners. The live path stays as the fallback until the parquet
+# exists for a universe (spec 2026-11-07-index-attribution-design.md).
+
+ATTRIBUTION_WINDOWS = ('1W', '2W', '1M', '3M', 'ytd', '1Y')
+FALLBACK_TTL = 900  # live fallback: short, so it stops being served soon after a publish
+TOP_N = 10
+
+
+def _text(value):
+    return None if value is None or (isinstance(value, float) and value != value) else str(value)
+
+
+def _contributor(row):
+    return {
+        'symbol': str(row['key']),
+        'sector': _text(row.get('sector')),
+        'weight_start_pct': _finite(row.get('weight_start_pct')),
+        'return_pct': _finite(row.get('return_pct')),
+        'contribution_pp': _finite(row.get('contribution_pp')),
+    }
+
+
+def _bucket_pct(group, level):
+    return _finite(group.loc[group['level'] == level, 'weight_end_pct'].sum())
+
+
+def _attribution_window(group):
+    """One window's rows -> the existing window payload, plus the extras."""
+    index = group[group['level'] == 'index'].iloc[0]
+    constituents = group[group['level'] == 'constituent']
+    sectors = group[group['level'] == 'sector']
+    mean_return = constituents.groupby('sector')['return_pct'].mean()
+
+    contribution = [{
+        'sector': str(row['key']),
+        'weight_pct': _finite(row['weight_start_pct']),
+        'contribution_pp': _finite(row['contribution_pp']),
+        'average_return': _finite(mean_return.get(row['key'])),
+        'count': _int_or_none(row['count']),
+    } for _, row in sectors.iterrows()]
+    contribution.sort(key=lambda r: (r['contribution_pp'] is None, -(r['contribution_pp'] or 0.0)))
+
+    ranked = constituents.sort_values('contribution_pp', ascending=False)
+    return {
+        'start_date': _text(index['start_date']),
+        'end_date': _text(index['end_date']),
+        'contribution': contribution,
+        'index_return_pp': _finite(index['contribution_pp']),
+        'breadth': {
+            'positive': _int_or_none(index['breadth_up']) or 0,
+            'total': _int_or_none(index['count']) or 0,
+            'pct': _finite(index['breadth_pct_up']),
+        },
+        'top_contributors': [_contributor(r) for _, r in ranked.head(TOP_N).iterrows()],
+        'bottom_contributors': [_contributor(r) for _, r in
+                                ranked.iloc[::-1].head(TOP_N).iterrows()],
+        'concentration': {
+            'effective_n': _finite(index['effective_n']),
+            'names_to_50pct': _int_or_none(index['names_to_50pct']),
+            'top10_contribution_pp': _finite(index['top10_contribution_pp']),
+        },
+        'ew_return_pct': _finite(index['ew_return_pct']),
+        'cap_minus_ew_pp': _finite(index['cap_minus_ew_pp']),
+        'reconciliation': {
+            'ref_symbol': _text(index['ref_symbol']),
+            'ref_return_pct': _finite(index['ref_return_pct']),
+            'residual_pp': _finite(index['residual_pp']),
+        },
+        'coverage': {
+            'covered_weight_pct': _finite(index['covered_weight_pct']),
+            'joined_pct': _bucket_pct(group, 'joined'),
+            'unattributed_pct': _bucket_pct(group, 'unattributed'),
+            'non_equity_pct': _bucket_pct(group, 'non_equity'),
+        },
+    }
+
+
+def _payload_from_attribution(frame):
+    """Pure: the pipeline's long attribution frame -> the sector-contribution
+    payload. Keeps every key the live payload has (SectorContribution.js reads
+    them) and adds per-window contributors, concentration, reconciliation and
+    coverage. No S3, no cache -- see test_sector_contribution.py."""
+    present = set(frame['window'])
+    windows = [w for w in ATTRIBUTION_WINDOWS if w in present]
+    payload_windows = {w: _attribution_window(frame[frame['window'] == w]) for w in windows}
+
+    index_rows = frame[frame['level'] == 'index']
+    headline = index_rows[index_rows['window'] == ('ytd' if 'ytd' in present else windows[0])].iloc[0]
+    window_rows = frame[frame['window'] == headline['window']]
+    total = (int(headline['count'])
+             + int((window_rows['level'] == 'joined').sum())
+             + int(window_rows.loc[window_rows['level'].isin(['unattributed', 'non_equity']),
+                                   'count'].fillna(0).sum()))
+    return {
+        'source': 'pipeline',
+        'return_basis': _text(headline['return_basis']),
+        'currency_basis': _text(headline['currency_basis']),
+        'holdings_as_of': _text(headline['holdings_date'])[:10],
+        'weights_as_of': _text(headline['holdings_date'])[:10],
+        'returns_as_of': _text(headline['end_date'])[:10],
+        'matched': {
+            'count': int(headline['count']),
+            'total': total,
+            'weight_pct': _finite(headline['covered_weight_pct']),
+        },
+        'windows_available': windows,
+        'windows': payload_windows,
+    }
+
+
 def get_index_sector_contribution(slug, windows=SECTOR_WINDOWS):
     """How much each sector moved the index, plus breadth, per window.
+
+    Reads the pipeline's precomputed attribution parquet; falls back to the
+    live calculation (YTD and 1M only, end-of-period weights) when that file
+    doesn't exist yet for this universe.
 
     Weights come from the constituents JSON (keyed by constituent_key) and
     returns from the factor_metrics snapshot (keyed by risk_key). The two keys
@@ -686,11 +807,36 @@ def get_index_sector_contribution(slug, windows=SECTOR_WINDOWS):
     """
     config = get_index_page_config(slug)
 
-    cache_key = f"index:sector_contribution:{config['risk_key']}:v1"
+    cache_key = f"index:sector_contribution:{config['risk_key']}:v2"
     compressed = cache.get(cache_key)
     if compressed:
         return json.loads(gzip.decompress(compressed))
 
+    try:
+        frame = data_getter.load_index_attribution(config['risk_key'])
+    except OSError:  # FileNotFoundError and pyarrow's IO errors alike
+        frame = None
+    if frame is not None and not frame.empty:
+        payload = _payload_from_attribution(frame)
+        timeout = CACHE_TTL
+    else:
+        payload = _live_sector_contribution(slug, config, windows)
+        timeout = FALLBACK_TTL
+    payload.update({
+        'slug': slug,
+        'universe': config['risk_key'],
+        'last_updated': timezone.now().isoformat(),
+    })
+    # json_safe as well as _finite: _finite guards every value this module
+    # computes, but the payload is the thing that gets gzipped into Redis for
+    # 24h, and a poisoned blob 500s every request for its whole TTL.
+    payload = json_safe(payload)
+    cache.set(cache_key, gzip.compress(json.dumps(payload).encode('utf-8')), timeout=timeout)
+    return payload
+
+
+def _live_sector_contribution(slug, config, windows=SECTOR_WINDOWS):
+    """The pre-pipeline path: today's weights x factor_metrics window returns."""
     constituents = pd.DataFrame(
         data_getter.get_index_constituents(config['constituent_key']))
     if constituents.empty or 'asset' not in constituents.columns:
@@ -701,17 +847,7 @@ def get_index_sector_contribution(slug, windows=SECTOR_WINDOWS):
         raise KeyError(f"No factor metrics for '{slug}'.")
 
     payload = _sector_contribution(constituents, metrics, windows=windows)
-    payload.update({
-        'slug': slug,
-        'universe': config['risk_key'],
-        'windows_available': list(windows),
-        'last_updated': timezone.now().isoformat(),
-    })
-    # json_safe as well as _finite: _finite guards every value this module
-    # computes, but the payload is the thing that gets gzipped into Redis for
-    # 24h, and a poisoned blob 500s every request for its whole TTL.
-    payload = json_safe(payload)
-    cache.set(cache_key, gzip.compress(json.dumps(payload).encode('utf-8')), timeout=CACHE_TTL)
+    payload.update({'source': 'live', 'windows_available': list(windows)})
     return payload
 
 
