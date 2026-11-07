@@ -28,4 +28,26 @@ and the rollback record keeps each file's original "before" version.
 | Local test, no AWS | `python -m pipelines run --mode lean --dry-run --limit 5`; `python -m pipelines news --dry-run` |
 | Change a threshold | edit `pipelines/thresholds.py`, run the tests, `cdk deploy` |
 
+## Holdings history
+
+Every run that refreshes an index list also saves it as
+`index_data/constituents_history/{sub}/{YYYY-MM-DD}.json`, dated by the
+holdings' own `updated` field. A date already saved is never rewritten (FMP
+often serves the same holdings for weeks), and a refresh that kept the old list
+saves nothing. The files live in the `index_data` state unit **and** are
+published to `thetradingfloor` (dataset `constituents_history`), because the
+state bucket keeps old versions for only 14 days and this history can't be
+re-downloaded. Held emails show `minimum.constituents_history` (8 lists).
+
+If the state unit ever comes back without the history, restore it from the
+live bucket. Pull first, so `seed-state --force` pushes the current state back
+plus the history, not an old local copy:
+
+```bash
+python -m pipelines pull-state --yes
+aws s3 sync s3://thetradingfloor/index_data/constituents_history/ \
+  class_files/index_data/constituents_history/ --profile fintank
+python -m pipelines seed-state --force
+```
+
 Tests: `../../.venv/bin/python -m pytest pipelines/tests -q`.

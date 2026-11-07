@@ -68,6 +68,10 @@ Other flags: `-c always_hold=false` (auto-publish clean runs), `-c news_notify=w
 
 ## What changed recently (newest first)
 
+- **2026-11-07: holdings history** (`feat/index-attribution`, not deployed yet).
+  - `refresh_constituents` saves each index list as `index_data/constituents_history/{sub}/{YYYY-MM-DD}.json`, dated by the holdings' `updated` field, and publishes it (new dataset `constituents_history`, `MIN_COUNTS` 8).
+  - Phase 0 of the index attribution plan (`docs/superpowers/plans/2026-11-07-index-attribution.md`); history can't be back-filled, so it ships first.
+  - Restore procedure in `backend/pipelines/README.md` ("Holdings history").
 - **2026-10-25: Oct 24 run** (`lean-20261024-1000`) was the first incremental run.
   - Downloaded **702.8 MB in total** (previously tens of GB).
   - `fetch_stock_prices`: 10,497 recent window / 134 restated / 4 new.

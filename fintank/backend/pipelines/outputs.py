@@ -10,9 +10,9 @@ from pipelines.stock_pipeline import cfg
 
 # Publish order: per-symbol data first, the aggregates the site reads as
 # "LIVE" last, so a page never sees new aggregates before their inputs.
-DATASET_ORDER = ["constituents", "index_prices", "stock_prices", "fundamentals",
-                 "revenue_segments", "contr_to_var", "factor_metrics",
-                 "profile_aggregates", "econ"]
+DATASET_ORDER = ["constituents", "constituents_history", "index_prices",
+                 "stock_prices", "fundamentals", "revenue_segments",
+                 "contr_to_var", "factor_metrics", "profile_aggregates", "econ"]
 
 
 @dataclass(frozen=True)
@@ -38,6 +38,9 @@ def collect_outputs(p) -> list[Output]:
 
     add(os.path.join(p.index_root, "constituents"), "index_data/constituents",
         "constituents")
+    for sub in (p.sub_universe_for(k) for k in cfg.CONSTITUENT_PROXY_ETFS):
+        add(os.path.join(p.constituents_history_dir, sub),
+            f"index_data/constituents_history/{sub}", "constituents_history")
     for freq in ("daily", "monthly"):
         add(os.path.join(p.index_prices_dir, freq),
             f"index_data/index_prices_v2/{freq}", "index_prices")

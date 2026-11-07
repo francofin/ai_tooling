@@ -65,6 +65,7 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import re
 import sys
 import time
 import warnings
@@ -235,6 +236,11 @@ class StockDataPipeline:
     @property
     def contr_to_var_dir(self):
         return os.path.join(self.index_root, "contr_to_var")
+
+    @property
+    def constituents_history_dir(self):
+        """Dated holdings per list: {sub}/{YYYY-MM-DD}.json, one per holdings date."""
+        return os.path.join(self.index_root, "constituents_history")
 
     @property
     def factor_metrics_dir(self):
@@ -555,7 +561,14 @@ class StockDataPipeline:
         left in place — the constituent JSONs drive every downstream fetcher,
         so a bad refresh must not blank them.
 
-        Returns a StageResult; detail["lists"][key] = {"status": "updated" | "kept", "previous", "new", "error"}.
+        Each refreshed index list is also kept as a dated snapshot,
+        index_data/constituents_history/{sub}/{YYYY-MM-DD}.json, dated by the
+        holdings' own 'updated' field (not the fetch date), so attribution can
+        later use the weights that were actually held. An existing snapshot
+        for that date is never rewritten: FMP often serves the same holdings
+        for several weeks.
+
+        Returns a StageResult; detail["lists"][key] = {"status": "updated" | "kept", "previous", "new", "error", "snapshot"}.
         """
         result = StageResult("refresh_constituents")
         lists = result.detail.setdefault("lists", {})
@@ -578,12 +591,13 @@ class StockDataPipeline:
                         "holdings for a day)")
                 self._save_json(rows, path)
                 lists[key] = {"status": "updated", "previous": previous,
-                              "new": len(rows), "error": None}
+                              "new": len(rows), "error": None,
+                              "snapshot": self._save_holdings_snapshot(key, rows)}
                 result.record(True)
                 print(f"{key}: {len(rows)} members")
             except Exception as e:
                 lists[key] = {"status": "kept", "previous": previous,
-                              "new": None, "error": redact(str(e))}
+                              "new": None, "error": redact(str(e)), "snapshot": None}
                 result.record(False, key)
                 print(f"{key} FAILED (existing file kept): {redact(str(e))}")
 
@@ -609,6 +623,22 @@ class StockDataPipeline:
             refresh("etf_data", etf_list)
 
         return result
+
+    def _save_holdings_snapshot(self, key, rows):
+        """Write rows as the dated snapshot for an index list. Returns the
+        date written, or None when the key is not an index list, the rows
+        carry no usable 'updated' date, or that date is already saved."""
+        if key not in cfg.CONSTITUENT_PROXY_ETFS:
+            return None
+        date = str(rows[0].get("updated") or "")[:10] if rows else ""
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+            return None
+        path = os.path.join(self.constituents_history_dir,
+                            self.sub_universe_for(key), f"{date}.json")
+        if os.path.exists(path):
+            return None
+        self._save_json(rows, path)
+        return date
 
     # ═════════════════════════════════════════════════════════════════════
     # STAGE 1 — Fetch (live API). The expensive stage: ~90k FMP calls for a

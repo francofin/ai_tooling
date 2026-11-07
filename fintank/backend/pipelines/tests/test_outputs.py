@@ -11,6 +11,7 @@ def touch(path):
 def test_keys_match_the_upload_methods(pipeline):
     p, r = pipeline, pipeline.root
     touch(p.constituents_path("sp500_const"))
+    touch(os.path.join(p.constituents_history_dir, "sp500", "2026-11-12.json"))
     touch(os.path.join(p.index_prices_dir, "daily", "sp500_prices.parquet"))
     touch(os.path.join(p.price_parquet_dir("daily", "sp500"), "AAA_prices.parquet"))
     touch(os.path.join(p.price_parquet_dir("daily", "nas"), "AAA_prices.parquet"))
@@ -26,6 +27,7 @@ def test_keys_match_the_upload_methods(pipeline):
     keys = [(o.dataset, o.key) for o in collect_outputs(p)]
     assert keys == [
         ("constituents", "index_data/constituents/sp500_const_constituents.json"),
+        ("constituents_history", "index_data/constituents_history/sp500/2026-11-12.json"),
         ("index_prices", "index_data/index_prices_v2/daily/sp500_prices.parquet"),
         ("stock_prices", "stock_data/stock_prices/daily/AAA_prices.parquet"),  # once
         ("fundamentals", "stock_data/ratios_ttm/AAA_ratios_ttm.parquet"),

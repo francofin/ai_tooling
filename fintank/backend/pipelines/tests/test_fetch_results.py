@@ -1,4 +1,5 @@
 import json
+import os
 
 import pytest
 import requests
@@ -66,10 +67,57 @@ def test_refresh_constituents_keeps_shrunk_list(pipeline, monkeypatch):
     assert lists["sp500_const"]["previous"] == 10
     assert "shrank" in lists["sp500_const"]["error"]
     assert lists["nas_const"] == {"status": "updated", "previous": None,
-                                  "new": 2, "error": None}
+                                  "new": 2, "error": None, "snapshot": None}
     assert (result.saved, result.failed) == (1, 1)
     with open(pipeline.constituents_path("sp500_const")) as f:
         assert len(json.load(f)) == 10                      # old file intact
+
+
+HOLDINGS = [{"asset": "A", "weightPercentage": 60, "updated": "2026-11-12 15:56:35"},
+            {"asset": "B", "weightPercentage": 40, "updated": "2026-11-12 15:56:35"}]
+
+
+def _snapshot_path(p, sub, date):
+    return os.path.join(p.constituents_history_dir, sub, f"{date}.json")
+
+
+def test_refresh_constituents_writes_a_dated_snapshot(pipeline, monkeypatch):
+    monkeypatch.setattr(sp.cfg, "CONSTITUENT_PROXY_ETFS", {"sp500_const": "SPY"})
+    pipeline._get = fake_get({"etf-holder/SPY": HOLDINGS})
+    result = pipeline.refresh_constituents(include_etf_list=False)
+    assert result.detail["lists"]["sp500_const"]["snapshot"] == "2026-11-12"
+    with open(_snapshot_path(pipeline, "sp500", "2026-11-12")) as f:
+        assert [r["asset"] for r in json.load(f)] == ["A", "B"]
+
+
+def test_same_holdings_date_does_not_rewrite_the_snapshot(pipeline, monkeypatch):
+    monkeypatch.setattr(sp.cfg, "CONSTITUENT_PROXY_ETFS", {"sp500_const": "SPY"})
+    pipeline._get = fake_get({"etf-holder/SPY": HOLDINGS})
+    pipeline.refresh_constituents(include_etf_list=False)
+    path = _snapshot_path(pipeline, "sp500", "2026-11-12")
+    os.utime(path, (1_000_000_000, 1_000_000_000))
+    result = pipeline.refresh_constituents(include_etf_list=False)
+    assert result.detail["lists"]["sp500_const"]["snapshot"] is None
+    assert os.path.getmtime(path) == 1_000_000_000
+
+
+def test_kept_list_writes_no_snapshot(pipeline, monkeypatch):
+    monkeypatch.setattr(sp.cfg, "CONSTITUENT_PROXY_ETFS", {"sp500_const": "SPY"})
+    write_constituents(pipeline, "sp500_const", [f"S{i}" for i in range(10)])
+    pipeline._get = fake_get({"etf-holder/SPY": HOLDINGS})          # shrank 10 → 2
+    result = pipeline.refresh_constituents(include_etf_list=False)
+    assert result.detail["lists"]["sp500_const"]["status"] == "kept"
+    assert result.detail["lists"]["sp500_const"]["snapshot"] is None
+    assert not os.path.exists(os.path.join(pipeline.constituents_history_dir, "sp500"))
+
+
+def test_rows_without_updated_write_no_snapshot(pipeline, monkeypatch):
+    monkeypatch.setattr(sp.cfg, "CONSTITUENT_PROXY_ETFS", {"sp500_const": "SPY"})
+    pipeline._get = fake_get({"etf-holder/SPY": [{"asset": "A"}, {"asset": "B"}]})
+    result = pipeline.refresh_constituents(include_etf_list=False)
+    assert result.detail["lists"]["sp500_const"]["status"] == "updated"
+    assert result.detail["lists"]["sp500_const"]["snapshot"] is None
+    assert not os.path.exists(os.path.join(pipeline.constituents_history_dir, "sp500"))
 
 
 def test_revenue_segments_buckets(pipeline, monkeypatch):
