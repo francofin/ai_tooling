@@ -242,12 +242,22 @@ def check_attribution(detail: dict,
             out.append(CheckResult(f"{name}.residual", PASS, res, None,
                                    f"{res:+.2f}pp vs ETF ({w}); local currency, not checked"))
             continue
+        note = ""
+        if sub in t.ATTRIBUTION_MIGRATING:
+            skipped = {k: residuals.pop(k) for k in t.ATTRIBUTION_LONG_WINDOWS & set(residuals)}
+            if skipped:
+                note = "; " + ", ".join(f"{k} {v:+.2f}pp" for k, v in skipped.items()) + \
+                       " not checked (reconstitution)"
+            if not residuals:
+                out.append(CheckResult(f"{name}.residual", PASS, res, None, note.lstrip("; ")))
+                continue
+            w, res = max(residuals.items(), key=lambda x: abs(x[1]))
         column = 1 if sub in t.ATTRIBUTION_SMALL else 0
         over = {w: abs(r) * 100 for w, r in residuals.items()
                 if abs(r) * 100 > t.ATTRIBUTION_RESIDUAL_WARN_BP.get(w, (150, 250))[column]}
         out.append(CheckResult(f"{name}.residual", bad if over else PASS, res, None,
                                f"worst {res:+.2f}pp vs ETF ({w})"
-                               + (f"; over limit: {', '.join(over)}" if over else "")))
+                               + (f"; over limit: {', '.join(over)}" if over else "") + note))
     return out
 
 

@@ -140,3 +140,20 @@ def test_attribution_is_a_build_stage_in_both_modes():
     assert "build_index_attribution" in runner.FULL_STAGES
     assert (runner.BUILD_STAGES.index("build_index_attribution")
             == runner.BUILD_STAGES.index("build_contr_to_var") + 1)
+
+
+def test_attribution_sectors_come_from_the_profile_aggregate(pipeline, monkeypatch):
+    import pandas as pd
+
+    today = _attribution_fixture(pipeline, monkeypatch)
+    folder = os.path.join(pipeline.parquet_root, "company_profiles")
+    os.makedirs(folder, exist_ok=True)
+    # AAA is missing from factor_metrics' sectors here; BBB disagrees with it.
+    pd.DataFrame({"symbol": ["AAA", "BBB"], "sector": ["Utilities", "Energy"]}).to_parquet(
+        os.path.join(folder, "company_profiles.parquet"))
+    pd.DataFrame({"symbol": ["BBB"], "sector": ["Tech"]}).to_parquet(
+        os.path.join(pipeline.factor_metrics_dir, "sp500_metrics_returns.parquet"))
+    pipeline.build_index_attribution(constituent_keys=["sp500_const"], today=today)
+    out = pd.read_parquet(os.path.join(pipeline.attribution_dir, "sp500_attribution.parquet"))
+    cons = out[(out.window == "1M") & (out.level == "constituent")].set_index("key")
+    assert cons.loc["AAA", "sector"] == "Utilities" and cons.loc["BBB", "sector"] == "Energy"

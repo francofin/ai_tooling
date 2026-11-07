@@ -138,7 +138,15 @@ Warn thresholds on |R_bh − R_etf|:
 | YTD / 1Y | 150bp | 250bp |
 
 msci_eafe and msci_sm are local-currency vs a USD ETF, so their residual carries
-the FX move: reported, **not** checked (INFO). Residual is warn-only for all
+the FX move: reported, **not** checked (INFO).
+
+**Migrating lists, YTD and 1Y:** for r2000, rmicro, tsx_small_cap (and msci_sm)
+the snapshot no longer holds members that graduated to a bigger index at
+reconstitution, often the year's biggest winners, so the attributed return
+falls short of the ETF. Local smoke run 2026-11-07, 1Y residual: r2000 −6.8pp,
+rmicro −16.8pp, tsx_small_cap −5.0pp, vs under 0.8pp for sp500/nas/tsx. Those
+windows are reported, not checked, and the index page labels them approximate,
+until history-linked attribution replaces them. Residual is warn-only for all
 universes until three runs show the normal range; then tune.
 
 ## Holdings history (ships first, Phase 0)
@@ -195,9 +203,10 @@ this goes out before the attribution stage.
   parameters. Attribution calls it with `column="close"` and
   `since = T − 1Y − 15 days`. The existing positional `lookback=100` stays for
   `build_contr_to_var`.
-- Sectors from the factor_metrics parquet this run just built
-  (`stock_data/factor_metrics/{sub}_metrics_returns.parquet`, columns `symbol`,
-  `sector`), not thousands of profile files.
+- Sectors from the site-wide `stock_data/company_profiles/company_profiles.parquet`
+  (built earlier in the run; 13,771 symbols, 99.99% with a sector), falling back
+  to the list's factor_metrics parquet. (Changed 2026-11-07: factor_metrics alone
+  silently left 92% of S&P 500 weight "Unclassified" on a `--limit` build.)
 - Price lookup searches **every** universe's daily folder, own universe first.
   Measured on local data (2026-11-07): a symbol is saved under whichever list
   fetched it, so e.g. `SJ.TO` (1.2% of XCS) lives in `tsx/` and `msci_sm/` but

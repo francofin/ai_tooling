@@ -68,6 +68,10 @@ Other flags: `-c always_hold=false` (auto-publish clean runs), `-c news_notify=w
 
 ## What changed recently (newest first)
 
+- **2026-11-07: index attribution stage** (`feat/index-attribution`, not deployed yet).
+  - New build stage `build_index_attribution` and dataset `attribution` (`index_data/attribution/{sub}_attribution.parquet`), six windows, price return, buy-and-hold weights from the holdings snapshot.
+  - All its checks are WARN-only in v1; see `backend/pipelines/README.md` ("Index attribution").
+  - Django and the index page still use the old live calculation until phase 3/4 of `docs/superpowers/plans/2026-11-07-index-attribution.md`.
 - **2026-11-07: holdings history** (`feat/index-attribution`, not deployed yet).
   - `refresh_constituents` saves each index list as `index_data/constituents_history/{sub}/{YYYY-MM-DD}.json`, dated by the holdings' `updated` field, and publishes it (new dataset `constituents_history`; no minimum count, `counts.*` catches a shrink).
   - Phase 0 of the index attribution plan (`docs/superpowers/plans/2026-11-07-index-attribution.md`); history can't be back-filled, so it ships first.
@@ -123,6 +127,7 @@ Other flags: `-c always_hold=false` (auto-publish clean runs), `-c news_notify=w
    - rotate SerpAPI/FRED keys;
    - an approve button (would need an authenticated endpoint).
 6. Watch the `consumer_trends` and `communications` news topics; reword `SEARCH_TERMS` if they keep failing.
+7. After three clean runs with attribution, set `ATTRIBUTION_FAILURE_STATUS = "fail"` in `pipelines/thresholds.py` and redeploy.
 
 ## Working rules for sessions
 

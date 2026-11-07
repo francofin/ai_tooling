@@ -51,4 +51,27 @@ aws s3 sync s3://thetradingfloor/index_data/constituents_history/ \
 python -m pipelines seed-state --force
 ```
 
+## Index attribution
+
+`build_index_attribution` (a build stage, so it runs on lean and full runs, with
+no API calls) writes `index_data/attribution/{sub}_attribution.parquet`: how
+much each constituent and sector contributed to the index's **price** return
+over 1W, 2W, 1M, 3M, YTD and 1Y. Weights are the holdings snapshot drifted to
+each window's start (buy and hold), so contributions sum to the index return.
+The MSCI lists are in local currency. Maths: `pipelines/attribution.py`; design:
+`docs/superpowers/specs/2026-11-07-index-attribution-design.md`.
+
+Held-email lines, **all WARN-only in v1** (a FAIL would stop the whole weekly
+publish; promote with `ATTRIBUTION_FAILURE_STATUS = "fail"` in `thresholds.py`
+after three clean runs):
+
+| Line | Warns when |
+|---|---|
+| `attribution.lists` | fewer than 8 lists were attributed (a skipped list keeps last week's file) |
+| `attribution.<sub>.coverage` | priced weight below 97% (90% for rmicro, msci_sm) in any window |
+| `attribution.<sub>.identity` | sectors don't add up to the index, or buckets don't add to 100% |
+| `attribution.<sub>.non_finite` | a served value is NaN/inf |
+| `attribution.<sub>.residual` | sum of contributions vs the proxy ETF's price return is over the per-window limit; MSCI lists are reported, not checked, and so are YTD/1Y for r2000, rmicro, tsx_small_cap (members that graduated to a bigger index at reconstitution are missing from the snapshot, so those windows fall short of the ETF by several pp) |
+| `build_index_attribution.failure_rate` | a list was skipped (capped at WARN) |
+
 Tests: `../../.venv/bin/python -m pytest pipelines/tests -q`.

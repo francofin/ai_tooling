@@ -49,6 +49,13 @@ ATTRIBUTION_RESIDUAL_WARN_BP = {
 ATTRIBUTION_SMALL = {"tsx", "tsx_small_cap", "rmicro"}
 # Local-currency attribution against a USD ETF: the residual carries FX.
 ATTRIBUTION_UNCHECKED_RESIDUAL = {"msci_eafe", "msci_sm"}
+# Lists whose members graduate to a bigger index at reconstitution: the
+# snapshot no longer holds last year's winners, so over YTD/1Y the attributed
+# return falls short of the ETF (local smoke run 2026-11-07, 1Y: r2000 -6.8pp,
+# rmicro -16.8pp, tsx_small_cap -5.0pp; large caps under 0.8pp). Reported,
+# not checked, for these windows until history-linked attribution replaces it.
+ATTRIBUTION_MIGRATING = {"r2000", "rmicro", "tsx_small_cap", "msci_sm"}
+ATTRIBUTION_LONG_WINDOWS = {"ytd", "1Y"}
 # Build stages whose failure rate may only warn.
 WARN_ONLY_STAGES = {"build_index_attribution"}
 

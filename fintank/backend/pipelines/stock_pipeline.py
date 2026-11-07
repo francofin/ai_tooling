@@ -1935,12 +1935,21 @@ class StockDataPipeline:
         return s
 
     def _sectors(self, sub_universe):
-        path = os.path.join(self.factor_metrics_dir,
-                            f"{sub_universe}_metrics_returns.parquet")
-        if not os.path.isfile(path):
-            return pd.Series(dtype=object)
-        df = pd.read_parquet(path, columns=["symbol", "sector"])
-        return df.drop_duplicates("symbol").set_index("symbol")["sector"]
+        """symbol → sector: the site-wide company_profiles aggregate (every
+        profiled symbol, built earlier in the run by build_profile_aggregate),
+        then this list's factor_metrics for anything it lacks."""
+        sources = [os.path.join(self.parquet_root, "company_profiles",
+                                "company_profiles.parquet"),
+                   os.path.join(self.factor_metrics_dir,
+                                f"{sub_universe}_metrics_returns.parquet")]
+        sectors = pd.Series(dtype=object)
+        for path in sources:
+            if not os.path.isfile(path):
+                continue
+            df = pd.read_parquet(path, columns=["symbol", "sector"]).dropna()
+            found = df.drop_duplicates("symbol").set_index("symbol")["sector"]
+            sectors = sectors.combine_first(found)
+        return sectors
 
     @staticmethod
     def _attribution_detail(df):

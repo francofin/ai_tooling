@@ -225,3 +225,13 @@ def test_attribution_stage_failure_rate_is_capped_at_warn():
     for ok in (False, False, True):
         other.record(ok, "x")
     assert c.check_build_stage(other).status == c.FAIL
+
+
+def test_small_cap_long_window_residual_is_reported_not_checked():
+    detail = {"r2000": {"rows": 1, "currency_basis": "USD", "windows": {
+        "3M": _window(res=0.05), "ytd": _window(res=-4.86), "1Y": _window(res=-6.8)}}}
+    r = next(x for x in c.check_attribution(detail, 1) if x.name == "attribution.r2000.residual")
+    assert r.status == c.PASS and "reconstitution" in r.detail
+    detail["r2000"]["windows"]["3M"] = _window(res=2.0)       # still checked through 3M
+    r = next(x for x in c.check_attribution(detail, 1) if x.name == "attribution.r2000.residual")
+    assert r.status == c.WARN
