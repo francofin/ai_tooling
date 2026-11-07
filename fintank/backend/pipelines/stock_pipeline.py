@@ -141,6 +141,15 @@ FACTOR_WINDOW_COLUMNS = (["1M", "3M", "6M", "ytd"]
                          + ["1MSTD", "3MSTD", "6MSTD", "YTDSTD"])
 
 
+class FetchHTTPError(RuntimeError):
+    """An HTTP error from _get, redacted, with the status code kept so callers
+    can tell "not on our FMP plan" (402) from a real failure."""
+
+    def __init__(self, message, status=None):
+        super().__init__(message)
+        self.status = status
+
+
 class RateLimiter:
     """Counts FMP calls and sleeps when the per-minute budget is spent.
 
@@ -403,6 +412,9 @@ class StockDataPipeline:
         try:
             response = requests.get(url, timeout=timeout)
             response.raise_for_status()
+        except requests.HTTPError as e:
+            status = getattr(e.response, "status_code", None)
+            raise FetchHTTPError(redact(str(e)), status) from None
         except requests.RequestException as e:
             raise RuntimeError(redact(str(e))) from None
         StockDataPipeline.bytes_downloaded += len(response.content)
@@ -803,6 +815,32 @@ class StockDataPipeline:
                                        constituent_keys=["etf_data"], limit=limit,
                                        stage_name="fetch_etf_prices")
 
+    # Exchange suffixes FMP gives Canadian listings, which our plan covers; any
+    # other suffix of two or more letters (.T, .L, .AX, .HK, ...) is a foreign
+    # listing. One-letter suffixes are share classes (BRK.B, BF.A) except the
+    # two one-letter exchanges in the MSCI lists, Tokyo (.T) and London (.L).
+    _DOMESTIC_SUFFIXES = {"TO", "V", "NE", "CN"}
+    _ONE_LETTER_EXCHANGES = {"T", "L"}
+
+    @classmethod
+    def _foreign_listing(cls, symbol):
+        if "." not in symbol:
+            return False
+        suffix = symbol.rsplit(".", 1)[1].upper()
+        if suffix in cls._DOMESTIC_SUFFIXES:
+            return False
+        return len(suffix) > 1 or suffix in cls._ONE_LETTER_EXCHANGES
+
+    @classmethod
+    def _not_on_plan(cls, error, symbol):
+        """FMP refuses some foreign listings on some endpoints (/stable/ratios
+        on the 2026-11-07 full run: 2,308 x 402 Payment Required and 1,163 x
+        429 Too Many Requests, every one a foreign listing). That is missing
+        coverage, not a failed fetch, so it must not count toward the stage's
+        failure rate. A 429 on a US or Canadian symbol is real throttling."""
+        status = getattr(error, "status", None)
+        return status == 402 or (status == 429 and cls._foreign_listing(symbol))
+
     def _fetch_constituent_datasets(self, datasets, manifest_group, stage_name,
                                     constituent_keys=None, limit=None):
         """Shared driver for the per-symbol fetchers (profiles, statements,
@@ -815,7 +853,8 @@ class StockDataPipeline:
         manifest_group: writes path_helpers/{group}/{sub_universe}_{group}.json
 
         A symbol counts as failed if any of its datasets fails; files fetched
-        before the failure are kept.
+        before the failure are kept. A symbol our FMP plan doesn't serve
+        (_not_on_plan) counts as no_data instead, and is only totalled per list.
         """
         keys = (list(cfg.CONSTITUENT_PROXY_ETFS) if constituent_keys is None
                 else constituent_keys)
@@ -829,7 +868,7 @@ class StockDataPipeline:
             if limit is not None:
                 members = members[:limit]
 
-            universe_items, failed = {}, []
+            universe_items, failed, not_on_plan = {}, [], []
 
             for item in members:
                 symbol = item.get("asset") or item.get("symbol")
@@ -848,12 +887,19 @@ class StockDataPipeline:
                     universe_items[symbol] = entry
                     result.record(True)
                 except Exception as e:
-                    failed.append(symbol)
-                    result.record(False, f"{const_key}:{symbol}")
-                    print(f"\n{const_key}: {symbol} failed: {redact(str(e))}")
+                    if self._not_on_plan(e, symbol):
+                        not_on_plan.append(symbol)
+                        result.record_no_data()
+                    else:
+                        failed.append(symbol)
+                        result.record(False, f"{const_key}:{symbol}")
+                        print(f"\n{const_key}: {symbol} failed: {redact(str(e))}")
                 print(f"\r{const_key}: {len(universe_items)} saved, "
-                      f"{len(failed)} failed", end="", flush=True)
+                      f"{len(failed)} failed, {len(not_on_plan)} not on plan",
+                      end="", flush=True)
             print()
+            if not_on_plan:
+                result.detail.setdefault("not_on_plan", {})[const_key] = len(not_on_plan)
 
             manifest = os.path.join(self.json_root, "path_helpers",
                                     manifest_group,

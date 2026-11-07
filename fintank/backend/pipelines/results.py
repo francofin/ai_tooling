@@ -39,6 +39,11 @@ class StageResult:
             if item is not None:
                 self.failed_items.append(item)
 
+    def record_no_data(self) -> None:
+        """Count an attempt that returned nothing the plan can serve; not a failure."""
+        self.attempted += 1
+        self.no_data += 1
+
     def to_dict(self) -> dict:
         data = asdict(self)
         data["failure_rate"] = round(self.failure_rate, 4)

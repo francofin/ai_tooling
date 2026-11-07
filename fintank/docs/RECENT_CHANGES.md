@@ -68,6 +68,9 @@ Other flags: `-c always_hold=false` (auto-publish clean runs), `-c news_notify=w
 
 ## What changed recently (newest first)
 
+- **2026-11-07: "not on plan" is no longer a fetch failure** (`feat/index-attribution`, ships with the attribution deploy).
+  - The first AWS full run (`full-20261107-1000`) had `fetch_ratios` fail 4,065 of 10,620 symbols (38%, so the run was held as FAIL): FMP's `/stable/ratios` answered 2,308 x 402 Payment Required and 1,163 x 429 Too Many Requests, every one a foreign listing in msci_eafe / msci_sm.
+  - The per-symbol fetchers now count a 402, or a 429 on a foreign-suffixed symbol (`.T`, `.L`, `.AX`, `.HK`, ...), as `no_data` and print one "N not on plan" count per list (`detail.not_on_plan`). A 429 on a US/Canadian symbol is still a failure. Those symbols keep their previous files.
 - **2026-11-07: index attribution stage** (`feat/index-attribution`, not deployed yet).
   - New build stage `build_index_attribution` and dataset `attribution` (`index_data/attribution/{sub}_attribution.parquet`), six windows, price return, buy-and-hold weights from the holdings snapshot.
   - All its checks are WARN-only in v1; see `backend/pipelines/README.md` ("Index attribution").

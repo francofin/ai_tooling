@@ -316,3 +316,44 @@ def test_a_truncated_snapshot_is_rewritten(pipeline, monkeypatch):
     assert result.detail["lists"]["sp500_const"]["snapshot"] == "2026-11-12"
     with open(path) as f:
         assert len(json.load(f)) == 2
+
+
+def test_get_keeps_the_http_status(monkeypatch):
+    class Response:
+        status_code = 402
+
+        def raise_for_status(self):
+            raise requests.HTTPError(
+                "402 Client Error: Payment Required for url: https://fmp/x?apikey=SECRET",
+                response=self)
+    monkeypatch.setattr(sp.requests, "get", lambda url, timeout=30: Response())
+    with pytest.raises(sp.FetchHTTPError) as info:
+        sp.StockDataPipeline._get("https://fmp/x?apikey=SECRET")
+    assert info.value.status == 402 and isinstance(info.value, RuntimeError)
+    assert "SECRET" not in str(info.value)
+
+
+def test_symbols_not_on_the_plan_are_no_data_not_failures(pipeline, capsys):
+    write_constituents(pipeline, "msci_eafe_const", ["AAA", "7203.T", "8306.T", "ZZZ", "RY.TO"])
+    rows = [{"date": "2026-09-30", "currentRatio": 1.0}]
+    pipeline._get = fake_get({
+        "symbol=AAA": rows,
+        "symbol=7203.T": sp.FetchHTTPError("402 Client Error: Payment Required", 402),
+        "symbol=8306.T": sp.FetchHTTPError("429 Client Error: Too Many Requests", 429),
+        "symbol=ZZZ": sp.FetchHTTPError("429 Client Error: Too Many Requests", 429),   # US: real throttling
+        "symbol=RY.TO": sp.FetchHTTPError("429 Client Error: Too Many Requests", 429),  # Canada is on the plan
+    })
+    result = pipeline.fetch_ratios(constituent_keys=["msci_eafe_const"])
+    assert (result.saved, result.no_data, result.failed) == (1, 2, 2)
+    assert result.failed_items == ["msci_eafe_const:ZZZ", "msci_eafe_const:RY.TO"]
+    assert result.detail["not_on_plan"] == {"msci_eafe_const": 2}
+    assert result.failure_rate == pytest.approx(2 / 5)
+    out = capsys.readouterr().out
+    assert "7203.T failed" not in out and "2 not on plan" in out
+
+
+@pytest.mark.parametrize("symbol, foreign", [
+    ("7203.T", True), ("HSBA.L", True), ("ASML.AS", True), ("0700.HK", True),
+    ("RY.TO", False), ("ABC.V", False), ("AAPL", False), ("BRK.B", False), ("BF.A", False)])
+def test_foreign_listing(symbol, foreign):
+    assert sp.StockDataPipeline._foreign_listing(symbol) is foreign

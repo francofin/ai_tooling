@@ -28,6 +28,15 @@ and the rollback record keeps each file's original "before" version.
 | Local test, no AWS | `python -m pipelines run --mode lean --dry-run --limit 5`; `python -m pipelines news --dry-run` |
 | Change a threshold | edit `pipelines/thresholds.py`, run the tests, `cdk deploy` |
 
+## "Not on plan" symbols
+
+FMP refuses some foreign listings on some endpoints (`/stable/ratios` for most
+msci_eafe / msci_sm names: 402 Payment Required, or 429 for foreign symbols).
+The per-symbol fetchers count those as `no_data`, not failures, and log one
+"N not on plan" count per list; the run report has them in
+`detail.not_on_plan`. A 429 on a US or Canadian symbol still counts as a
+failure, because that is real throttling.
+
 ## Holdings history
 
 Every run that refreshes an index list also saves it as
