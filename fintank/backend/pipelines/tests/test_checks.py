@@ -235,3 +235,11 @@ def test_small_cap_long_window_residual_is_reported_not_checked():
     detail["r2000"]["windows"]["3M"] = _window(res=2.0)       # still checked through 3M
     r = next(x for x in c.check_attribution(detail, 1) if x.name == "attribution.r2000.residual")
     assert r.status == c.WARN
+
+
+def test_attribution_coverage_counts_joined_names_as_priced():
+    detail = _attr_detail("nas", cov=96.9)
+    for w in detail["nas"]["windows"].values():
+        w["priced_weight_pct"] = 99.8          # 2.9% joined this year, 0.2% unpriced
+    r = next(x for x in c.check_attribution(detail, 1) if x.name == "attribution.nas.coverage")
+    assert r.status == c.PASS and r.value == pytest.approx(99.8)

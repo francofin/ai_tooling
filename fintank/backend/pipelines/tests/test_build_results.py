@@ -109,6 +109,7 @@ def test_attribution_stage_writes_one_parquet_per_list(pipeline, monkeypatch):
         assert list(windows) == ["1W", "2W", "1M", "3M", "ytd", "1Y"]
         assert all(w["identity_error_pp"] < 1e-9 for w in windows.values())
         assert all(w["covered_weight_pct"] == 100.0 for w in windows.values())
+        assert all(w["priced_weight_pct"] == 100.0 for w in windows.values())
         assert all(w["non_finite"] == 0 for w in windows.values())
     assert result.detail["sp500"]["currency_basis"] == "USD"
 

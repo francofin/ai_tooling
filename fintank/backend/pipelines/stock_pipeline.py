@@ -1962,8 +1962,11 @@ class StockDataPipeline:
                             "weight_end_pct"].sum()
             served = g.loc[g.level.isin(["index", "sector", "constituent"]),
                            ["weight_start_pct", "return_pct", "contribution_pp"]]
+            unpriced = g.loc[g.level == "unattributed", "weight_end_pct"].sum()
             windows[window] = {
                 "covered_weight_pct": float(idx.covered_weight_pct),
+                # Joined names have prices; only unattributed weight is missing data.
+                "priced_weight_pct": float(100 - unpriced),
                 "residual_pp": (None if pd.isna(idx.residual_pp)
                                 else float(idx.residual_pp)),
                 "identity_error_pp": float(max(

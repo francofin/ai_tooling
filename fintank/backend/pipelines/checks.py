@@ -216,8 +216,10 @@ def check_attribution(detail: dict,
 
         floor = (t.ATTRIBUTION_MIN_COVERAGE_LONG_TAIL if sub in t.ATTRIBUTION_LONG_TAIL
                  else t.ATTRIBUTION_MIN_COVERAGE)
-        w, cov = min(((w, v["covered_weight_pct"]) for w, v in windows.items()),
-                     key=lambda x: x[1])
+        # Joined names are priced (they listed mid-window); only unattributed
+        # weight is missing data.
+        w, cov = min(((w, v.get("priced_weight_pct", v["covered_weight_pct"]))
+                      for w, v in windows.items()), key=lambda x: x[1])
         out.append(CheckResult(f"{name}.coverage", bad if cov < floor else PASS,
                                round(cov, 2), floor, f"{cov:.1f}% of weight priced ({w})"))
 
