@@ -12,8 +12,19 @@ import {
   availableFrequencies,
   isPercentMetric,
 } from "@utils/indexDetail/metrics"
-import { buildLineChart, buildPairChart, hasValues } from "@utils/indexDetail/chartBuilders"
-import { indexLineOptions, percentLineOptions } from "@utils/indexDetail/chartOptions"
+import {
+  SERIES_COLORS,
+  buildDualAxisChart,
+  buildLineChart,
+  buildPairChart,
+  hasValues,
+  needsDualAxis,
+} from "@utils/indexDetail/chartBuilders"
+import {
+  dualAxisOptions,
+  indexLineOptions,
+  percentLineOptions,
+} from "@utils/indexDetail/chartOptions"
 
 /**
  * This index against a peer, across every comparison metric.
@@ -51,22 +62,63 @@ const PeerComparisonSection = ({ slug, peers, baseTitle }) => {
 
     if (metric.shape === "pair") {
       if (!hasValues(series.base) && !hasValues(series.peer)) return null
-      return buildPairChart({
+      const seriesLabels = {
+        base: `${baseTitle} ${frequencyLabel}`,
+        peer: `${peerLabel} ${frequencyLabel}`,
+      }
+      const args = {
         dates: comparison.dates,
         base: series.base,
         peer: series.peer,
-        baseLabel: `${baseTitle} ${frequencyLabel}`,
-        peerLabel: `${peerLabel} ${frequencyLabel}`,
-      })
+        baseLabel: seriesLabels.base,
+        peerLabel: seriesLabels.peer,
+      }
+      // Same units, but not necessarily the same order of magnitude: against
+      // the VIX in the teens, an index in the thousands owns the whole axis
+      // and the peer reads as a flat line on zero. Split the axis only when
+      // the typical levels are far enough apart to warrant it.
+      if (needsDualAxis(series.base, series.peer)) {
+        return { data: buildDualAxisChart(args), axisLabels: seriesLabels }
+      }
+      return { data: buildPairChart(args), axisLabels: null }
     }
 
     if (!hasValues(series)) return null
-    return buildLineChart({
-      dates: comparison.dates,
-      values: series,
-      label: `${baseTitle} vs ${peerLabel} — ${frequencyLabel} ${metric.label}`,
-    })
+    return {
+      data: buildLineChart({
+        dates: comparison.dates,
+        values: series,
+        label: `${baseTitle} vs ${peerLabel} — ${frequencyLabel} ${metric.label}`,
+      }),
+      axisLabels: null,
+    }
   }, [comparison, metric, frequency, baseTitle])
+
+  // Built per chart rather than mutating the exported `dualAxisOptions`, which
+  // VixComparisonChart also renders with. Tick and title colours match the
+  // series colours so each axis is readable as belonging to one line.
+  const lineOptions = useMemo(() => {
+    if (!chart?.axisLabels) {
+      return isPercentMetric(metric) ? percentLineOptions : indexLineOptions
+    }
+    const { base, peer } = chart.axisLabels
+    return {
+      ...dualAxisOptions,
+      scales: {
+        ...dualAxisOptions.scales,
+        y: {
+          ...dualAxisOptions.scales.y,
+          ticks: { color: SERIES_COLORS.base },
+          title: { display: true, text: base, color: SERIES_COLORS.base },
+        },
+        y1: {
+          ...dualAxisOptions.scales.y1,
+          ticks: { color: SERIES_COLORS.peer },
+          title: { display: true, text: peer, color: SERIES_COLORS.peer },
+        },
+      },
+    }
+  }, [chart, metric])
 
   if (!peers?.length) return null
 
@@ -126,12 +178,7 @@ const PeerComparisonSection = ({ slug, peers, baseTitle }) => {
               />
             )}
             {chart && (
-              <Line
-                options={isPercentMetric(metric) ? percentLineOptions : indexLineOptions}
-                data={chart}
-                height={100}
-                width={200}
-              />
+              <Line options={lineOptions} data={chart.data} height={100} width={200} />
             )}
           </Col>
         </Row>

@@ -128,3 +128,61 @@ export const buildBarChart = ({ labels, values, label, color }) => ({
 /** A series is drawable only once it holds at least one real number. */
 export const hasValues = (values) =>
   Array.isArray(values) && values.some((value) => value !== null && value !== undefined);
+
+/** The payload is sparse, so anything that is not a real number is not a value. */
+const toFiniteNumber = (value) => {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+};
+
+/**
+ * Median of a series, ignoring gaps. Null when the series holds no numbers.
+ *
+ * The median rather than the mean, because one bad print in a sparse series
+ * should not move the typical level the scale decision is made from.
+ */
+export const finiteMedian = (values) => {
+  if (!Array.isArray(values)) return null;
+  const numbers = values
+    .map(toFiniteNumber)
+    .filter((value) => value !== null)
+    .sort((a, b) => a - b);
+  if (numbers.length === 0) return null;
+  const middle = Math.floor(numbers.length / 2);
+  return numbers.length % 2 === 0
+    ? (numbers[middle - 1] + numbers[middle]) / 2
+    : numbers[middle];
+};
+
+const DEFAULT_SCALE_GAP = 4;
+
+/**
+ * Whether two same-unit series are too far apart in level to share one y-axis.
+ *
+ * An index in the thousands plotted against the VIX in the teens flattens the
+ * VIX onto the baseline, which is how the moving-average tab used to read for
+ * the volatility peer. Comparing typical levels rather than naming a symbol
+ * keeps any future low-level peer working, and keeps genuinely comparable
+ * indexes (S&P 500 against the Nasdaq) on one axis so the chart stays honest.
+ *
+ * Returns false whenever the question cannot be answered -- an empty or
+ * all-null series, or a median of zero -- so the shared axis stays the default.
+ */
+export const needsDualAxis = (base, peer, { threshold = DEFAULT_SCALE_GAP } = {}) => {
+  const baseMedian = finiteMedian(base);
+  const peerMedian = finiteMedian(peer);
+  if (baseMedian === null || peerMedian === null) return false;
+  if (baseMedian === 0 || peerMedian === 0) return false;
+
+  const limit =
+    Number.isFinite(threshold) && threshold > 0 ? threshold : DEFAULT_SCALE_GAP;
+  const ratio = Math.abs(baseMedian / peerMedian);
+  if (!Number.isFinite(ratio) || ratio === 0) return false;
+
+  // Magnitude, so the answer does not depend on which series came first.
+  return Math.max(ratio, 1 / ratio) > limit;
+};

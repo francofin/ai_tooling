@@ -10,7 +10,7 @@ import OscillatorChart, { OSCILLATOR_HEIGHT } from './OscillatorChart'
 const nameOf = (token) => token.split(':')[0]
 
 // Total vertical footprint of the reserved `.symbol-panel__warnings` slot
-// (0.5rem top margin + 24px box) in src/styles/pages/_chart-comparison.scss.
+// (0.5rem top margin + 24px box) in src/scss/user/_chart-comparison.scss.
 // The slot renders whether or not `payload.warnings` has entries, so the
 // mounted `.symbol-panel__charts` content always has this exact height
 // budgeted for it and never disagrees with the off-screen placeholder below,
