@@ -78,6 +78,8 @@ jobs:
         run: bash fintank/deploy/test_check_disk.sh
       - name: Proxy guard test
         run: node --test fintank/src/utils/safeFetch.test.mjs
+      - name: Capital markets commentary test
+        run: node --test fintank/src/utils/capitalMarkets/spreadNarrative.test.mjs
 
   build:
     needs: test
