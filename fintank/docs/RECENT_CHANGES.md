@@ -1,6 +1,6 @@
 # Recent changes and how we operate now
 
-Last updated 2026-11-08. Read this first in a new session, then the linked docs for detail.
+Last updated 2026-11-09. Read this first in a new session, then the linked docs for detail.
 
 ## TL;DR
 
@@ -88,6 +88,10 @@ Other flags: `-c always_hold=false` (auto-publish clean runs), `-c news_notify=w
 
 ## What changed recently (newest first)
 
+- **2026-11-09: capital-markets commentary is generated from the data** (`23d6e9a`, frontend only).
+  - The 33 static paragraphs on `/capital-markets` are now five bullets per chart (what it shows, latest, three-month direction, versus its own history, what it can signal), built by `src/utils/capitalMarkets/spreadNarrative.mjs` from the series on screen; the wording per chart lives in the `narrative` objects in `src/data/capitalMarkets/{equity,economic}Series.json`.
+  - Thresholds: equity spreads within 1pp "roughly level", moves under 1pp "little changed"; curves within 10bp "flat"; top/bottom 10% of a series' own history "unusual"; yields 10bp, HY spread 25bp, CPI/unemployment/payrolls 0.2pp.
+  - Fixed reversed labels: the Mid Cap title (data is RMID−R1000) and all five yield-spread legends (each is long minus short). Test: `node --test fintank/src/utils/capitalMarkets/spreadNarrative.test.mjs` (also in the deploy workflow's test job).
 - **2026-11-08: index attribution deployed** (`ed5daf4`, merged and pushed; CDK task definitions revision 7). First AWS build on Sat 2026-11-14.
 - **2026-11-07: "not on plan" is no longer a fetch failure** (`ed5daf4`, deployed 2026-11-08).
   - The first AWS full run (`full-20261107-1000`) had `fetch_ratios` fail 4,065 of 10,620 symbols (38%, so the run was held as FAIL): FMP's `/stable/ratios` answered 2,308 x 402 Payment Required and 1,163 x 429 Too Many Requests, every one a foreign listing in msci_eafe / msci_sm.
