@@ -1,6 +1,6 @@
 # Index return attribution: design
 
-Date: 2026-11-07. Status: approved decisions, not yet implemented.
+Date: 2026-11-07. Status: implemented and deployed 2026-11-08 (`ed5daf4`); first AWS build Sat 2026-11-14. Current state: `docs/RECENT_CHANGES.md`.
 
 ## Goal
 

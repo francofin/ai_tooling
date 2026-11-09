@@ -1,5 +1,7 @@
 # Index Return Attribution Implementation Plan
 
+> **Status 2026-11-08:** all tasks complete, merged to `main` (`ed5daf4`) and deployed. Rulings made during execution are summarised in `docs/RECENT_CHANGES.md` and the commit messages; what's left is the Nov 14 review and the follow-ups listed there.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Precompute buy-and-hold constituent and sector attribution for 1W/2W/1M/3M/YTD/1Y in the weekly AWS pipeline, publish it to `thetradingfloor`, and serve it from Django and the index page.
