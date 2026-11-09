@@ -12,7 +12,7 @@ Last updated 2026-11-05. Read this first in a new session, then the linked docs 
 
 ## Web hosting (not live yet)
 
-**The site is not live until the owner finishes the server runbook `deploy/README.md`.** The old Heroku backend is deleted and the DigitalOcean app is archived.
+**The site is not live until the owner finishes the server runbook `deploy/README.md`.** The old Heroku backend is deleted and the DigitalOcean app is archived. **Go-live progress, the red-on-purpose workflow, the npm vulnerability plan and how to check a frontend change: `docs/DEPLOY_HANDOFF.md`.**
 
 - Planned hosting: one Lightsail 4 GB instance in `us-east-1` running Docker Compose (Caddy, web, api, worker, redis, Postgres in a container) at `/opt/fintank`. DNS in Route 53.
 - Deploys: `.github/workflows/fintank-deploy.yml` on pushes to `main` (test, build images to GHCR, then SSH deploy via `deploy/deploy.sh`, only when the repo variable `DEPLOY_ENABLED` is `true`). A failed health check redeploys the previous image tag.
