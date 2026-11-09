@@ -65,14 +65,16 @@ Then work through the runbook's **Go-live test list**, the avatar upload test an
 |---|---|---|
 | `firebase` 13 | `protobufjs` (critical), `@grpc/grpc-js`, firestore packages | Sign-in and sign-up need retesting |
 | `swiper` 14 | prototype pollution (critical) | Carousels need retesting |
-| `sharp` 0.35 | install-time command injection | Build-time only |
+| ~~`sharp` 0.35~~ | install-time command injection | Resolved by dropping the unused direct `sharp` 0.29 (branch `fix/npm-audit-safe-drop-sharp`); `next` keeps its own `sharp` 0.35.5 |
 | `next` 16 | `postcss` | Large upgrade; not for go-live |
 | `@solana/spl-token`, `@coral-xyz/anchor` | `bigint-buffer` | No good fix; Solana is off on the live site (`NEXT_PUBLIC_ENABLE_SOLANA` is not passed to the build) |
 | `toml` | uncontrolled recursion | No fix offered |
 
 **Never run `npm audit fix --force`.** It applies all the major upgrades at once, untested.
 
-**How to do the safe pass:** in a throwaway worktree, run `npm audit fix` (without `--force`). Check `git diff package.json` shows no major version change. Run the image build below. Run lint. Open a PR like PR #2. After merging, the owner runs `npm install` locally.
+**Safe pass done 2026-11-09** on branch `fix/npm-audit-safe-drop-sharp` (PR pending). `npm audit --omit=dev` went from 43 (4 critical, 22 high) to 22 (1 critical, 12 high): every target listed above is fixed, and only the major upgrades below remain. `package.json` changed by one line, removing the unused direct `sharp` (see the build note under "Checking a frontend change"). The image build passes; lint shows 0 errors and 282 warnings. After merging, the owner runs `npm install` locally.
+
+**How the safe pass was done:** in a throwaway worktree, run `npm audit fix` (without `--force`). Check `git diff package.json` shows no major version change. Run the image build below. Run lint. Open a PR like PR #2. After merging, the owner runs `npm install` locally.
 
 ## Checking a frontend change before pushing
 
@@ -98,6 +100,7 @@ sg docker -c "DOCKER_CONFIG=<scratch>/dockercfg docker build -q -t fintank-web:c
 - **Firebase must not be empty:** with empty values, prerender fails (`auth/invalid-api-key`). The dummy values are for test builds only.
 - **`DOCKER_CONFIG` is needed** because Docker Desktop's credential helper (`desktop.exe`) can time out under WSL with `error getting credentials`. Public images need no sign-in.
 - **`sg docker -c`** is needed because the shell user is not in the `docker` group by default.
+- **`npm ci` failing on `sharp` with `Installation error: Request timed out`** (seen 2026-11-09; `main` at `75af3ca` failed the same way): the old direct `sharp` 0.29 downloads libvips from GitHub in its install script and gave up every time under `npm ci` in `node:22-slim`. Nothing imported it, so it was removed. If it comes back, check `package.json` for a direct `sharp` entry; `next` brings its own.
 - Clean up afterwards: `git worktree remove --force <scratch>/wt && sg docker -c 'docker rmi -f fintank-web:check && docker builder prune -f'`.
 - **Lint:** `npx eslint <files>` from `fintank/` with `node_modules` available. On 2026-11-08 there were 0 errors and 282 old warnings.
 - **The full stack** can be tested locally with `deploy/docker-compose.smoke.yml` and `deploy/smoke.sh` (16 checks; all passed on 2026-11-05). The old test images `fintank-api:test` and `fintank-web:test` (about 3 GB) can be deleted.
