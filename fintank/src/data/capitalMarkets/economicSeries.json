@@ -5,7 +5,18 @@
     "title": "10 Year Treasury Yield",
     "label": "Ten Year Yield",
     "color": "rgba(21, 129, 179)",
-    "blurb": "The ten-year Treasury yield represents the interest rate on the U.S. government's ten-year debt obligations. It is often used as a benchmark for long-term interest rates in the broader economy. A rising ten-year yield can indicate expectations of higher inflation or stronger economic growth, potentially impacting mortgage rates and borrowing costs. Conversely, a falling ten-year yield may suggest economic concerns or expectations of lower inflation."
+    "narrative": {
+      "kind": "level",
+      "about": "The yield on 10-year US Treasury notes, the benchmark for mortgages and long-term borrowing.",
+      "unit": "%",
+      "changeUnit": "bp",
+      "changeThreshold": 10,
+      "messages": {
+        "rising": "A rising 10-year yield usually reflects stronger growth or inflation expectations, or heavier Treasury supply, and it raises borrowing costs across the economy.",
+        "falling": "A falling 10-year yield usually reflects slower growth or inflation expectations, or demand for safe assets.",
+        "steady": "Long-term rate expectations are holding steady."
+      }
+    }
   },
   {
     "id": "two",
@@ -13,7 +24,18 @@
     "title": "2 Year Treasury Yield",
     "label": "Two Year Yield",
     "color": "rgba(11, 191, 134)",
-    "blurb": "The two-year Treasury yield represents the interest rate on two-year government bonds. It is closely watched by investors and economists for its sensitivity to short-term monetary policy changes made by central banks, such as the Federal Reserve in the U.S. A rising two-year yield may suggest expectations of tightening monetary policy (higher interest rates), while a falling yield may indicate expectations of policy easing (lower interest rates)."
+    "narrative": {
+      "kind": "level",
+      "about": "The yield on 2-year Treasury notes, the most sensitive to expected Federal Reserve policy.",
+      "unit": "%",
+      "changeUnit": "bp",
+      "changeThreshold": 10,
+      "messages": {
+        "rising": "A rising 2-year yield usually means markets expect the Fed to keep rates higher or raise them.",
+        "falling": "A falling 2-year yield usually means markets expect Fed rate cuts.",
+        "steady": "Expectations for Fed policy are holding steady."
+      }
+    }
   },
   {
     "id": "thirty",
@@ -21,7 +43,18 @@
     "title": "30 Year Treasury Yield",
     "label": "Thirty Year Yield",
     "color": "rgba(138, 19, 122)",
-    "blurb": "The thirty-year Treasury yield reflects the interest rate on U.S. government bonds with a thirty-year maturity. It is a long-term benchmark that can provide insights into long-term inflation and growth expectations. Typically, a rising thirty-year yield may indicate concerns about future inflation, while a falling yield may reflect expectations of subdued inflation or economic uncertainty."
+    "narrative": {
+      "kind": "level",
+      "about": "The yield on 30-year Treasury bonds, the longest-dated benchmark.",
+      "unit": "%",
+      "changeUnit": "bp",
+      "changeThreshold": 10,
+      "messages": {
+        "rising": "A rising 30-year yield can reflect long-run inflation concerns or a higher premium for holding long-dated debt.",
+        "falling": "A falling 30-year yield can reflect lower long-run inflation expectations or demand for long-dated safe assets.",
+        "steady": "Long-run rate expectations are holding steady."
+      }
+    }
   },
   {
     "id": "five",
@@ -29,7 +62,18 @@
     "title": "5 Year Treasury Yield",
     "label": "Five Year Yield",
     "color": "rgba(245, 223, 24)",
-    "blurb": "The five-year Treasury yield reflects the interest rate on government bonds with a five-year maturity. It is considered an intermediate-term interest rate and can offer insights into market sentiment about the medium-term economic outlook. Changes in the five-year yield can signal shifts in market expectations for economic growth and inflation over the next few years."
+    "narrative": {
+      "kind": "level",
+      "about": "The yield on 5-year Treasury notes, a read on the medium-term rate and inflation outlook.",
+      "unit": "%",
+      "changeUnit": "bp",
+      "changeThreshold": 10,
+      "messages": {
+        "rising": "A rising 5-year yield usually reflects expectations of higher rates or inflation over the next few years.",
+        "falling": "A falling 5-year yield usually reflects expectations of lower rates or slower growth over the next few years.",
+        "steady": "Medium-term rate expectations are holding steady."
+      }
+    }
   },
   {
     "id": "high_yield",
@@ -37,47 +81,112 @@
     "title": "High Yield Bond Index",
     "label": "High Yield Bond Index",
     "color": "rgba(20, 191, 11)",
-    "blurb": "The high yield bond index is a composite index that measures the performance of bonds issued by companies with lower credit ratings, typically below investment-grade (BBB- or lower). These bonds are considered riskier than investment-grade bonds because they have a higher likelihood of default, which is why they are often referred to as \"junk\" bonds. The index provides insights into the performance of the high-yield bond market, including changes in the yields and prices of these bonds. Investors use the high yield bond index as a gauge of risk appetite in the financial markets. When investors are more willing to take on risk, they may invest in high-yield bonds, pushing up their prices and lowering their yields. Conversely, when economic or financial uncertainty increases, investors may sell high-yield bonds, causing their prices to fall and their yields to rise, reflecting a flight to safer assets. Changes in the high yield bond index can also provide insights into broader economic conditions. When the index shows improving performance, it may suggest optimism about economic growth, while deteriorating performance may indicate concerns about economic stability."
+    "narrative": {
+      "kind": "level",
+      "about": "The effective yield on the ICE BofA US High Yield index: what below-investment-grade companies pay to borrow.",
+      "unit": "%",
+      "changeUnit": "bp",
+      "changeThreshold": 10,
+      "messages": {
+        "rising": "Rising high-yield borrowing costs can point to credit stress, or to higher rates feeding through to weaker companies.",
+        "falling": "Falling high-yield borrowing costs usually point to easy credit conditions and strong risk appetite.",
+        "steady": "Borrowing costs for weaker companies are holding steady."
+      }
+    }
   },
   {
     "id": "tenvtwo",
     "dataKey": "tenvtwo",
     "title": "10-2 Yield Spread",
-    "label": "Two Year Yield Minus Ten Year Yield",
+    "label": "Ten Year Minus Two Year (bp)",
     "color": "rgba(78, 78, 78)",
-    "blurb": "The 10-2 yield spread represents the difference in interest rates between the ten-year U.S. Treasury bond yield and the two-year U.S. Treasury bond yield. It is closely monitored by investors, economists, and policymakers as a measure of the yield curve's slope, which is the term structure of interest rates. A positive 10-2 yield spread occurs when the ten-year yield is higher than the two-year yield. This is typically the normal state of the yield curve and reflects the expectation of a healthy, growing economy with inflation expectations. A narrowing or flattening 10-2 yield spread can signal concerns about economic growth and potential future economic slowdown. It may also indicate expectations of a shift in monetary policy towards lower interest rates. Conversely, an inverted 10-2 yield spread, where the two-year yield is higher than the ten-year yield, is seen as a strong warning signal. Historically, yield curve inversions have often preceded economic recessions, making it a closely watched indicator for predicting economic downturns. The 10-2 yield spread is seen as a barometer of market sentiment and expectations for the future. A steepening yield spread can suggest optimism about the economy, while a flattening or inverted spread can raise concerns about economic stability."
+    "narrative": {
+      "kind": "curve",
+      "long": "10-year",
+      "short": "2-year",
+      "messages": {
+        "positive": "A positive slope is the normal shape: investors are paid more to lend for longer, usually alongside expectations of growth.",
+        "flat": "A flat curve often appears late in an economic cycle or around turning points in Fed policy.",
+        "inverted": "An inverted 10-2 curve has come before most US recessions since the 1970s, though the lag has varied widely and it is not a timing tool."
+      }
+    }
   },
   {
     "id": "fivevten",
     "dataKey": "fivevten",
     "title": "10-5 Yield Spread",
-    "label": "Five Year Yield Minus Ten Year Yield",
+    "label": "Ten Year Minus Five Year (bp)",
     "color": "rgba(179, 61, 32)",
-    "blurb": "Economic Growth Expectations: The 5-10 yield spread reflects market expectations for economic growth, with a wider spread indicating optimism about the long-term economic outlook. Yield Curve Shape: It contributes to the shape of the yield curve, typically resulting in a positively sloped curve in healthy economic conditions. Inversion Warning: A significant narrowing or inversion of the spread can be a precursor to economic recessions, as it suggests concerns about the immediate economic future. Monetary Policy Influence: Central banks use the yield spread to gauge market sentiment and adjust their monetary policies accordingly. Market Sentiment: The spread reflects investor sentiment and risk appetite, with a widening spread signaling confidence and a narrowing spread indicating uncertainty or risk aversion."
+    "narrative": {
+      "kind": "curve",
+      "long": "10-year",
+      "short": "5-year",
+      "messages": {
+        "positive": "A positive slope means longer money costs more, the usual pattern when growth and inflation are expected to hold up.",
+        "flat": "A flat middle of the curve suggests markets see little difference between the medium- and long-term outlook.",
+        "inverted": "An inversion here suggests markets expect rates to be lower in the long run than over the next five years, often a sign of expected slowdown."
+      }
+    }
   },
   {
     "id": "thirtyvten",
     "dataKey": "thirtyvten",
-    "title": "10-30 Yield Spread",
-    "label": "Ten Year Yield Minus Thirty Year Yield",
+    "title": "30-10 Yield Spread",
+    "label": "Thirty Year Minus Ten Year (bp)",
     "color": "rgba(115, 113, 10)",
-    "blurb": "Interest Rate Differential: The spread between the ten-year and thirty-year yield represents the difference in interest rates between relatively short-term and long-term government bonds or Treasury securities. Economic Growth and Inflation: A widening spread often indicates expectations of robust economic growth and potential inflation, as long-term rates (thirty-year) tend to be higher when investors anticipate higher future inflation and stronger economic conditions. Yield Curve's Long End: This spread helps shape the long end of the yield curve. A steepening yield curve, with the thirty-year yield significantly higher than the ten-year yield, can signal economic optimism and investment in longer-term assets. Monetary Policy Implications: Central banks closely watch the spread to understand market sentiment and tailor their monetary policies accordingly, especially when considering long-term economic stability. Mortgage Rates: Changes in this spread can also influence long-term borrowing costs, particularly for mortgages, impacting the housing market and consumer spending. Risk and Market Sentiment: A narrowing spread may suggest investors' concerns about the long-term economic outlook, while a widening spread may indicate confidence in future economic prospects and willingness to invest in longer-duration assets."
+    "narrative": {
+      "kind": "curve",
+      "long": "30-year",
+      "short": "10-year",
+      "messages": {
+        "positive": "A positive long end means investors want extra yield to hold the longest bonds, often tied to inflation or government-debt supply concerns.",
+        "flat": "A flat long end suggests investors see little extra risk in lending for 30 years rather than 10.",
+        "inverted": "An inverted long end is rare and usually reflects strong demand for the longest bonds, such as from pension funds, or deep pessimism about long-run growth."
+      }
+    }
   },
   {
     "id": "fivevtwo",
     "dataKey": "fivevtwo",
     "title": "5-2 Yield Spread",
-    "label": "Two Year Yield Minus Five Year Yield",
+    "label": "Five Year Minus Two Year (bp)",
     "color": "rgba(18, 97, 56)",
-    "blurb": "Economic Outlook: The spread between the five-year and two-year yield reflects the difference in interest rates between short-term and intermediate-term government bonds or Treasury securities. Growth Expectations: A widening spread often indicates optimism about the economy's future performance, as investors demand higher yields for longer-term investments, expecting improved economic conditions and potential inflation. Yield Curve Segment: It contributes to shaping the yield curve's shorter end, influencing short- to medium-term borrowing and lending rates in the economy. Monetary Policy Insight: Central banks monitor this spread to assess market sentiment and potential implications for monetary policy decisions, especially regarding interest rate adjustments. Borrowing Costs: Changes in this spread can affect borrowing costs for consumers and businesses, impacting spending and investment decisions. Risk Indicator: A narrowing spread may signal caution among investors about the near-term economic outlook, while a widening spread may signify confidence in the medium-term economic prospects and willingness to invest in slightly longer-duration assets."
+    "narrative": {
+      "kind": "curve",
+      "long": "5-year",
+      "short": "2-year",
+      "messages": {
+        "positive": "A positive slope at the short end usually means markets expect rates to hold or rise over the next few years.",
+        "flat": "A flat short end often appears when markets expect the Fed to be near the end of a hiking or cutting cycle.",
+        "inverted": "An inverted short end usually means markets expect the Fed to cut rates within the next few years."
+      }
+    }
   },
   {
     "id": "highyield",
     "dataKey": "highyield",
-    "title": "10-High Yield Yield Spread",
-    "label": "Ten Year Yield Minus High Yield Bond Index",
+    "title": "High Yield - 10 Year Spread",
+    "label": "High Yield Minus Ten Year (bp)",
     "color": "rgba(82, 26, 82)",
-    "blurb": "Spread Significance: The spread represents the difference in yields between relatively safer ten-year U.S. Treasury bonds and riskier high-yield corporate bonds. A wider spread indicates a greater compensation investors require for holding higher-risk assets, reflecting their concerns about default risk and economic uncertainty. Risk Sentiment: When the spread widens, it often signals a risk-off sentiment in the market, suggesting that investors are demanding a higher premium for taking on the added risk associated with high-yield bonds. This can occur during periods of economic instability, market volatility, or credit concerns. Economic Outlook: A narrowing spread can be interpreted as a signal of improving economic conditions and reduced credit risk. It indicates that investors are more confident about the outlook for corporate bonds, potentially signaling stronger economic growth and lower default expectations. Policy Implications: Central banks, like the Federal Reserve, may monitor this spread as it can influence their monetary policy decisions. A widening spread may prompt central banks to consider measures to stimulate economic activity, while a narrowing spread may suggest less need for such measures. Investor Behavior: Investors often use the spread between Treasury yields and high yield bond yields as a gauge for their asset allocation decisions. A wider spread may make high yield bonds more attractive for those seeking higher yields but willing to accept higher risk, while a narrower spread may prompt some investors to shift toward safer assets."
+    "narrative": {
+      "kind": "level",
+      "about": "The high-yield index's effective yield minus the 10-year Treasury yield: a rough measure of the extra pay investors demand for credit risk.",
+      "unit": "bp",
+      "changeThreshold": 25,
+      "words": {
+        "rising": "Widened",
+        "falling": "Narrowed"
+      },
+      "extremes": {
+        "high": "an unusually wide spread, pricing elevated default risk",
+        "low": "an unusually tight spread, with little extra pay for credit risk"
+      },
+      "messages": {
+        "rising": "A widening spread means investors want more compensation for default risk, often a risk-off signal.",
+        "falling": "A narrowing spread means investors are comfortable taking credit risk, usually a risk-on signal.",
+        "steady": "Appetite for credit risk is little changed."
+      }
+    }
   },
   {
     "id": "cpi",
@@ -85,15 +194,58 @@
     "title": "CPI Year over Year",
     "label": "CPI Year over Year Change",
     "color": "rgba(44, 160, 168)",
-    "blurb": "The Consumer Price Index (CPI) holds immense significance as a key economic indicator, serving as a barometer of inflationary trends in an economy. It measures the average change over time in the prices paid by urban consumers for a market basket of goods and services, offering critical insights into the purchasing power of consumers, cost of living adjustments, and the broader health of the economy. Policymakers, businesses, and investors rely on CPI data to make informed decisions, formulate monetary and fiscal policies, and assess the potential impact on financial markets, interest rates, and consumer behavior, making it a vital tool for economic analysis and policy planning."
+    "narrative": {
+      "kind": "level",
+      "about": "Consumer prices compared with a year earlier (CPI, all urban consumers).",
+      "scale": 100,
+      "decimals": 1,
+      "changeThreshold": 0.2,
+      "valueSuffix": "year over year",
+      "words": {
+        "rising": "Up",
+        "falling": "Down"
+      },
+      "bands": [
+        {
+          "max": 1.5,
+          "text": "Inflation is below the Fed's 2% goal, which gives it room to ease."
+        },
+        {
+          "max": 2.5,
+          "text": "Inflation is close to the Fed's 2% goal."
+        },
+        {
+          "text": "Inflation is above the Fed's 2% goal, which keeps pressure on the Fed to hold rates up."
+        }
+      ],
+      "messages": {
+        "rising": "It has picked up over the last three months.",
+        "falling": "It has eased over the last three months."
+      }
+    }
   },
   {
     "id": "unemp",
     "dataKey": "unemp",
-    "title": "Unemployment Change",
+    "title": "Unemployment Rate",
     "label": "Unemployment Rate",
     "color": "rgba(179, 61, 32)",
-    "blurb": "Unemployment readings are of paramount importance in assessing the overall health and resilience of an economy. These readings, typically represented by the unemployment rate, reveal the percentage of the labor force actively seeking employment but unable to find jobs. They offer crucial insights into the labor market's strength, job availability, and economic stability. Economists, policymakers, and businesses closely monitor unemployment data to gauge the level of economic activity, anticipate shifts in consumer spending, and plan workforce strategies. High unemployment rates may indicate economic distress and reduced consumer spending, while low rates can signify a robust job market and potential inflationary pressures. Consequently, unemployment readings are a vital tool for understanding the economic landscape and formulating targeted policies to address labor market challenges."
+    "narrative": {
+      "kind": "level",
+      "about": "The share of the labor force out of work and looking for a job.",
+      "decimals": 1,
+      "changeThreshold": 0.2,
+      "messages": {
+        "rising": "A rising unemployment rate points to a cooling labor market.",
+        "falling": "A falling unemployment rate points to a tightening labor market, which can add to wage and inflation pressure.",
+        "steady": "The labor market is holding steady."
+      },
+      "riseFromLow": {
+        "months": 12,
+        "threshold": 0.5,
+        "text": "The rate is {rise}pp above its 12-month low; rises of half a point or more have often come with recessions."
+      }
+    }
   },
   {
     "id": "nonfarm",
@@ -101,6 +253,31 @@
     "title": "Non Farm Payroll",
     "label": "Non Farm Payroll",
     "color": "rgba(20, 191, 11)",
-    "blurb": "Nonfarm payroll data is a pivotal economic indicator that provides a snapshot of job growth or loss in the U.S. economy, excluding employment in the agricultural sector. It encompasses a wide range of industries, such as manufacturing, construction, healthcare, and services, making it a comprehensive gauge of employment trends. Nonfarm payroll figures, typically released monthly, are closely watched by economists, investors, and policymakers for their ability to reveal the state of the labor market. Significant deviations from expectations can influence financial markets, interest rates, and economic forecasts, as they shed light on economic conditions and may impact consumer spending, business investment, and government policies. Consequently, nonfarm payroll data serves as a critical tool for assessing economic vitality and making informed decisions across various sectors of the economy."
+    "narrative": {
+      "kind": "level",
+      "about": "Total nonfarm payroll jobs compared with a year earlier.",
+      "scale": 100,
+      "decimals": 1,
+      "signedValue": true,
+      "changeThreshold": 0.2,
+      "valueSuffix": "year over year",
+      "bands": [
+        {
+          "max": 0,
+          "text": "Payrolls are shrinking year over year, which has historically happened mainly in recessions."
+        },
+        {
+          "max": 1,
+          "text": "Job growth under about 1% a year is slow by historical standards."
+        },
+        {
+          "text": "Job growth is running at a solid pace."
+        }
+      ],
+      "messages": {
+        "rising": "Growth has picked up over the last three months.",
+        "falling": "Growth has slowed over the last three months."
+      }
+    }
   }
 ]
