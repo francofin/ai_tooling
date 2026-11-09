@@ -28,7 +28,7 @@ Last updated 2026-11-09. Read this first in a new session, then the linked docs 
   4. then `approve`. Use the real residuals to tune `ATTRIBUTION_RESIDUAL_WARN_BP` in `pipelines/thresholds.py`.
   After approval, the owner checks `/indexes/sp500` and `/indexes/msci_eafe` (owner starts the servers; the site picks up the file on the next cache miss).
 - **Nov 7 full run** (`full-20261107-1000`, 9h58m, well inside the 12h limit) was held FAIL only on `fetch_ratios.failure_rate` (FMP plan refuses foreign ratios; fixed in `ed5daf4`, see below). Approved and published 2026-11-07.
-- **Branches.** `main` = `origin/main` = `ed5daf4`. `frontend-fixes-and-dep-cleanup` (dual-axis peer chart, valuations table, dropped 54 deps) is 2 commits ahead of the old main, not merged; it merges cleanly with the new main. The worktree `../ai_tooling-index-attribution` (branch `feat/index-attribution`) can be removed once Nov 14 is approved: `git worktree remove ../ai_tooling-index-attribution --force && git branch -d feat/index-attribution`.
+- **Branches (2026-11-09).** `main` = `origin/main` = `75af3ca`. `frontend-fixes-and-dep-cleanup` (PR #2), `feat/index-attribution` and `feat/spread-bullets` are merged; the `../ai_tooling-index-attribution` worktree and its branch are removed.
 
 ## Web hosting (not live yet)
 
