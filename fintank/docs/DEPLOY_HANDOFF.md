@@ -1,6 +1,6 @@
 # Deploy handoff: getting the site live on AWS
 
-Written 2026-11-08. Read this first in a deploy session, then `deploy/README.md` (the runbook) for every command. Hosting decisions are in `docs/AWS_HOSTING_PLAN.md`. Pipeline state is in `docs/RECENT_CHANGES.md`.
+Written 2026-11-08, updated 2026-11-09. Read this first in a deploy session, then `deploy/README.md` (the runbook) for every command. Hosting decisions are in `docs/AWS_HOSTING_PLAN.md`. Pipeline state is in `docs/RECENT_CHANGES.md`.
 
 ## Where things stand
 
@@ -9,14 +9,15 @@ Written 2026-11-08. Read this first in a deploy session, then `deploy/README.md`
   - PR #1 (`7091960`, merged 2026-11-05) added the Docker images, Compose stack, Caddy, deploy/backup/disk scripts, the GitHub Actions workflow, login rate limits and the runbook.
   - PR #2 (`e6066b9`, merged 2026-11-08) added the owner's frontend work: index peer chart and valuations table, and 54 unused npm packages removed.
   - The index attribution work (16 commits, through `ed5daf4`) went straight to `main` before PR #2.
-- **Local `main` matches GitHub** at `e6066b9`, and `npm install` has been run.
+  - After PR #2: the capital-markets bullet commentary (`feat/spread-bullets`, with its CI test) and the attribution handoff doc (`feat/index-attribution`, `8bbc1e1`) were merged, ending at `75af3ca`.
+- **Local `main` matches GitHub** at `75af3ca` (2026-11-09), and `npm install` has been run.
 - **Not yet done:** every runbook step. Nothing has been created in AWS for hosting yet, so **no hosting bill yet**.
 
 ## The GitHub workflow is red on purpose
 
 `.github/workflows/fintank-deploy.yml` runs on every push to `main` that touches `fintank/` (docs, `backend/pipelines/` and `infra/` excluded, apart from `pipelines/factor_windows.py`).
 
-- **test** runs the Django tests, the backup and disk script tests, and the `safeFetch` URL-guard test. It is green on runs #2, #3 and #4 (the latest, for PR #2).
+- **test** runs the Django tests, the backup and disk script tests, and the `safeFetch` URL-guard test. It is green on runs #2 to #5 (#5 is the latest, for `75af3ca`).
 - **build** fails in about 5 seconds with `Repository variable NEXT_PUBLIC_FINTANK_API_URL is empty`. This guard is deliberate: it stops a site being built that points at no API. It clears in runbook step 5.
 - **deploy** is skipped. It only runs when the repo variable `DEPLOY_ENABLED` is `true` and the branch is `main`.
 - The workflow does not run on PRs, so a PR shows no checks.
@@ -106,7 +107,6 @@ sg docker -c "DOCKER_CONFIG=<scratch>/dockercfg docker build -q -t fintank-web:c
 ## Things to raise with the owner
 
 - **Login limits** (open item in `RECENT_CHANGES.md`): `/admin/login/` and `/login/` allow 20 attempts an hour per address and 100 per account. Ask during the go-live login check and again before paying users.
-- **Branch `feat/index-attribution`** has one commit not on `main`: `8bbc1e1`, an attribution handoff doc. It is documentation only. A worktree for it is at `../ai_tooling-index-attribution`.
 - **Untracked files** in `fintank/`: `docs/project_overview.{md,html}` and `stables/`. They are the owner's; leave them alone.
 - **Known gaps, decide after go-live:**
   - stale-backtest cleanup
