@@ -1,6 +1,6 @@
 # Deploy handoff: getting the site live on AWS
 
-Written 2026-11-08, updated 2026-11-09. Read this first in a deploy session, then `deploy/README.md` (the runbook) for every command. Hosting decisions are in `docs/AWS_HOSTING_PLAN.md`. Pipeline state is in `docs/RECENT_CHANGES.md`.
+Written 2026-11-08, updated 2026-11-10. Read this first in a deploy session, then `deploy/README.md` (the runbook) for every command. Hosting decisions are in `docs/AWS_HOSTING_PLAN.md`. Pipeline state is in `docs/RECENT_CHANGES.md`.
 
 ## Where things stand
 
@@ -11,7 +11,8 @@ Written 2026-11-08, updated 2026-11-09. Read this first in a deploy session, the
   - The index attribution work (16 commits, through `ed5daf4`) went straight to `main` before PR #2.
   - After PR #2: the capital-markets bullet commentary (`feat/spread-bullets`, with its CI test) and the attribution handoff doc (`feat/index-attribution`, `8bbc1e1`) were merged, ending at `75af3ca`.
 - **Local `main` matches GitHub** at `75af3ca` (2026-11-09), and `npm install` has been run.
-- **Not yet done:** every runbook step. Nothing has been created in AWS for hosting yet, so **no hosting bill yet**.
+- **Runbook progress:** step 1 done 2026-11-10, so **the hosting bill has started** (Lightsail 4 GB, $24 USD/month before tax). Steps 2 onwards are not started. If you stop part-way, see "Stopping and deleting" at the end of the runbook.
+- **Server:** Lightsail instance `fintank` (Ubuntu 24.04.4 LTS, `us-east-1a`, dual-stack). Static IP `fintank-ip` = **`52.21.34.225`**: this is `SERVER_IP` in the runbook. SSH as `ubuntu` with `~/.ssh/LightsailDefaultKey-us-east-1.pem`.
 
 ## The GitHub workflow is red on purpose
 
@@ -30,7 +31,7 @@ Written 2026-11-08, updated 2026-11-09. Read this first in a deploy session, the
 
 | Step | What | Who | Status |
 |---|---|---|---|
-| 1 | Lightsail 4 GB in `us-east-1`, static IP `fintank-ip`, ports 22/80/443, SSH test. **Billing starts here.** | owner (console) | not started |
+| 1 | Lightsail 4 GB in `us-east-1`, static IP `fintank-ip`, ports 22/80/443, SSH test. **Billing starts here.** | owner (console) | **done 2026-11-10** (`52.21.34.225`) |
 | 2 | Backup bucket `fintank-backups-137315715959`, IAM users `fintank-django` and `fintank-backup`. Run from `fintank/`. | owner | not started |
 | 3a–e | Deploy key, `bootstrap_server.sh`, backup credentials, `/opt/fintank/.env`, GHCR pull access | owner | not started |
 | 4 | DNS to Route 53: apex, `www`, `api` A records to the static IP; wait until all three resolve | owner | not started |

@@ -28,13 +28,19 @@ The runbook assumes you run commands from the repo folder `fintank/` on your mac
 ## 1. Create the Lightsail instance (billing starts here)
 
 1. AWS console, search **Lightsail**. Region `us-east-1` (top right, "Virginia").
-2. **Create instance**: Platform **Linux/Unix**, blueprint **OS Only, Ubuntu** (the newest LTS offered), plan **4 GB** (check the monthly price shown), name `fintank`. Create.
-3. Instance, **Networking** tab, **Create static IP**, attach it to `fintank`, name it `fintank-ip`. Write down the address: this is `SERVER_IP`.
-4. Same tab, **IPv4 Firewall**: keep **SSH 22**, add **HTTP 80** and **HTTPS 443** (Add rule, Application: HTTP / HTTPS). Do the same under **IPv6 Firewall** if it is shown.
+2. **Create instance**:
+   - Platform **Linux operating system** (not "Linux apps", which is preselected with an app blueprint), blueprint **Ubuntu**, the newest **LTS** offered (24.04 LTS on 2026-11-10).
+   - Plan type **General purpose**, network type **Dual-stack** (not IPv6-only: GitHub's runners, the DNS A records and Let's Encrypt need IPv4).
+   - Size **4 GB memory, 2 vCPUs, 80 GB SSD, 4 TB transfer** ($24 USD/month on 2026-11-10). The page preselects the $5 size: change it.
+   - Instance name `fintank` (the page suggests `Ubuntu-1`), count 1. Leave automatic snapshots off (step 10). Create, and wait for **Running**.
+3. Instance, **Networking** tab, **Attach static IP** on the Public IPv4 card: create a new one named `fintank-ip`, attached to `fintank`. The card changes to **Static IP address**. Write down the address: this is `SERVER_IP`. (The public IP shown before this is temporary; do not use it.)
+4. Same tab, **Firewall rules** (one table for IPv4 and IPv6): keep **SSH 22**, and make sure **HTTP 80** and **HTTPS 443** are there (HTTP 80 may already be). For each missing one: **Add rule**, Application **HTTP** or **HTTPS**. Under Source IP addresses the preset defaults to **Custom** with an empty box (which allows nobody): set the preset to **Anywhere IPv4** (`0.0.0.0/0`), click **Add**, and set the second row to **Anywhere IPv6** (`::/0`). The table should then show all three rules with "Any IPv4 or IPv6 address".
    - Port 22 stays open to everyone because GitHub's runners have no fixed IP. `bootstrap_server.sh` makes that safe: key-only SSH, root login off, `fail2ban` installed.
-5. Account page, **SSH keys** (or the instance's **Connect** tab), download the default key for `us-east-1` (`LightsailDefaultKey-us-east-1.pem`). On your machine: `chmod 600 LightsailDefaultKey-us-east-1.pem`.
+5. Account page, **SSH keys** (or the instance's **Connect** tab), download the default key for `us-east-1` (`LightsailDefaultKey-us-east-1.pem`). On your machine: `chmod 600 LightsailDefaultKey-us-east-1.pem`. On WSL, copy it into the Linux home first (`chmod` does not work on the Windows drive): `cp /mnt/c/Users/<you>/Downloads/LightsailDefaultKey-us-east-1.pem ~/.ssh/ && chmod 600 ~/.ssh/LightsailDefaultKey-us-east-1.pem`, and use that path wherever this runbook writes the key's short name.
 
-Confirm: `ssh -i LightsailDefaultKey-us-east-1.pem ubuntu@SERVER_IP` gives you a prompt (type `yes` to the fingerprint question). Type `exit`.
+Confirm: `ssh -i LightsailDefaultKey-us-east-1.pem ubuntu@SERVER_IP` gives you a prompt (type `yes` to the fingerprint question). `lsb_release -ds` shows the Ubuntu LTS you picked. Type `exit`.
+
+The console may show yellow banners about PHP and a Linux security update. Plain Ubuntu has no PHP; the security updates are applied at the start of step 3b.
 
 ## 2. IAM users and the backup bucket
 
@@ -100,7 +106,13 @@ scp -i LightsailDefaultKey-us-east-1.pem deploy/bootstrap_server.sh ~/.ssh/finta
 ssh -i LightsailDefaultKey-us-east-1.pem ubuntu@SERVER_IP
 ```
 
-On the server:
+On the server, first apply the updates waiting on the fresh image, then reconnect (the reboot drops the session):
+
+```bash
+sudo apt-get update && sudo apt-get upgrade -y && sudo reboot
+```
+
+After about a minute, `ssh -i LightsailDefaultKey-us-east-1.pem ubuntu@SERVER_IP` again, then:
 
 ```bash
 sudo DEPLOY_PUBKEY="$(cat fintank_deploy.pub)" bash bootstrap_server.sh
