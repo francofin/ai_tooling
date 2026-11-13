@@ -81,7 +81,7 @@ aws iam create-access-key --user-name fintank-backup \
   --query 'AccessKey.[AccessKeyId,SecretAccessKey]' --output text
 ```
 
-Each `create-access-key` prints two values on one line, the access key ID then the secret, **once**. Save each pair straight into your password manager now, labelled "django" and "backup", without copying them into any file, chat or commit. If you lose one, delete that key (`aws iam delete-access-key`) and create a new one.
+Each `create-access-key` prints two values on one line, the access key ID then the secret, **once**. Save each pair straight into your password manager now, labelled "django" and "backup", without copying them into any file, chat or commit. If you lose one, delete that key (`aws iam delete-access-key`) and create a new one. Run `clear` after each one: a later screenshot of the terminal can catch the line still on screen (this happened on 2026-11-11, and that key was replaced). If a secret is ever exposed, create the new key first, then delete the old one.
 
 Confirm: `aws s3api get-bucket-lifecycle-configuration --bucket "$BUCKET"` shows the 30-day rule, and `aws iam list-user-policies --user-name fintank-django` shows `fintank-django` (same for `fintank-backup`).
 
@@ -198,10 +198,10 @@ The hostname and Redis lines are already right. Check the file has no blanks you
 2. On the server as `deploy`:
 
 ```bash
-echo 'PASTE_TOKEN' | docker login ghcr.io -u francofin --password-stdin
+read -rs GHCR_TOKEN && echo "$GHCR_TOKEN" | docker login ghcr.io -u francofin --password-stdin; unset GHCR_TOKEN
 ```
 
-You should see `Login Succeeded`. (Put a calendar reminder to renew the token before it expires, or deploys fail at `compose pull`.)
+Paste the token after `read` (nothing shows) and press Enter; this keeps it out of shell history. You should see `Login Succeeded` and a warning that the credential is stored unencrypted in `~/.docker/config.json`; that is expected (read-only token, file owned by `deploy`). Run `clear` afterwards. (Put a calendar reminder to renew the token before it expires, or deploys fail at `compose pull`.)
 
 ## 4. DNS (Route 53)
 
