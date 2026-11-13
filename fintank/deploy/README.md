@@ -198,10 +198,10 @@ The hostname and Redis lines are already right. Check the file has no blanks you
 2. On the server as `deploy`:
 
 ```bash
-echo 'PASTE_TOKEN' | docker login ghcr.io -u francofin --password-stdin
+read -rs GHCR_TOKEN && echo "$GHCR_TOKEN" | docker login ghcr.io -u francofin --password-stdin; unset GHCR_TOKEN
 ```
 
-You should see `Login Succeeded`. (Put a calendar reminder to renew the token before it expires, or deploys fail at `compose pull`.)
+Paste the token after `read` (nothing shows) and press Enter; this keeps it out of shell history. You should see `Login Succeeded` and a warning that the credential is stored unencrypted in `~/.docker/config.json`; that is expected (read-only token, file owned by `deploy`). Run `clear` afterwards. (Put a calendar reminder to renew the token before it expires, or deploys fail at `compose pull`.)
 
 ## 4. DNS (Route 53)
 
