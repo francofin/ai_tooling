@@ -238,7 +238,7 @@ In GitHub, repo **Settings**, **Secrets and variables**, **Actions**.
 | `DEPLOY_SSH_KEY` | the whole contents of `~/.ssh/fintank_deploy` (private key), including the `BEGIN`/`END` lines: `cat ~/.ssh/fintank_deploy` |
 | `DEPLOY_KNOWN_HOSTS` | output of `ssh-keyscan -t ed25519 SERVER_IP` (your machine) |
 
-For `DEPLOY_KNOWN_HOSTS`, check the key is really your server's before saving. On the server: `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`. On your machine: `ssh-keyscan -t ed25519 SERVER_IP 2>/dev/null | ssh-keygen -lf -`. The two fingerprints must match.
+For `DEPLOY_KNOWN_HOSTS`, check the key is really your server's before saving (2026-11-12 the fingerprint was `SHA256:KseGxfGU4+ZxvDFFXrYTvx/vF40jXRw3J34vN/5GT4o`). On the server: `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`. On your machine: `ssh-keyscan -t ed25519 SERVER_IP 2>/dev/null | ssh-keygen -lf -`. The two fingerprints must match.
 
 **Variables** (tab Variables, New repository variable). These are public values compiled into the website, so they are variables, not secrets:
 
@@ -255,7 +255,7 @@ For `DEPLOY_KNOWN_HOSTS`, check the key is really your server's before saving. O
 
 Firebase values: Firebase console, project settings (gear icon), **General**, **Your apps**, the web app, **SDK setup and configuration**, **Config**. Map `apiKey`, `authDomain`, `projectId`, `appId`, `measurementId` to the five names above. **The web build fails without them**, and a deploy will not get past the build job.
 
-**Merge `aws-web-hosting` into `main` first.** The workflow only runs from `main`, so nothing deploys from the branch. Merge the pull request on GitHub (or merge locally and push `main`). Merging changes `fintank/` and starts the deploy by itself; if you add the secrets and variables after the merge, rerun it from **Actions**, **Fintank deploy**, **Run workflow** (branch `main`). The jobs are test, build, deploy.
+**Start the first deploy.** The hosting code is already on `main` (PR #1, 2026-11-05). After the secrets and the variables, with `DEPLOY_ENABLED=true` added last, start the run by hand: **Actions**, **Fintank deploy**, **Run workflow**, branch `main`, **Run workflow**. A docs-only push does not start it. The jobs are test, build, deploy; build takes the longest (two images).
 
 After the merge, update your local checkout:
 - `git checkout main && git pull`, then run `npm install` in `fintank/` (Next moved to 15.5.29).
