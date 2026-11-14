@@ -77,7 +77,7 @@ cd ../infra && .venv/bin/python -m pytest -q                # CDK stack tests
 
 ### Web hosting and deploys (`deploy/`, `.github/workflows/fintank-deploy.yml`)
 
-Lightsail + Docker Compose, deployed from GitHub Actions on push to `main`. **Not live until the owner finishes the runbook `deploy/README.md`** (server setup, IAM, DNS, secrets, seed, go-live tests). Server files: `deploy/bootstrap_server.sh`, `deploy.sh`, `docker-compose.yml`, `Caddyfile`, `backup_db.sh`, `env.example`. Local dev needs `DEBUG=True` in `backend/.env`.
+Lightsail + Docker Compose, deployed from GitHub Actions on push to `main`. **Up since the first deploy on 2026-11-14; every push to `main` touching `fintank/` (not docs) deploys.** Runbook `deploy/README.md` steps 6 onward (seed, cache, Firebase/Stripe, monitoring, backups, go-live tests) remain; progress in `docs/DEPLOY_HANDOFF.md`. Server files: `deploy/bootstrap_server.sh`, `deploy.sh`, `docker-compose.yml`, `Caddyfile`, `backup_db.sh`, `env.example`. Local dev needs `DEBUG=True` in `backend/.env`.
 
 ### Solidity (Foundry — `stables/`)
 

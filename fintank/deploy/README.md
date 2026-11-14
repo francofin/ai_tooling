@@ -1,6 +1,6 @@
 # Fintank server runbook and go-live
 
-Status: **the site is not live until you finish this runbook.** The old Heroku backend is deleted and the DigitalOcean app `thefintank-app` is archived, so `thefintank.com` is offline today.
+Status: **steps 1–5 done; the site is up since the first deploy on 2026-11-14, but not ready for users until you finish this runbook** (data seeding, cache, Firebase and Stripe, monitoring, backups). Progress is tracked in `docs/DEPLOY_HANDOFF.md`.
 
 You do these steps yourself, in order. Each one says how to confirm it worked. Do not move on until it did.
 
@@ -257,9 +257,9 @@ Firebase values: Firebase console, project settings (gear icon), **General**, **
 
 **Start the first deploy.** The hosting code is already on `main` (PR #1, 2026-11-05). After the secrets and the variables, with `DEPLOY_ENABLED=true` added last, start the run by hand: **Actions**, **Fintank deploy**, **Run workflow**, branch `main`, **Run workflow**. A docs-only push does not start it. The jobs are test, build, deploy; build takes the longest (two images).
 
-After the merge, update your local checkout:
-- `git checkout main && git pull`, then run `npm install` in `fintank/` (Next moved to 15.5.29).
-- `backend/.env` needs `DEBUG=True` for local work (`DEBUG` now defaults to False).
+From now on every push to `main` that touches `fintank/` (not docs) deploys by itself. Set `DEPLOY_ENABLED` to `false` to pause deploys.
+
+Local work needs `DEBUG=True` in `backend/.env` (`DEBUG` defaults to False).
 
 Confirm on the server (as `deploy`):
 

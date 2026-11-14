@@ -30,9 +30,9 @@ Last updated 2026-11-09. Read this first in a new session, then the linked docs 
 - **Nov 7 full run** (`full-20261107-1000`, 9h58m, well inside the 12h limit) was held FAIL only on `fetch_ratios.failure_rate` (FMP plan refuses foreign ratios; fixed in `ed5daf4`, see below). Approved and published 2026-11-07.
 - **Branches (2026-11-09).** `main` = `origin/main` = `75af3ca`. `frontend-fixes-and-dep-cleanup` (PR #2), `feat/index-attribution` and `feat/spread-bullets` are merged; the `../ai_tooling-index-attribution` worktree and its branch are removed.
 
-## Web hosting (not live yet)
+## Web hosting (up, not launched)
 
-**The site is not live until the owner finishes the server runbook `deploy/README.md`.** The old Heroku backend is deleted and the DigitalOcean app is archived. **Go-live progress, the red-on-purpose workflow, the npm vulnerability plan and how to check a frontend change: `docs/DEPLOY_HANDOFF.md`.**
+**First deploy 2026-11-14: `https://www.thefintank.com` and `https://api.thefintank.com` are up on Lightsail, and every push to `main` touching `fintank/` (not docs) now deploys.** Runbook steps 6 onward (data seed, cache, Firebase/Stripe, monitoring, backups) remain before users; see `deploy/README.md`. The old Heroku backend is deleted and the DigitalOcean app is archived. **Go-live progress, how the deploy workflow behaves, the npm vulnerability plan and how to check a frontend change: `docs/DEPLOY_HANDOFF.md`.**
 
 - Planned hosting: one Lightsail 4 GB instance in `us-east-1` running Docker Compose (Caddy, web, api, worker, redis, Postgres in a container) at `/opt/fintank`. DNS in Route 53.
 - Deploys: `.github/workflows/fintank-deploy.yml` on pushes to `main` (test, build images to GHCR, then SSH deploy via `deploy/deploy.sh`, only when the repo variable `DEPLOY_ENABLED` is `true`). A failed health check redeploys the previous image tag.
