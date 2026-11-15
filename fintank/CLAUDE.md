@@ -73,11 +73,15 @@ python -m pipelines --help                                  # approve/discard/ro
 cd ../infra && .venv/bin/python -m pytest -q                # CDK stack tests
 ```
 
-**Start here:** `docs/RECENT_CHANGES.md` — current state, how the AWS pipeline is operated, open items. Runbook: `backend/pipelines/README.md`. Design + AWS setup: `docs/superpowers/specs/2026-10-14-automated-data-pipeline-design.md`. The notebooks in `class_files/` no longer upload; `class_files/stock_pipeline.py` and `pipeline_config.py` are shims over `pipelines/`.
+**Start here:** `docs/RECENT_CHANGES.md` (**private repo**, see below) — current state, how the AWS pipeline is operated, open items. Runbook: `backend/pipelines/README.md`. Design + AWS setup: `docs/superpowers/specs/2026-10-14-automated-data-pipeline-design.md`. The notebooks in `class_files/` no longer upload; `class_files/stock_pipeline.py` and `pipeline_config.py` are shims over `pipelines/`.
+
+### Private operational docs
+
+`francofin/ai_tooling` is **public**. Everything describing how the live server is set up and run lives in the **private** repo `francofin/fintank-private-docs` (local clone `~/projects/fintank-private-docs`), at the same relative paths as before: `deploy/README.md` (runbook), `docs/DEPLOY_HANDOFF.md`, `docs/RECENT_CHANGES.md`, `docs/AWS_HOSTING_PLAN.md`, `docs/superpowers/plans/2026-11-04-aws-web-hosting.md`, plus `project_overview.md` (architecture, decisions, and §12 operations: every check and routine). Read and update them there; never copy them back here (`docs/.gitignore` blocks it).
 
 ### Web hosting and deploys (`deploy/`, `.github/workflows/fintank-deploy.yml`)
 
-Lightsail + Docker Compose, deployed from GitHub Actions on push to `main`. **Up since the first deploy on 2026-11-14; every push to `main` touching `fintank/` (not docs) deploys.** Runbook `deploy/README.md` steps 6 onward (seed, cache, Firebase/Stripe, monitoring, backups, go-live tests) remain; progress in `docs/DEPLOY_HANDOFF.md`. Server files: `deploy/bootstrap_server.sh`, `deploy.sh`, `docker-compose.yml`, `Caddyfile`, `backup_db.sh`, `env.example`. Local dev needs `DEBUG=True` in `backend/.env`.
+Lightsail + Docker Compose, deployed from GitHub Actions on push to `main`. **Up since the first deploy on 2026-11-14; every push to `main` touching `fintank/` (not docs) deploys.** Runbook steps 1–11 done 2026-11-15; go-live tests remain. Server files: `deploy/bootstrap_server.sh`, `deploy.sh`, `docker-compose.yml`, `Caddyfile`, `backup_db.sh`, `env.example`. Local dev needs `DEBUG=True` in `backend/.env`.
 
 ### Solidity (Foundry — `stables/`)
 
