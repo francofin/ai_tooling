@@ -91,19 +91,27 @@ const Universe = (props) => {
   const {data:stockNames} = useStockNames();
   const allStocks = stockNames?.stocks
 
-  const returnQuery = (e) => {
-    e.preventDefault();
-
-    // `searchTicker` is only set by picking a suggestion, so fall back to the
-    // typed text rather than pushing a route with an empty segment. Funds go
-    // straight to /etf-data/ -- searching an ETF from this very page used to
-    // land on /stock-data/, which has no ETF profile and renders "not found".
-    const target = String(searchTicker || ticker || '').trim()
+  // Funds go straight to /etf-data/ -- searching an ETF from this very page
+  // used to land on /stock-data/, which has no ETF profile and renders
+  // "not found".
+  const goToTicker = (symbol) => {
+    const target = String(symbol ?? '').trim()
     if (!target) return
+    setShowSuggestions(false)
+    setFilteredSuggestions([])
+    setActiveSuggestion(0)
     const match = allStocks?.find(
       (s) => s['symbol'].toLowerCase() === target.toLowerCase()
     )
     router.push(tickerHref(target, match?.is_etf))
+  }
+
+  const returnQuery = (e) => {
+    e.preventDefault();
+
+    // `searchTicker` is only set by picking a suggestion, so fall back to the
+    // typed text rather than pushing a route with an empty segment.
+    goToTicker(searchTicker || ticker)
   }
 
 
@@ -118,17 +126,27 @@ const Universe = (props) => {
     );
 
 
-    // setActiveSuggestion(0)
+    // Reset the highlight on every keystroke: the list is rebuilt, so an old
+    // index could point past the end of the new, shorter list.
+    setActiveSuggestion(0)
     setFilteredSuggestions(suggestionFilter)
     setShowSuggestions(true)
     setTicker(userInput)
   };
 
+  // Bound to the input. It used to sit on the suggestion list, a div that
+  // never takes focus, so the arrow keys and Enter never reached it.
   const onKeySuggestDown = (e) => {
+    const suggestions = filteredSuggestions || []
+
+    // User pressed the enter key
     if (e.keyCode === 13) {
-      setActiveSuggestion(0)
-      setShowSuggestions(false)
-      setTicker(filteredSuggestions[activeSuggestion])
+      // The form's onSubmit also fires on Enter; let the highlighted
+      // suggestion win while the list is open.
+      if (showSuggestions && suggestions[activeSuggestion]) {
+        e.preventDefault()
+        onSuggestionClick(suggestions[activeSuggestion]['symbol'])
+      }
     }
     // User pressed the up arrow
     else if (e.keyCode === 38) {
@@ -140,7 +158,7 @@ const Universe = (props) => {
     }
     // User pressed the down arrow
     else if (e.keyCode === 40) {
-      if (activeSuggestion - 1 === filteredSuggestions.length) {
+      if (activeSuggestion >= suggestions.length - 1) {
         return;
       }
 
@@ -148,14 +166,12 @@ const Universe = (props) => {
     }
   };
 
+  // Picking a suggestion has to navigate. It used to only fill the input and
+  // close the list, so a click looked like it did nothing.
   const onSuggestionClick = (item) => {
-
-    setActiveSuggestion(0)
-    setShowSuggestions(false)
-    setFilteredSuggestions([])
     setSearchTicker(item)
     setTicker(item)
-
+    goToTicker(item)
   };
 
   const renderSuggestedList = () => {
@@ -163,7 +179,17 @@ const Universe = (props) => {
     <ListGroup variant="flush" className="shadow mb-5" style={{position:'relative'}}>
       {filteredSuggestions?.map((suggestion, i) => {
         return(
-          <ListGroup.Item key={i} as="li" onClick={() => onSuggestionClick(suggestion['symbol'])}>
+          <ListGroup.Item
+            key={i}
+            as="li"
+            action
+            active={i === activeSuggestion}
+            style={{cursor:'pointer'}}
+            // onMouseDown fires before the input's onBlur, so the selection
+            // cannot be torn down before the click lands.
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => onSuggestionClick(suggestion['symbol'])}
+          >
                 {suggestion['symbol']} - {suggestion['name']} - {suggestion['exchange']}
             </ListGroup.Item>
         )
@@ -250,13 +276,14 @@ const Universe = (props) => {
                     autoComplete="off"
                     onFocus={onFocus}
                     onChange ={(e) => onSearchChange(e)}
+                    onKeyDown={(e) => onKeySuggestDown(e)}
                     onBlur={() => setTimeout(() => onFocus(), 333)}
                   />
                   <Button variant="reset" size="sm" type="reset" onClick={resetTicker}>
                     <FontAwesomeIcon icon={faTimes} />
                   </Button>
                   {(showSuggestions && filteredSuggestions?.length < 40) ?
-                    <div onKeyDown = {(e) => onKeySuggestDown(e)}s>
+                    <div className="w-100">
                       {renderSuggestedList()}
                     </div>:
                     ""
