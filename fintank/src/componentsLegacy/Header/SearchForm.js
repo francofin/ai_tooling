@@ -108,7 +108,10 @@ export default function SearchForm({ id, className, childClassname }) {
 
   const renderSuggestedList = () => {
     return(
-    <ListGroup variant="flush" className="d-inline-block" style={{position:'absolute'}}>
+    // zIndex: page sections that set their own stacking context (e.g. the
+    // universe page's `position: relative; zIndex: 1` container) otherwise
+    // paint over the list, so clicks land on the page and only Enter works.
+    <ListGroup variant="flush" className="d-inline-block" style={{position:'absolute', zIndex:1050}}>
       {filteredSuggestions?.map((suggestion, i) => {
         return(
           <ListGroup.Item
@@ -116,6 +119,7 @@ export default function SearchForm({ id, className, childClassname }) {
             as="li"
             action
             active={i === activeSuggestion}
+            style={{cursor:'pointer'}}
             // onMouseDown fires before the input's onBlur, so the selection
             // cannot be torn down before the click lands.
             onMouseDown={(e) => e.preventDefault()}

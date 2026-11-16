@@ -121,15 +121,24 @@ class ProductionRateTests(TestCase):
         return self.client.post('/admin/login/', {'username': 'boss', 'password': password},
                                 HTTP_X_FORWARDED_FOR=address)
 
+    @staticmethod
+    def _allowed(scope):
+        # Read from settings so the tests follow the limits when they change.
+        return ScopedRateThrottle().parse_rate(settings.AUTH_THROTTLE_RATES[scope])[0]
+
+    def test_the_account_limit_is_above_the_address_limit(self):
+        self.assertGreater(self._allowed('form_login_account'), self._allowed('form_login'))
+
     def test_one_address_cannot_lock_the_owner_out(self):
-        for _ in range(20):
+        for _ in range(self._allowed('form_login')):
             self.assertEqual(self._post('wrong', '203.0.113.9').status_code, 200)
         self.assertEqual(self._post('wrong', '203.0.113.9').status_code, 429)
         self.assertEqual(self._post('right-password', '203.0.113.10').status_code, 302)
 
     def test_many_addresses_do_hit_the_account_limit(self):
-        for number in range(100):
-            self.assertEqual(self._post('wrong', f'198.51.100.{number}').status_code, 200)
+        for number in range(self._allowed('form_login_account')):
+            address = f'198.51.{100 + number // 250}.{number % 250}'
+            self.assertEqual(self._post('wrong', address).status_code, 200)
         self.assertEqual(self._post('wrong', '203.0.113.9').status_code, 429)
 
 
