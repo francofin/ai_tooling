@@ -207,8 +207,8 @@ AUTH_THROTTLE_RATES = {
     # /admin/login/ and /login/, shared. These reach Django directly through
     # Caddy, so the address here is the real client's. Keep the account limit well
     # above the address limit, or one address can lock the owner out.
-    'form_login': '20/hour',
-    'form_login_account': '100/hour',
+    'form_login': '60/hour',
+    'form_login_account': '300/hour',
 }
 
 # Caddy is the one proxy, so allauth's own login limits need the last
