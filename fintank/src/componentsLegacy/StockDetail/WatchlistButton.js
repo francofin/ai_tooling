@@ -3,6 +3,16 @@ import Link from 'next/link';
 import { Button, Spinner } from 'react-bootstrap';
 import { useWatchlistEntry } from '@hooks/useWatchlistEntry';
 
+// Every label the signed-in button can show. All are rendered in the same grid
+// cell and only the current one is visible, so the button is always as wide as
+// the longest label. If the width changed on hover, the edge could move out from
+// under the pointer, fire mouseleave, shrink back under it, and loop (flicker).
+const LABELS = {
+  add: { icon: '+', text: 'Add to Watchlist' },
+  saved: { icon: '✓', text: 'On Watchlist' },
+  remove: { icon: '✕', text: 'Remove from Watchlist' },
+};
+
 /**
  * "+ Add to Watchlist" beside a symbol's title.
  *
@@ -36,19 +46,9 @@ const WatchlistButton = ({ symbol }) => {
     );
   }
 
-  const showRemove = onWatchlist && armed;
-  let variant = 'outline-primary';
-  let icon = '+';
-  let label = 'Add to Watchlist';
-  if (showRemove) {
-    variant = 'outline-danger';
-    icon = '✕';
-    label = 'Remove from Watchlist';
-  } else if (onWatchlist) {
-    variant = 'primary';
-    icon = '✓';
-    label = 'On Watchlist';
-  }
+  let current = 'add';
+  if (onWatchlist) current = armed ? 'remove' : 'saved';
+  const variant = { add: 'outline-primary', saved: 'primary', remove: 'outline-danger' }[current];
   const actionText = onWatchlist
     ? `Remove ${symbol} from your watchlist`
     : `Add ${symbol} to your watchlist`;
@@ -73,8 +73,18 @@ const WatchlistButton = ({ symbol }) => {
         aria-label={actionText}
         title={actionText}
       >
-        <span className="me-1" aria-hidden="true">{icon}</span>
-        {label}
+        <span style={{ display: 'inline-grid' }}>
+          {Object.entries(LABELS).map(([key, { icon, text }]) => (
+            <span
+              key={key}
+              aria-hidden={key !== current}
+              style={{ gridArea: '1 / 1', visibility: key === current ? 'visible' : 'hidden' }}
+            >
+              <span className="me-1" aria-hidden="true">{icon}</span>
+              {text}
+            </span>
+          ))}
+        </span>
       </Button>
       {error && <div className="text-danger text-sm mt-1">{error}</div>}
     </div>
