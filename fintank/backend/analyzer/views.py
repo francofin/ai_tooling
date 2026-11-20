@@ -67,8 +67,10 @@ def get_index_history_task(request, symbol):
             pass
 
     try:
-        from .analyzer_utils.CorePerformanceTools import get_index_charts
-        get_index_charts()
+        from .analyzer_utils.CorePerformanceTools import refresh_index_chart
+        # Only the requested chart: a cold cache costs one FMP call per card,
+        # not a 15-call refresh per card (the Celery task refreshes them all).
+        refresh_index_chart(symbol)
         compressed = cache.get(cache_key)
         if compressed:
             return _decompress_and_respond(compressed)

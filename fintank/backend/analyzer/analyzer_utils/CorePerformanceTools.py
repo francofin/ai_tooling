@@ -16,6 +16,7 @@ from utils.IndexFileMappers import IndexFileMappers
 from utils.StockCalculations import GetData
 from stockuploader.models import Stock
 from analyzer.serializers import StockSerializer
+from utils.fmp_stable import batch_quotes, index_history, split_symbols
 
 logger = logging.getLogger(__name__)
 
@@ -75,10 +76,7 @@ def get_all_stock_names():
 
 def get_index_performance():  
     home_page_indexes="DX-Y.NYB,^DJITR,^XNDX,^FTSE,^IXIC,^OVX,^GVZ,^VVIX,^VXSLV,^NMX0530,^FTMC,^RUITR,^RUTTR,^RUATR,^SP500TR,^TYX,^FVX,^TNX,^GSPTSE,^VIX,^DJI,^FCHI,^N225,^HSI,TX60.TS"   
-    url = f"https://financialmodelingprep.com/api/v3/quote/{home_page_indexes}?apikey={fmp_api}"
-    response = requests.get(url, timeout=10)
-    response.raise_for_status()
-    data = response.json()
+    data = batch_quotes(split_symbols(home_page_indexes))
     context = {
         "data": data,
         "last_updated": timezone.now().isoformat(),
@@ -102,10 +100,7 @@ def get_etf_performance():
                                     THD,EUFN,GMF,XTL,FVAL,KSA,IYW,CWI,XTN,IYE,GII,XSD,BCM,MAKX,FDMO,IXN,XHU.TO,XME,EIS,AAXJ,FCCD.TO,GTR,PRP.TO,LQDH,ISTB,IEI,ZDV.TO,DWX,EWM,FLRG,MCHI"  
  
 
-    url = f"https://financialmodelingprep.com/api/v3/quote/{etfs}?apikey={fmp_api}"
-    response = requests.get(url, timeout=10)
-    response.raise_for_status()
-    data = response.json()
+    data = batch_quotes(split_symbols(etfs))
     context = {
         "data": data,
         "last_updated": timezone.now().isoformat(),
@@ -131,10 +126,7 @@ def get_crypto_performance():
   
  
 
-    url = f"https://financialmodelingprep.com/api/v3/quotes/crypto/{cryptos}?apikey={fmp_api}"
-    response = requests.get(url, timeout=10)
-    response.raise_for_status()
-    data = response.json()
+    data = batch_quotes(split_symbols(cryptos))
     context = {
         "data": data,
         "last_updated": timezone.now().isoformat(),
@@ -601,54 +593,60 @@ def get_economic_data():
 def compress_series(context):
     return gzip.compress(json.dumps(context).encode("utf-8"))
 
-#Add fall back logic. 
-def get_index_charts():
-    bucket_one_url = f"https://financialmodelingprep.com/api/v3/historical-price-full/^GSPC,^IXIC,^GSPTSE,TX60.TS,^RUT?apikey={fmp_api}"
-    bucket_two_url = f"https://financialmodelingprep.com/api/v3/historical-price-full/^RUI,^DJI,^N225,^HSI,^NSEI?apikey={fmp_api}"
-    bucket_three_url = f"https://financialmodelingprep.com/api/v3/historical-price-full/^FTSE,^IRX,^TNX,^TYX,^VIX?apikey={fmp_api}"
-    raw_dataframe_one = requests.get(bucket_one_url, timeout=10).json()['historicalStockList']
-    raw_dataframe_two = requests.get(bucket_two_url, timeout=10).json()['historicalStockList']
-    raw_dataframe_three = requests.get(bucket_three_url, timeout=10).json()['historicalStockList']
-    sp500 = raw_dataframe_one[0]['historical']
-    nas = raw_dataframe_one[1]['historical']
-    tsx = raw_dataframe_one[2]['historical']
-    tsx_60 = raw_dataframe_one[3]['historical']
-    rus_2000 = raw_dataframe_one[4]['historical']
-    rus_1000 = raw_dataframe_two[0]['historical']
-    dj = raw_dataframe_two[1]['historical']
-    nik = raw_dataframe_two[2]['historical']
-    hsi = raw_dataframe_two[3]['historical']
-    nsei = raw_dataframe_two[4]['historical']
-    ftse = raw_dataframe_three[0]['historical']
-    short_term = raw_dataframe_three[1]['historical']
-    ten_year = raw_dataframe_three[2]['historical']
-    thirty_year = raw_dataframe_three[3]['historical']
-    vix = raw_dataframe_three[4]['historical']
-    context = {
-        'sp500':compress_series({'data':sp500[::-1], 'name':'S&P 500'}),
-        'nas':compress_series({'data':nas[::-1], 'name':'NASDAQ Composite Index'}),
-        'tsx':compress_series({'data':tsx[::-1], 'name':'S&P/TSX Composite Index'}),
-        'tsx_60':compress_series({'data':tsx_60[::-1], 'name':'TSX 60 Index'}),
-        'rus_2000':compress_series({'data':rus_2000[::-1], 'name':'Russell 2000 Index'}),
-        'rus_1000':compress_series({'data':rus_1000[::-1], 'name':'Russell 1000 Index'}),
-        'dj':compress_series({'data':dj[::-1], 'name':'Dow Jones Index'}),
-        'nik':compress_series({'data':nik[::-1], 'name':'Nikkei 225 Index'}),
-        'hsi':compress_series({'data':hsi[::-1], 'name':'Hang Seng Index'}),
-        'nsei':compress_series({'data':nsei[::-1], 'name':'Nifty 50'}),
-        'ftse':compress_series({'data':ftse[::-1], 'name':'FTSE 100 Index'}),
-        'short_term':compress_series({'data':short_term[::-1], 'name':'13 Week Treasury Bill Index'}),
-        'ten_year':compress_series({'data':ten_year[::-1], 'name':'Treasury Yield 10 Years Index'}),
-        'thirty_year':compress_series({'data':thirty_year[::-1], 'name':'Treasury Yield 30 Years Index'}),
-        'vix':compress_series({'data':vix[::-1], 'name':'CBOE Volatility Index'})
-    }
-    context_keys = list(context.keys())
-    for index in context_keys:
-        cache.set(
-            f"home:index_chart:{index}:v1",
-            context[index],
-            timeout=86400  # 24 hours
-        )
+INDEX_CHART_SERIES = (
+    ('sp500', '^GSPC', 'S&P 500'),
+    ('nas', '^IXIC', 'NASDAQ Composite Index'),
+    ('tsx', '^GSPTSE', 'S&P/TSX Composite Index'),
+    ('tsx_60', 'TX60.TS', 'TSX 60 Index'),
+    ('rus_2000', '^RUT', 'Russell 2000 Index'),
+    ('rus_1000', '^RUI', 'Russell 1000 Index'),
+    ('dj', '^DJI', 'Dow Jones Index'),
+    ('nik', '^N225', 'Nikkei 225 Index'),
+    ('hsi', '^HSI', 'Hang Seng Index'),
+    ('nsei', '^NSEI', 'Nifty 50'),
+    ('ftse', '^FTSE', 'FTSE 100 Index'),
+    ('short_term', '^IRX', '13 Week Treasury Bill Index'),
+    ('ten_year', '^TNX', 'Treasury Yield 10 Years Index'),
+    ('thirty_year', '^TYX', 'Treasury Yield 30 Years Index'),
+    ('vix', '^VIX', 'CBOE Volatility Index'),
+)
 
+
+_INDEX_CHART_BY_KEY = {key: (symbol, name) for key, symbol, name in INDEX_CHART_SERIES}
+
+
+def refresh_index_chart(key):
+    """Fetch and cache one index chart. True when cached.
+
+    The chart view calls this on a cache miss, so a cold cache costs the
+    visitor one FMP call for the chart they asked for, not all 15. An unknown
+    key makes no call at all.
+    """
+    if key not in _INDEX_CHART_BY_KEY:
+        return False
+    symbol, name = _INDEX_CHART_BY_KEY[key]
+    try:
+        rows = index_history(symbol)
+    except (requests.RequestException, ValueError) as e:
+        print(f"index_charts: {key} failed: {type(e).__name__}")
+        return False
+    if not rows:
+        # Never cache an empty series: it would overwrite a good chart for 24h.
+        print(f"index_charts: {key} failed: empty")
+        return False
+    cache.set(
+        f"home:index_chart:{key}:v1",
+        compress_series({'data': rows, 'name': name}),
+        timeout=86400  # 24 hours
+    )
+    return True
+
+
+def get_index_charts():
+    """Refresh all 15 index charts (the Celery task)."""
+    cached = sum(refresh_index_chart(key) for key, _, _ in INDEX_CHART_SERIES)
+    if not cached:
+        raise RuntimeError("index_charts: no charts cached")
     return "ok"
 
 

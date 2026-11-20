@@ -299,21 +299,19 @@ class QuotesTests(SimpleTestCase):
 
     CONSTITUENTS = [{'asset': 'AAA'}, {'asset': 'BBB'}, {'asset': 'CCC'}, {'asset': None}]
     QUOTES = [
-        {'symbol': 'AAA', 'name': 'Alpha', 'pe': 30.0, 'eps': 2.0,
-         'changesPercentage': -1.5, 'price': 60.0, 'marketCap': 1e9},
-        {'symbol': 'BBB', 'name': 'Beta', 'pe': 10.0, 'eps': 5.0,
-         'changesPercentage': 3.2, 'price': 50.0, 'marketCap': 2e9},
-        {'symbol': 'CCC', 'name': 'Gamma', 'pe': None, 'eps': None,
-         'changesPercentage': 0.4, 'price': 10.0, 'marketCap': 3e8},
-        {'symbol': 'DDD', 'name': 'Delta', 'pe': -500.0, 'eps': -0.02,
-         'changesPercentage': 1.0, 'price': 5.0, 'marketCap': 1e8},
+        {'symbol': 'AAA', 'name': 'Alpha', 'changePercentage': -1.5, 'price': 60.0, 'marketCap': 1e9},
+        {'symbol': 'BBB', 'name': 'Beta', 'changePercentage': 3.2, 'price': 50.0, 'marketCap': 2e9},
+        {'symbol': 'CCC', 'name': 'Gamma', 'changePercentage': 0.4, 'price': 10.0, 'marketCap': 3e8},
+        {'symbol': 'DDD', 'name': 'Delta', 'changePercentage': 1.0, 'price': 5.0, 'marketCap': 1e8},
     ]
 
     def setUp(self):
         from django.core.cache import cache
         cache.clear()
 
-    def _run(self, quotes=None):
+    METRICS = pd.DataFrame({'symbol': ['AAA', 'BBB', 'DDD'], 'pe': [30.0, 10.0, -500.0]})
+
+    def _run(self, quotes=None, metrics=None):
         class _Response:
             def __init__(self, payload):
                 self._payload = payload
@@ -326,8 +324,11 @@ class QuotesTests(SimpleTestCase):
 
         with patch.object(index_tools.data_getter, 'get_index_constituents',
                           return_value=self.CONSTITUENTS), \
-             patch.object(index_tools.requests, 'get',
-                          return_value=_Response(self.QUOTES if quotes is None else quotes)), \
+             patch.object(index_tools.data_getter, 'load_factor_metrics',
+                          **({'side_effect': metrics} if isinstance(metrics, Exception)
+                             else {'return_value': self.METRICS if metrics is None else metrics})), \
+             patch('utils.fmp_stable.requests.get',
+                   return_value=_Response(self.QUOTES if quotes is None else quotes)), \
              patch.object(index_tools, 'is_market_open_now', return_value=False):
             return index_tools.get_index_quotes('sp500')
 
@@ -348,9 +349,45 @@ class QuotesTests(SimpleTestCase):
                          {'symbol', 'name', 'pe', 'eps', 'changesPercentage',
                           'price', 'marketCap'})
 
+    def test_eps_is_price_over_positive_pe(self):
+        payload = self._run()
+        by_symbol = {r['symbol']: r for r in payload['top_performers']}
+        self.assertEqual(by_symbol['BBB']['eps'], 5.0)
+        self.assertIsNone(by_symbol['DDD']['eps'])
+        self.assertIsNone(by_symbol['CCC']['eps'])
+
+    def test_missing_factor_metrics_still_returns_movers(self):
+        payload = self._run(metrics=FileNotFoundError('nope'))
+        self.assertTrue(payload['top_performers'])
+        self.assertEqual(payload['valuations'], [])
+
     def test_no_quotes_raises_key_error(self):
         with self.assertRaises(KeyError):
             self._run(quotes=[])
+
+    def test_bad_pe_values_drop_only_their_own_row(self):
+        metrics = pd.DataFrame({'symbol': ['AAA', 'BBB', 'CCC', 'DDD'],
+                                'pe': ['x', np.nan, np.inf, 12.0]})
+        self.assertEqual(self._pe_map(metrics), {'DDD': 12.0})
+
+    def _pe_map(self, metrics):
+        with patch.object(index_tools.data_getter, 'load_factor_metrics',
+                          return_value=metrics):
+            return index_tools._pe_by_symbol('sp500_risk')
+
+    def _quotes_timeout(self, metrics):
+        with patch.object(index_tools.cache, 'set') as cache_set:
+            self._run(metrics=metrics)
+        return [c for c in cache_set.call_args_list
+                if not str(c.args[0]).startswith('index:pe_map')][-1]
+
+    def test_payload_is_cached_briefly_when_pe_map_is_empty(self):
+        call = self._quotes_timeout(FileNotFoundError('nope'))
+        self.assertEqual(call.kwargs['timeout'], 900)
+
+    def test_payload_is_cached_for_full_ttl_with_pe_map(self):
+        call = self._quotes_timeout(None)
+        self.assertEqual(call.kwargs['timeout'], index_tools.CACHE_TTL)
 
 
 @override_settings(CACHES=LOCMEM_CACHE)
