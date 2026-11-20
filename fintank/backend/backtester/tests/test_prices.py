@@ -1,7 +1,7 @@
 """Tests for the price data layer. The single I/O seam is monkeypatched so
 nothing here touches S3, FMP or Redis."""
 from unittest import TestCase
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pyarrow as pa
@@ -255,3 +255,33 @@ class MaskTests(SimpleTestCase):
 
         self.assertTrue(eligible['C'].iloc[13])
         self.assertFalse(eligible['C'].iloc[14])
+
+
+class FetchFromFmpTests(SimpleTestCase):
+    """The FMP fallback reads stable dividend-adjusted closes, oldest first."""
+
+    @staticmethod
+    def _response(payload):
+        resp = MagicMock()
+        resp.json.return_value = payload
+        return resp
+
+    def test_fetch_from_fmp_uses_dividend_adjusted_series(self):
+        rows = [
+            {"symbol": "SPY", "date": "2026-11-19", "adjClose": 2.0, "close": 2.1},
+            {"symbol": "SPY", "date": "2026-11-18", "adjClose": 1.0, "close": 1.1},
+        ]
+        with patch('utils.fmp_stable.requests.get',
+                   return_value=self._response(rows)) as get:
+            series = prices_module._fetch_from_fmp('SPY')
+
+        self.assertEqual(series.tolist(), [1.0, 2.0])
+        self.assertTrue(series.index.is_monotonic_increasing)
+        self.assertTrue(get.call_args.args[0].endswith('historical-price-eod/dividend-adjusted'))
+
+    def test_fetch_from_fmp_empty_raises_file_not_found(self):
+        with patch('utils.fmp_stable.requests.get', return_value=self._response([])):
+            with self.assertRaises(FileNotFoundError) as caught:
+                prices_module._fetch_from_fmp('NOPE')
+
+        self.assertEqual(str(caught.exception), 'FMP returned no history for NOPE')

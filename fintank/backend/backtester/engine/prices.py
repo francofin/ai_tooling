@@ -13,10 +13,10 @@ from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
-import requests
 from django.conf import settings
 from django.core.cache import cache
 
+from utils.fmp_stable import adjusted_history
 from utils.StockCalculations import GetData, index_mappers
 
 from .config import PriceDataUnavailable
@@ -87,18 +87,11 @@ def _series_from_frame(frame: pd.DataFrame) -> pd.Series:
 
 
 def _fetch_from_fmp(symbol: str) -> pd.Series:
-    url = (f"https://financialmodelingprep.com/api/v3/historical-price-full/"
-           f"{symbol}?serietype=line&apikey={settings.FMP_API}")
-    response = requests.get(url, timeout=20)
-    response.raise_for_status()
-    rows = (response.json() or {}).get('historical') or []
+    # Dividend-adjusted closes, the same basis as the S3 parquets (`adjClose`).
+    rows = adjusted_history(symbol)
     if not rows:
         raise FileNotFoundError(f"FMP returned no history for {symbol}")
-    frame = pd.DataFrame(rows)
-    # The line series calls the column 'close'; the parquets call it 'adjClose'.
-    if 'adjClose' not in frame.columns:
-        frame['adjClose'] = frame['close']
-    return _series_from_frame(frame)
+    return _series_from_frame(pd.DataFrame(rows))
 
 
 def _fetch_symbol_series(symbol: str):
