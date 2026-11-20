@@ -7,6 +7,7 @@ import contextlib
 import io
 from unittest.mock import patch
 
+import pandas as pd
 import requests
 from django.contrib.auth import get_user_model
 from django.test import Client, SimpleTestCase, TestCase, override_settings
@@ -141,7 +142,9 @@ class LogAndPrintTests(SimpleTestCase):
         cache.clear()
         with patch.object(index_tools.data_getter, 'get_index_constituents',
                              return_value=[{'asset': 'AAPL'}]), \
-                patch.object(index_tools.requests, 'get', side_effect=requests.ConnectionError(LEAKY_MESSAGE)), \
+                patch.object(index_tools.data_getter, 'load_factor_metrics',
+                             return_value=pd.DataFrame()), \
+                patch('utils.fmp_stable.requests.get', side_effect=requests.ConnectionError(LEAKY_MESSAGE)), \
                 contextlib.redirect_stdout(stdout):
             with self.assertRaises(KeyError):
                 index_tools.get_index_quotes('sp500')

@@ -24,17 +24,16 @@ import json
 import numpy as np
 import pandas as pd
 import requests
-from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
 
+from utils.fmp_stable import batch_quotes, split_symbols
 from utils.IndexFileMappers import IndexFileMappers
 from utils.StockCalculations import GetData
 from .market_hours import is_market_open_now
 from .CorePerformanceTools import json_safe
 
 data_getter = GetData()
-fmp_api = settings.FMP_API
 index_mappers = IndexFileMappers().getIndexFileMapper()
 
 CACHE_TTL = 86400  # 24h, matching the rest of the S3-backed endpoints
@@ -492,13 +491,35 @@ def _batch_symbols(symbols, max_length=1800):
     return batches
 
 
+def _pe_by_symbol(risk_key):
+    """symbol -> P/E from the factor metrics; non-finite values dropped.
+
+    Empty on any load failure, so the movers still render without valuations.
+    """
+    cache_key = f"index:pe_map:{risk_key}:v1"
+    cached = cache.get(cache_key)
+    if cached:
+        return json.loads(gzip.decompress(cached))
+    try:
+        df = data_getter.load_factor_metrics(risk_key)
+        pe_map = {}
+        for symbol, pe in zip(df['symbol'], df['pe']):
+            if isinstance(symbol, str) and pe is not None and np.isfinite(pe):
+                pe_map[symbol] = float(pe)
+    except Exception as error:  # noqa: BLE001 - degrade to no valuations
+        print(f"index_quotes: factor metrics unavailable for {risk_key}: {type(error).__name__}")
+        return {}
+    cache.set(cache_key, gzip.compress(json.dumps(pe_map).encode('utf-8')), timeout=CACHE_TTL)
+    return pe_map
+
+
 def get_index_quotes(slug):
     """Constituent quotes: movers panel and valuation table from one payload.
 
-    v3 /quote/ rather than stable /batch-quote/: stable drops `pe` and `eps`
-    (verified against the live key) and renames changesPercentage, and the
-    valuation table is a PE ranking. One cached call per universe per day feeds
-    both sections.
+    Quotes come from FMP `stable` batch-quote. `stable` quotes carry no `pe` or
+    `eps`, so P/E is taken from the S3 factor metrics (one row per constituent)
+    and eps is derived as price / pe for positive P/E only. One cached call per
+    universe per day feeds both sections.
     """
     config = get_index_page_config(slug)
 
@@ -514,11 +535,8 @@ def get_index_quotes(slug):
 
     quotes = []
     for batch in _batch_symbols(symbols):
-        url = f"https://financialmodelingprep.com/api/v3/quote/{batch}?apikey={fmp_api}"
         try:
-            response = requests.get(url, timeout=30)
-            response.raise_for_status()
-            quotes.extend(response.json())
+            quotes.extend(batch_quotes(split_symbols(batch)))
         except (requests.RequestException, ValueError) as error:
             # A dropped batch costs some constituents, not the whole section.
             print(f"index_quotes: batch failed for {slug}: {type(error).__name__}")
@@ -527,7 +545,17 @@ def get_index_quotes(slug):
     if not quotes:
         raise KeyError(f"No quotes returned for '{slug}'.")
 
-    records = [{field: quote.get(field) for field in QUOTE_FIELDS} for quote in quotes]
+    pe_map = _pe_by_symbol(config['risk_key'])
+    records = []
+    for quote in quotes:
+        record = {field: quote.get(field) for field in QUOTE_FIELDS}
+        pe = pe_map.get(record['symbol'])
+        price = record['price']
+        record['pe'] = pe
+        record['eps'] = (round(price / pe, 4)
+                         if pe is not None and pe > 0 and isinstance(price, (int, float))
+                         else None)
+        records.append(record)
     by_change = sorted(
         (r for r in records if r['changesPercentage'] is not None),
         key=lambda r: r['changesPercentage'], reverse=True,
