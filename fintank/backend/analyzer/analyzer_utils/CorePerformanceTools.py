@@ -613,17 +613,25 @@ INDEX_CHART_SERIES = (
 
 
 def get_index_charts():
+    cached = 0
     for key, symbol, name in INDEX_CHART_SERIES:
         try:
             rows = index_history(symbol)
         except (requests.RequestException, ValueError) as e:
             print(f"index_charts: {key} failed: {type(e).__name__}")
             continue
+        if not rows:
+            # Never cache an empty series: it would overwrite a good chart for 24h.
+            print(f"index_charts: {key} failed: empty")
+            continue
         cache.set(
             f"home:index_chart:{key}:v1",
             compress_series({'data': rows, 'name': name}),
             timeout=86400  # 24 hours
         )
+        cached += 1
+    if not cached:
+        raise RuntimeError("index_charts: no charts cached")
     return "ok"
 
 

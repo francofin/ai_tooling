@@ -61,6 +61,22 @@ class FmpStableTests(SimpleTestCase):
         self.assertEqual([r["date"] for r in out], ["2026-11-18", "2026-11-19"])
         self.assertEqual([r["adjClose"] for r in out], [0.9, 1.9])
 
+    def test_adjusted_history_requests_deep_history(self):
+        with patch("utils.fmp_stable.requests.get", return_value=fake_response([])) as get:
+            adjusted_history("AAPL")
+        self.assertEqual(get.call_args.kwargs["params"]["from"], "1990-01-01")
+
+    def test_index_history_drops_rows_without_a_date(self):
+        rows = [
+            {"date": None, "close": 9.0},
+            {"close": 8.0},
+            {"date": "", "close": 7.0},
+            {"date": "2026-11-18", "close": 1.0},
+        ]
+        with patch("utils.fmp_stable.requests.get", return_value=fake_response(rows)):
+            out = index_history("^GSPC")
+        self.assertEqual([r["date"] for r in out], ["2026-11-18"])
+
     def test_http_error_propagates(self):
         resp = fake_response([], error=requests.HTTPError("403"))
         with patch("utils.fmp_stable.requests.get", return_value=resp):

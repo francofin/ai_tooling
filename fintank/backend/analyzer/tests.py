@@ -365,6 +365,30 @@ class QuotesTests(SimpleTestCase):
         with self.assertRaises(KeyError):
             self._run(quotes=[])
 
+    def test_bad_pe_values_drop_only_their_own_row(self):
+        metrics = pd.DataFrame({'symbol': ['AAA', 'BBB', 'CCC', 'DDD'],
+                                'pe': ['x', np.nan, np.inf, 12.0]})
+        self.assertEqual(self._pe_map(metrics), {'DDD': 12.0})
+
+    def _pe_map(self, metrics):
+        with patch.object(index_tools.data_getter, 'load_factor_metrics',
+                          return_value=metrics):
+            return index_tools._pe_by_symbol('sp500_risk')
+
+    def _quotes_timeout(self, metrics):
+        with patch.object(index_tools.cache, 'set') as cache_set:
+            self._run(metrics=metrics)
+        return [c for c in cache_set.call_args_list
+                if not str(c.args[0]).startswith('index:pe_map')][-1]
+
+    def test_payload_is_cached_briefly_when_pe_map_is_empty(self):
+        call = self._quotes_timeout(FileNotFoundError('nope'))
+        self.assertEqual(call.kwargs['timeout'], 900)
+
+    def test_payload_is_cached_for_full_ttl_with_pe_map(self):
+        call = self._quotes_timeout(None)
+        self.assertEqual(call.kwargs['timeout'], index_tools.CACHE_TTL)
+
 
 @override_settings(CACHES=LOCMEM_CACHE)
 class FactorRankTests(SimpleTestCase):

@@ -67,6 +67,26 @@ class HomepageStableTests(TestCase):
         self.assertEqual([r["date"] for r in blob["data"]], ["2026-11-18", "2026-11-19"])
         self.assertIn("adjClose", blob["data"][0])
 
+    def test_index_charts_empty_series_is_not_cached(self):
+        rows = [{"date": "2026-11-18", "close": 1.0}]
+        cache.set("home:index_chart:nik:v1", b"previous-good", timeout=60)
+
+        def fake_get(url, params=None, timeout=None):
+            return fake_response([] if params["symbol"] == "^N225" else rows)
+
+        buf = io.StringIO()
+        with patch("utils.fmp_stable.requests.get", side_effect=fake_get), redirect_stdout(buf):
+            self.assertEqual(cpt.get_index_charts(), "ok")
+        self.assertEqual(cache.get("home:index_chart:nik:v1"), b"previous-good")
+        self.assertIsNotNone(cache.get("home:index_chart:sp500:v1"))
+        self.assertIn("nik failed: empty", buf.getvalue())
+
+    def test_index_charts_raise_when_nothing_cached(self):
+        with patch("utils.fmp_stable.requests.get", return_value=fake_response([])), \
+                redirect_stdout(io.StringIO()):
+            with self.assertRaisesMessage(RuntimeError, "index_charts: no charts cached"):
+                cpt.get_index_charts()
+
     def test_index_charts_skip_a_failing_symbol(self):
         rows = [{"date": "2026-11-18", "close": 1.0}]
 

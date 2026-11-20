@@ -503,8 +503,9 @@ def _pe_by_symbol(risk_key):
     try:
         df = data_getter.load_factor_metrics(risk_key)
         pe_map = {}
-        for symbol, pe in zip(df['symbol'], df['pe']):
-            if isinstance(symbol, str) and pe is not None and np.isfinite(pe):
+        pes = pd.to_numeric(df['pe'], errors='coerce')
+        for symbol, pe in zip(df['symbol'], pes):
+            if isinstance(symbol, str) and np.isfinite(pe):
                 pe_map[symbol] = float(pe)
     except Exception as error:  # noqa: BLE001 - degrade to no valuations
         print(f"index_quotes: factor metrics unavailable for {risk_key}: {type(error).__name__}")
@@ -579,7 +580,10 @@ def get_index_quotes(slug):
         'market_open': is_market_open_now(),
         'last_updated': timezone.now().isoformat(),
     }
-    cache.set(cache_key, gzip.compress(json.dumps(payload).encode('utf-8')), timeout=CACHE_TTL)
+    # Without valuations, retry within 15 minutes rather than serving a
+    # P/E-less payload for a day.
+    cache.set(cache_key, gzip.compress(json.dumps(payload).encode('utf-8')),
+              timeout=CACHE_TTL if pe_map else 900)
     return payload
 
 

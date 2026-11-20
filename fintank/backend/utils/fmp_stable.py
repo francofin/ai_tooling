@@ -40,7 +40,7 @@ def batch_quotes(symbols, *, timeout=15):
 
 
 def _oldest_first(rows):
-    return sorted(rows, key=lambda r: r.get("date", ""))
+    return sorted((r for r in rows if r.get("date")), key=lambda r: r["date"])
 
 
 def index_history(symbol, *, timeout=15):
@@ -54,6 +54,11 @@ def index_history(symbol, *, timeout=15):
     return out
 
 
-def adjusted_history(symbol, *, timeout=20):
-    rows = _get_list("historical-price-eod/dividend-adjusted", {"symbol": symbol}, timeout)
+def adjusted_history(symbol, *, from_date="1990-01-01", timeout=20):
+    # Without `from`, stable returns only 5 years; with it, up to 5000 rows (~20y).
+    rows = _get_list(
+        "historical-price-eod/dividend-adjusted",
+        {"symbol": symbol, "from": from_date},
+        timeout,
+    )
     return _oldest_first(rows)
