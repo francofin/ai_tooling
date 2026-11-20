@@ -612,24 +612,39 @@ INDEX_CHART_SERIES = (
 )
 
 
+_INDEX_CHART_BY_KEY = {key: (symbol, name) for key, symbol, name in INDEX_CHART_SERIES}
+
+
+def refresh_index_chart(key):
+    """Fetch and cache one index chart. True when cached.
+
+    The chart view calls this on a cache miss, so a cold cache costs the
+    visitor one FMP call for the chart they asked for, not all 15. An unknown
+    key makes no call at all.
+    """
+    if key not in _INDEX_CHART_BY_KEY:
+        return False
+    symbol, name = _INDEX_CHART_BY_KEY[key]
+    try:
+        rows = index_history(symbol)
+    except (requests.RequestException, ValueError) as e:
+        print(f"index_charts: {key} failed: {type(e).__name__}")
+        return False
+    if not rows:
+        # Never cache an empty series: it would overwrite a good chart for 24h.
+        print(f"index_charts: {key} failed: empty")
+        return False
+    cache.set(
+        f"home:index_chart:{key}:v1",
+        compress_series({'data': rows, 'name': name}),
+        timeout=86400  # 24 hours
+    )
+    return True
+
+
 def get_index_charts():
-    cached = 0
-    for key, symbol, name in INDEX_CHART_SERIES:
-        try:
-            rows = index_history(symbol)
-        except (requests.RequestException, ValueError) as e:
-            print(f"index_charts: {key} failed: {type(e).__name__}")
-            continue
-        if not rows:
-            # Never cache an empty series: it would overwrite a good chart for 24h.
-            print(f"index_charts: {key} failed: empty")
-            continue
-        cache.set(
-            f"home:index_chart:{key}:v1",
-            compress_series({'data': rows, 'name': name}),
-            timeout=86400  # 24 hours
-        )
-        cached += 1
+    """Refresh all 15 index charts (the Celery task)."""
+    cached = sum(refresh_index_chart(key) for key, _, _ in INDEX_CHART_SERIES)
     if not cached:
         raise RuntimeError("index_charts: no charts cached")
     return "ok"

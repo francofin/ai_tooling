@@ -104,3 +104,38 @@ class HomepageStableTests(TestCase):
         self.assertIn("HTTPError", buf.getvalue())
         self.assertNotIn("http", buf.getvalue())
         self.assertNotIn("SECRET", buf.getvalue())
+
+
+@override_settings(CACHES=LOCMEM)
+class IndexChartViewColdCacheTests(TestCase):
+    """A cold cache costs the visitor one FMP call for their chart, not 15."""
+
+    ROWS = [
+        {"date": "2026-11-19", "close": 2.0, "volume": 10},
+        {"date": "2026-11-18", "close": 1.0, "volume": 5},
+    ]
+
+    def setUp(self):
+        cache.clear()
+
+    def test_cold_cache_fetches_only_the_requested_index(self):
+        with patch("utils.fmp_stable.requests.get", return_value=fake_response(self.ROWS)) as get:
+            response = self.client.get("/api/index-history/nik/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(get.call_count, 1)
+        self.assertEqual(get.call_args.kwargs["params"]["symbol"], "^N225")
+        self.assertEqual(response.json()["data"]["prices"], [1.0, 2.0])
+        self.assertIsNone(cache.get("home:index_chart:sp500:v1"))
+
+    def test_unknown_index_makes_no_fmp_call(self):
+        with patch("utils.fmp_stable.requests.get") as get:
+            response = self.client.get("/api/index-history/not_an_index/")
+        self.assertEqual(response.status_code, 404)
+        get.assert_not_called()
+
+    def test_failed_fetch_returns_404_without_caching(self):
+        with patch("utils.fmp_stable.requests.get", side_effect=requests.ConnectionError("x")), \
+                redirect_stdout(io.StringIO()):
+            response = self.client.get("/api/index-history/nik/")
+        self.assertEqual(response.status_code, 404)
+        self.assertIsNone(cache.get("home:index_chart:nik:v1"))
