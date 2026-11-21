@@ -7,6 +7,10 @@ def test_v3_label_format():
     assert v3_label("2026-11-13") == "November 13, 26"
 
 
+def test_v3_label_zero_pads_day():
+    assert v3_label("2026-11-05") == "November 05, 26"
+
+
 def test_price_payload_shape():
     full = load_fixture("px_full_aapl")
     adj = load_fixture("px_divadj_aapl")

@@ -11,9 +11,8 @@ _OPTIONAL = ("change", "changePercent", "vwap")
 
 
 def v3_label(d: str) -> str:
-    """'2026-11-13' -> 'November 13, 26' (the v3 `label` field)."""
-    dt = date.fromisoformat(d)
-    return f"{dt.strftime('%B')} {dt.day}, {dt.strftime('%y')}"
+    """'2026-11-05' -> 'November 05, 26' (day zero-padded, as v3 did) (the v3 `label` field)."""
+    return date.fromisoformat(d).strftime("%B %d, %y")
 
 
 def _volume(v):
