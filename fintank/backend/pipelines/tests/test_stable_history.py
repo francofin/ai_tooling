@@ -190,3 +190,62 @@ def test_missing_adjusted_series_fails_restated_path_and_keeps_file(pipeline):
 
     assert result.failed == 1
     _unchanged_after(pipeline, "sp500", before)
+
+
+def test_exactly_one_full_page_then_empty_page_stops(pipeline):
+    rows = day_rows("2026-11-20", HISTORY_ROW_CAP)
+    assert rows[-1]["date"] > "1990-01-01"
+    pipeline._get, calls = stable_history_get({"AAA": rows})
+    ticks = counting_ticks(pipeline)
+
+    out = pipeline._stable_history(FULL, "AAA", "1990-01-01")
+
+    assert len(out) == HISTORY_ROW_CAP and out[0]["date"] == "2026-11-20"
+    assert len(calls) == 2 and len(ticks) == 2  # the full page, then the empty one
+
+
+def test_page_not_older_than_previous_to_stops(pipeline):
+    page_a = day_rows("2026-11-20", HISTORY_ROW_CAP)
+    page_b = day_rows("2026-12-20", HISTORY_ROW_CAP)  # oldest is later than A's
+    calls = []
+
+    def get(url, timeout=30):
+        calls.append(url)
+        assert len(calls) < 10, "stuck-page guard did not stop the loop"
+        return page_a if len(calls) % 2 else page_b
+    pipeline._get = get
+    counting_ticks(pipeline)
+
+    out = pipeline._stable_history(FULL, "AAA", "1990-01-01")
+
+    assert len(calls) == 2
+    assert len(out) == len({r["date"] for r in page_a + page_b})
+
+
+def test_failed_stable_rows_call_still_ticks(pipeline):
+    ticks = counting_ticks(pipeline)
+
+    def boom(url, timeout=30):
+        raise RuntimeError("network down")
+    pipeline._get = boom
+    with pytest.raises(RuntimeError):
+        pipeline._stable_rows(FULL, symbol="AAA")
+    assert len(ticks) == 1
+
+
+def test_get_text_decodes_utf8_without_charset(monkeypatch):
+    raw = "symbol,companyName\nDB1,Deutsche Börse\n".encode("utf-8")
+
+    class Resp:
+        content = raw
+
+        def raise_for_status(self):
+            pass
+
+        @property
+        def text(self):  # what requests does for text/csv with no charset
+            return raw.decode("iso-8859-1")
+
+    monkeypatch.setattr(sp.requests, "get", lambda url, timeout=60: Resp())
+    monkeypatch.setattr(sp.StockDataPipeline, "bytes_downloaded", 0)
+    assert "Deutsche Börse" in sp.StockDataPipeline._get_text("https://fmp/x")

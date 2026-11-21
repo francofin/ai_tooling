@@ -426,15 +426,18 @@ class StockDataPipeline:
     @staticmethod
     def _get_text(url, timeout=60):
         """GET a URL and return the body text (CSV); same errors as _get."""
-        return StockDataPipeline._fetch(url, timeout).text
+        # requests assumes ISO-8859-1 for text/csv without a charset; FMP sends UTF-8.
+        return StockDataPipeline._fetch(url, timeout).content.decode("utf-8")
 
     def _stable_rows(self, path, **params):
-        """One stable GET plus one limiter tick; returns the JSON list.
+        """One stable GET plus one limiter tick (also on failure); returns the JSON list.
 
         Stable bodies are lists; anything else (an FMP error dict) raises
         ValueError. Callers must not tick again."""
-        body = self._get(self._stable(path, **params))
-        self.limiter.tick()
+        try:
+            body = self._get(self._stable(path, **params))
+        finally:
+            self.limiter.tick()
         if not isinstance(body, list):
             raise ValueError(f"unexpected {path} response: {type(body).__name__}")
         return body
@@ -484,7 +487,7 @@ class StockDataPipeline:
                 break
             next_to = (datetime.date.fromisoformat(oldest)
                        - datetime.timedelta(days=1)).isoformat()
-            if next_to == to:
+            if to is not None and next_to >= to:
                 break
             to = next_to
         return sorted(rows.values(), key=lambda r: r["date"], reverse=True)

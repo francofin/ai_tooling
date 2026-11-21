@@ -256,8 +256,10 @@ def test_restated_history_is_refetched_in_full_and_replaced(pipeline):
                                          constituent_keys=["sp500_const"])
 
     assert [p["from"] for _, p in calls] == ["2026-09-29"] * 2 + ["1999-01-01"] * 2
-    assert [r["date"] for r in saved_rows(pipeline, "sp500", "AAA")] == \
-        [r["date"] for r in restated]
+    out = saved_rows(pipeline, "sp500", "AAA")
+    assert [r["date"] for r in out] == [r["date"] for r in restated]
+    assert [r["close"] for r in out] == [r["close"] for r in restated]
+    assert [r["adjClose"] for r in out] == [r["adjClose"] for r in restated]
     assert result.detail["restated"] == 1 and result.saved == 1
 
 
