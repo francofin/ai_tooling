@@ -30,3 +30,11 @@ def write_price_json(p, sub, symbol, end, n=40):
     os.makedirs(folder, exist_ok=True)
     with open(f"{folder}{symbol}_prices.json", "w") as f:
         json.dump({"symbol": symbol, "historical": price_rows(end, n)}, f)
+
+
+def load_fixture(name, ext="json"):
+    """Read a captured FMP stable response from tests/fixtures/fmp_stable/."""
+    path = os.path.join(os.path.dirname(__file__), "fixtures", "fmp_stable",
+                        f"{name}.{ext}")
+    with open(path, newline="") as f:
+        return f.read() if ext == "csv" else json.load(f)

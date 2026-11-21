@@ -1,0 +1,68 @@
+[
+ {
+  "date": "2026-11-20",
+  "sector": "Basic Materials",
+  "exchange": "NYSE",
+  "averageChange": -2.3585095131281264
+ },
+ {
+  "date": "2026-11-20",
+  "sector": "Communication Services",
+  "exchange": "NYSE",
+  "averageChange": -1.217404674078637
+ },
+ {
+  "date": "2026-11-20",
+  "sector": "Consumer Cyclical",
+  "exchange": "NYSE",
+  "averageChange": -1.5271238153823363
+ },
+ {
+  "date": "2026-11-20",
+  "sector": "Consumer Defensive",
+  "exchange": "NYSE",
+  "averageChange": -1.407521815288415
+ },
+ {
+  "date": "2026-11-20",
+  "sector": "Energy",
+  "exchange": "NYSE",
+  "averageChange": -0.03269862726921202
+ },
+ {
+  "date": "2026-11-20",
+  "sector": "Financial Services",
+  "exchange": "NYSE",
+  "averageChange": -0.026820869787047563
+ },
+ {
+  "date": "2026-11-20",
+  "sector": "Healthcare",
+  "exchange": "NYSE",
+  "averageChange": -1.065499080965815
+ },
+ {
+  "date": "2026-11-20",
+  "sector": "Industrials",
+  "exchange": "NYSE",
+  "averageChange": -3.2744120626139073
+ },
+ {
+  "date": "2026-11-20",
+  "sector": "Real Estate",
+  "exchange": "NYSE",
+  "averageChange": -1.5645633351156318
+ },
+ {
+  "date": "2026-11-20",
+  "sector": "Technology",
+  "exchange": "NYSE",
+  "averageChange": -4.89862325585948
+ },
+ {
+  "date": "2026-11-20",
+  "sector": "Utilities",
+  "exchange": "NYSE",
+  "averageChange": -1.01503405282114
+ }
+]
