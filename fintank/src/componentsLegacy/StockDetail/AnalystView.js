@@ -6,9 +6,9 @@ import { formatPrice, formatMarketCap, EMPTY } from '@utils/stockQuoteFormat'
 import { fmtRange, targetLabel, upsidePct } from '@utils/analystViewFormat.mjs'
 
 const METRICS = [
-  ['revenue', 'Revenue', (v) => formatMarketCap(v)],
-  ['eps', 'EPS', (v) => formatPrice(v)],
-  ['ebitda', 'EBITDA', (v) => formatMarketCap(v)],
+  ['revenue', 'Revenue', (v, c) => formatMarketCap(v, c)],
+  ['eps', 'EPS', (v, c) => formatPrice(v, c)],
+  ['ebitda', 'EBITDA', (v, c) => formatMarketCap(v, c)],
 ]
 
 // Strong buy to strong sell, green to red.
@@ -20,7 +20,7 @@ const RATING_BARS = [
   ['strongSell', 'Strong sell', 'dark'],
 ]
 
-const EstimatesTable = ({ periods }) => (
+const EstimatesTable = ({ periods, currency }) => (
   <div className="table-responsive">
     <Table hover size="sm" className="align-middle">
       <thead>
@@ -39,8 +39,8 @@ const EstimatesTable = ({ periods }) => (
             <td className="text-nowrap">{label}</td>
             {periods.map((p) => (
               <td key={`${key}-${p.date}`} className="text-end text-nowrap">
-                <div>{p[key]?.avg == null ? EMPTY : fmt(p[key].avg)}</div>
-                <div className="text-muted text-xs">{fmtRange(p[key], fmt)}</div>
+                <div>{p[key]?.avg == null ? EMPTY : fmt(p[key].avg, currency)}</div>
+                <div className="text-muted text-xs">{fmtRange(p[key], (v) => fmt(v, currency))}</div>
               </td>
             ))}
           </tr>
@@ -155,7 +155,7 @@ const AnalystView = ({ symbol, currency }) => {
           {period === 'quarter' && quarterly.error && (
             <p className="text-muted">Quarterly estimates unavailable right now.</p>
           )}
-          {periods.length > 0 && <EstimatesTable periods={periods} />}
+          {periods.length > 0 && <EstimatesTable periods={periods} currency={data.reporting_currency} />}
         </div>
       )}
 
