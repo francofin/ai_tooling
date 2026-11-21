@@ -30,7 +30,7 @@
 
 **Limits and identity**
 - Caps: `DAILY_CAP = 150`, `BACKFILL_CAP = 800`, `WAIT_DAYS = 7`, `MAX_ATTEMPTS = 2`.
-- Waiting and polling: `POLL_SECONDS = 300`, `DAILY_MAX_WAIT_SECONDS = 10800`, `LOCK_STALE_HOURS = 30`.
+- Waiting and polling: `POLL_SECONDS = 300`, `DAILY_MAX_WAIT_SECONDS = 10800`, `LOCK_STALE_HOURS = 20`.
 - Word limits: `MIN_WORDS = 1200`, `MAX_WORDS = 3000`.
 - Lean values: exactly `bullish`, `neutral`, `bearish`.
 - Quarter key format `<FY>-Q<n>`, for example `2026-Q3`, from the FMP transcript's `fiscalYear` and `quarter`. **Never derive it from calendar dates.** Display it as `Fiscal Q3 2026`.
@@ -479,9 +479,11 @@ The controller writes these steps into the ledger and the final report. The comm
    Expected: an email with about 719 targets and an estimated token count. No batch is submitted.
 5. **Go-live,** only after Franc buys credits:
    1. Set the workspace spend limit.
-   2. Replace the placeholder with the real key:
+   2. Replace the placeholder with the real key. `read -s` keeps the key off the screen and out of shell history; paste it and press Enter:
       ```bash
-      aws ssm put-parameter --name /fintank/pipeline/ANTHROPIC_API_KEY --type SecureString --overwrite --value <key>
+      read -s ANTHROPIC_KEY
+      aws ssm put-parameter --name /fintank/pipeline/ANTHROPIC_API_KEY --type SecureString --overwrite --value "$ANTHROPIC_KEY"
+      unset ANTHROPIC_KEY
       ```
    3. `python -m pipelines start-earnings-backfill`
    4. Read the staged notes.
