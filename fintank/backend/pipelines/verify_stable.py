@@ -401,13 +401,25 @@ TTM_MIN_SHARE = 0.90        # TTM: share of symbols matching
 TTM_MOST = 0.50             # "most symbols": below this a mapping is corrected
 NEW_NULL_MAX = 0.05
 FLAGGED_CASHFLOW = ("debtRepayment", "dividendsPaid", "commonStockIssued")
-# Price based = the brief's list plus earningsYield / freeCashFlowYield (E/P, FCF/mcap).
-PRICE_BASED = re.compile(r"^(price|pe|pb|ptb|pfcf|pocf|dividendyiel|marketcap|"
-                         r"enterprisevalue|debttomarketcap|peg|earningsyield|freecashflowyield)", re.I)
-INVERSE_DRIFT = re.compile(r"^(dividendyiel|debttomarketcap|earningsyield|freecashflowyield)", re.I)
+# Explicit v3 TTM field names (FIELD_MAPPINGS keys) driven by the share price.
+# Direct: the live value scales with the price ratio.
+PRICE_DRIVEN = frozenset({
+    "peRatioTTM", "pegRatioTTM", "priceBookValueRatioTTM", "priceToBookRatioTTM",
+    "priceToSalesRatioTTM", "priceEarningsRatioTTM", "priceToFreeCashFlowsRatioTTM",
+    "priceToOperatingCashFlowsRatioTTM", "priceCashFlowRatioTTM",
+    "priceEarningsToGrowthRatioTTM", "priceSalesRatioTTM", "priceFairValueTTM",
+    "marketCapTTM", "enterpriseValueTTM", "pocfratioTTM", "pfcfRatioTTM",
+    "pbRatioTTM", "ptbRatioTTM"})
+# Inverse: the live value scales with 1 / price ratio (yields, debt / market cap).
+PRICE_INVERSE = frozenset({
+    "dividendYielTTM", "dividendYielPercentageTTM", "dividendYieldTTM",
+    "dividendYieldPercentageTTM", "earningsYieldTTM", "freeCashFlowYieldTTM",
+    "debtToMarketCapTTM"})
 # EV multiples move with enterprise value (market cap + net debt), not with the
 # share price alone: scaled by the symbol's own EV ratio (new / live enterpriseValueTTM).
-EV_BASED = re.compile(r"^(evto|enterprisevaluemultiple|enterprisevalueoverebitda)", re.I)
+EV_DRIVEN = frozenset({
+    "enterpriseValueMultipleTTM", "evToSalesTTM", "enterpriseValueOverEBITDATTM",
+    "evToOperatingCashFlowTTM", "evToFreeCashFlowTTM"})
 STMT_PATHS = {"income_statements": "income-statement",
               "balance_sheet_statements": "balance-sheet-statement",
               "cash_flow_statements": "cash-flow-statement"}
@@ -522,12 +534,14 @@ def drift_factor(v3_name, rd):
     """Multiplier applied to the live value: rd = {"price": close ratio, "ev": EV ratio}."""
     if not rd:
         return None
-    if EV_BASED.match(v3_name):
+    if v3_name in EV_DRIVEN:
         return rd.get("ev")
     r = rd.get("price")
-    if r is None or not PRICE_BASED.match(v3_name):
+    if r is None:
         return None
-    return 1 / r if INVERSE_DRIFT.match(v3_name) else r
+    if v3_name in PRICE_DRIVEN:
+        return r
+    return 1 / r if v3_name in PRICE_INVERSE else None
 
 
 def within(a, b):
@@ -631,13 +645,16 @@ def current_source(v3_name, data_type):
     return f"same name ({'R' if data_type == 'ratios_ttm' else 'M'} then other)"
 
 
-def symbol_closes(pipe, live, sub, sym, prices_root):
+def symbol_closes(live, sub, sym, prices_root, notes):
+    """Close series for the drift scaling; on failure returns None and appends the
+    reason to `notes` (reported, so a disabled scaling is never silent)."""
     local = os.path.join(prices_root, "stock_data", "stock_prices", "daily", sub,
                          f"{sym}_prices.parquet")
     try:
         df = pd.read_parquet(local) if os.path.exists(local) else live.stock_prices(sym)
         return df["close"].dropna().sort_index()
-    except Exception:  # noqa: BLE001 — a missing price series just disables scaling
+    except Exception as e:  # noqa: BLE001
+        notes.append(f"{sym}: no close series, price scaling disabled ({type(e).__name__})")
         return None
 
 
@@ -808,7 +825,7 @@ def run_fundamentals(pipe, live, root):
                     rr[ep] = body[0]
         raw[sym] = rr
     prices_root = os.path.join(root, "prices")
-    ratios = {}
+    ratios, scale_notes = {}, []
     for sub, sym in symbols:
         lv_m, new_m = data["metrics_ttm"][sym]
         ev = None
@@ -816,7 +833,7 @@ def run_fundamentals(pipe, live, root):
             a, b = lv_m.iloc[0]["enterprise_value"], new_m.iloc[0]["enterprise_value"]
             if a and not pd.isna(a) and not pd.isna(b):
                 ev = float(b) / float(a)
-        ratios[sym] = {"price": close_ratio(symbol_closes(pipe, live, sub, sym, prices_root)),
+        ratios[sym] = {"price": close_ratio(symbol_closes(live, sub, sym, prices_root, scale_notes)),
                        "ev": ev}
     suggestions = []
     out += ["## TTM", "",
@@ -826,7 +843,9 @@ def run_fundamentals(pipe, live, root):
             "", "EV multiples (evTo*, enterpriseValueMultiple, enterpriseValueOverEBITDA) are scaled by each "
             "symbol's own enterpriseValueTTM ratio (new / live) instead, since EV is market cap plus net debt; "
             "earningsYield and freeCashFlowYield are treated as price based (inverse). "
-            "enterpriseValueTTM itself is scaled by the price ratio, which is an approximation.", ""]
+            "enterpriseValueTTM itself is scaled by the price ratio, which is an approximation. "
+            "Price-driven fields are an explicit list of v3 field names (PRICE_DRIVEN, PRICE_INVERSE, EV_DRIVEN).",
+            "", "Price scaling problems: " + (sanitise("; ".join(scale_notes)) or "none"), ""]
     for dt in TTM_TYPES:
         live_dtypes = {}
         for lv, _ in data[dt].values():

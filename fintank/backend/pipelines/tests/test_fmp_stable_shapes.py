@@ -160,7 +160,7 @@ _RATIO_KEYS = ("grossProfitRatio", "ebitdaratio", "operatingIncomeRatio",
 
 
 @pytest.mark.parametrize("revenue", [0, None])
-def test_income_ratios_none_when_revenue_zero(revenue):
+def test_income_ratios_none_when_revenue_zero_or_missing_and_parts_nonzero(revenue):
     raw = [dict(load_fixture("income_q_aapl")[0], revenue=revenue)]
     row = statement_rows("income", raw)[0]
     for k in _RATIO_KEYS:
