@@ -43,12 +43,17 @@ def _newest_first(rows):
 
 
 def price_payload(symbol: str, full_rows: list, adjusted_rows: list) -> dict:
-    """v3-shaped {"symbol", "historical"}; adjClose joined from the
-    dividend-adjusted rows by date (None where it has no matching date)."""
+    """v3-shaped {"symbol", "historical"}, newest first, one row per date.
+
+    adjClose is joined from the dividend-adjusted rows by date. Only dates in
+    both series are emitted: a /full date with no adjusted row is dropped
+    (it would have no adjClose), as is an adjusted-only date. On duplicate
+    dates the last row in the input wins."""
     adj = {r["date"]: r.get("adjClose") for r in adjusted_rows}
+    by_date = {r["date"]: r for r in full_rows if r["date"] in adj}
     return {"symbol": symbol,
-            "historical": [_row(r, adj.get(r["date"]))
-                           for r in _newest_first(full_rows)]}
+            "historical": [_row(r, adj[d])
+                           for d, r in sorted(by_date.items(), reverse=True)]}
 
 
 def index_payload(symbol: str, full_rows: list) -> dict:
@@ -76,7 +81,11 @@ def holdings_rows(stable_rows: list[dict]) -> list[dict]:
 
 
 def _price(v):
-    return float(v) if v not in (None, "") else None
+    """A price string -> float; empty or malformed ("N/A") -> None."""
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
 
 
 def etf_list_rows(etf_list: list[dict], bulk_rows: list[dict],

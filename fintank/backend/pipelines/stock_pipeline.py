@@ -844,6 +844,8 @@ class StockDataPipeline:
         full = self._stable_history("historical-price-eod/full", symbol, from_date)
         adjusted = self._stable_history("historical-price-eod/dividend-adjusted",
                                         symbol, from_date)
+        if full and not adjusted:
+            raise ValueError("no dividend-adjusted rows")
         return price_payload(symbol, full, adjusted)
 
     def _full_price_payload(self, symbol, from_date):

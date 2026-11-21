@@ -1,6 +1,7 @@
 """Prices and index history fetched from FMP stable, saved in the v3 shape.
 Fakes only: no network."""
 import json
+import os
 
 import pandas as pd
 import pytest
@@ -130,3 +131,62 @@ def test_index_backfill_and_update_on_stable(pipeline, monkeypatch):
     assert pipeline.fetch_index_prices().saved == 1
     assert [(path, p["from"]) for path, p in calls] == [(FULL, "2026-11-20")]
     assert list(pd.read_parquet(daily).columns) == first_cols
+
+
+def _unchanged_after(pipeline, sub, before):
+    assert saved(pipeline, sub, "AAA") == before
+
+
+def _full_only_get(full_rows):
+    """/full has rows but /dividend-adjusted is empty."""
+    def _get(url, timeout=30):
+        return full_rows if "/full" in url else []
+    return _get
+
+
+def test_missing_adjusted_series_fails_incremental_and_keeps_file(pipeline):
+    write_constituents(pipeline, "sp500_const", ["AAA"])
+    write_price_json(pipeline, "sp500", "AAA", "2026-10-09")
+    before = saved(pipeline, "sp500", "AAA")
+    pipeline._get = _full_only_get(price_rows("2026-10-16", 45))
+
+    result = pipeline.fetch_stock_prices(from_date="1999-01-01",
+                                         constituent_keys=["sp500_const"])
+
+    assert result.failed == 1 and result.saved == 0
+    _unchanged_after(pipeline, "sp500", before)
+
+
+def test_missing_adjusted_series_fails_full_download(pipeline):
+    write_constituents(pipeline, "sp500_const", ["AAA"])
+    pipeline._get = _full_only_get(price_rows("2026-10-16", 45))
+
+    result = pipeline.fetch_stock_prices(from_date="1999-01-01",
+                                         constituent_keys=["sp500_const"])
+
+    assert result.failed == 1
+    with pytest.raises(ValueError, match="no dividend-adjusted rows"):
+        pipeline._full_price_payload("AAA", "1999-01-01")
+    assert not os.path.exists(
+        f"{pipeline.json_dir('stock_prices', 'sp500')}AAA_prices.json")
+
+
+def test_missing_adjusted_series_fails_restated_path_and_keeps_file(pipeline):
+    write_constituents(pipeline, "sp500_const", ["AAA"])
+    write_price_json(pipeline, "sp500", "AAA", "2026-10-09")
+    before = saved(pipeline, "sp500", "AAA")
+    moved = [dict(r, close=r["close"] / 2) for r in price_rows("2026-10-16", 45)]
+    adjusted = [dict(r, adjClose=r["adjClose"] / 2) for r in moved]
+
+    def _get(url, timeout=30):
+        if "/dividend-adjusted" in url:
+            # incremental window answers; the full re-download comes back empty
+            return adjusted if "from=2026-09-29" in url else []
+        return moved
+    pipeline._get = _get
+
+    result = pipeline.fetch_stock_prices(from_date="1999-01-01",
+                                         constituent_keys=["sp500_const"])
+
+    assert result.failed == 1
+    _unchanged_after(pipeline, "sp500", before)

@@ -41,14 +41,49 @@ def test_price_payload_shape():
 
 
 def test_price_payload_joins_on_date_only():
+    """Only dates present in both series are emitted: a full-only date is
+    dropped (it would have no adjClose) and an adjusted-only date is absent."""
     full = load_fixture("px_full_aapl")
     adj = load_fixture("px_divadj_aapl")
     missing = full[0]["date"]
     extra = dict(adj[1], date="2001-01-01")
     out = price_payload("AAPL", full, [r for r in adj if r["date"] != missing] + [extra])
-    assert out["historical"][0]["adjClose"] is None
-    assert "2001-01-01" not in [r["date"] for r in out["historical"]]
-    assert len(out["historical"]) == len(full)
+    dates = [r["date"] for r in out["historical"]]
+    assert missing not in dates
+    assert "2001-01-01" not in dates
+    assert len(dates) == len(full) - 1
+    assert all(r["adjClose"] is not None for r in out["historical"])
+
+
+def _px(d, close=1.0):
+    return {"date": d, "open": close, "high": close, "low": close,
+            "close": close, "volume": 1}
+
+
+def test_price_payload_sorts_shuffled_input_newest_first():
+    dates = ["2026-11-03", "2026-11-05", "2026-11-04", "2026-11-02"]
+    full = [_px(d) for d in dates]
+    adj = [{"date": d, "adjClose": 2.0} for d in reversed(dates)]
+    out = price_payload("X", full, adj)
+    assert [r["date"] for r in out["historical"]] == sorted(dates, reverse=True)
+
+
+def test_price_payload_duplicate_dates_last_row_wins():
+    full = [_px("2026-11-03", 1.0), _px("2026-11-03", 9.0)]
+    adj = [{"date": "2026-11-03", "adjClose": 5.0}]
+    hist = price_payload("X", full, adj)["historical"]
+    assert len(hist) == 1 and hist[0]["close"] == 9.0 and hist[0]["adjClose"] == 5.0
+
+
+def test_price_payload_empty_inputs():
+    assert price_payload("X", [], []) == {"symbol": "X", "historical": []}
+    assert price_payload("X", [_px("2026-11-03")], [])["historical"] == []
+
+
+def test_price_helper_malformed_string_is_none():
+    from pipelines.fmp_stable_shapes import _price
+    assert _price("N/A") is None and _price("") is None and _price(" ") is None
+    assert _price("1.5") == 1.5 and _price(None) is None
 
 
 def test_index_payload_copies_close():
