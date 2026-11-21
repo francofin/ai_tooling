@@ -6,7 +6,7 @@ import pytest
 from pipelines import pipeline_config as cfg
 from pipelines.fmp_stable_shapes import (etf_list_rows, holdings_rows,
                                          index_payload, price_payload,
-                                         statement_rows, v3_label)
+                                         statement_rows, ttm_rows, v3_label)
 
 from .helpers import load_fixture
 
@@ -191,3 +191,51 @@ def test_debt_repayment_sign_convention_pinned():
     row = statement_rows("cashflow", [c])[0]
     assert row["debtRepayment"] == c["netDebtIssuance"]
     assert row["debtRepayment"] < 0
+
+
+def _ttm():
+    return ttm_rows(load_fixture("ratios_ttm_aapl")[0],
+                    load_fixture("key_metrics_ttm_aapl")[0])
+
+
+def test_ttm_rows_cover_field_mappings():
+    ratios, metrics = _ttm()
+    assert len(cfg.FIELD_MAPPINGS["company_ratios_ttm"]) == 58
+    assert len(cfg.FIELD_MAPPINGS["company_metrics_ttm"]) == 61
+    assert set(cfg.FIELD_MAPPINGS["company_ratios_ttm"]) <= set(ratios)
+    assert set(cfg.FIELD_MAPPINGS["company_metrics_ttm"]) <= set(metrics)
+    assert ratios["symbol"] == "AAPL" and metrics["symbol"] == "AAPL"
+    # every key the sources table maps resolved to a real value on the fixture
+    assert all(ratios[k] is not None for k in ratios if k != "symbol")
+
+
+def test_ttm_scale_100():
+    ratios, metrics = _ttm()
+    r = load_fixture("ratios_ttm_aapl")[0]["dividendYieldTTM"]
+    assert ratios["dividendYielTTM"] == r
+    assert ratios["dividendYielPercentageTTM"] == 100 * r
+    assert metrics["dividendYieldPercentageTTM"] == 100 * r
+
+
+def test_ttm_scale_100_keeps_none():
+    r = load_fixture("ratios_ttm_aapl")[0]
+    r["dividendYieldTTM"] = None
+    ratios, metrics = ttm_rows(r, load_fixture("key_metrics_ttm_aapl")[0])
+    assert ratios["dividendYielPercentageTTM"] is None
+    assert metrics["dividendYieldPercentageTTM"] is None
+
+
+def test_ttm_cross_endpoint():
+    ratios, metrics = _ttm()
+    m = load_fixture("key_metrics_ttm_aapl")[0]
+    assert ratios["returnOnEquityTTM"] == m["returnOnEquityTTM"]
+    assert metrics["roeTTM"] == m["returnOnEquityTTM"]
+    assert metrics["marketCapTTM"] == m["marketCap"]
+
+
+def test_ttm_same_name_other_endpoint_fallback():
+    r = load_fixture("ratios_ttm_aapl")[0]
+    m = load_fixture("key_metrics_ttm_aapl")[0]
+    del m["currentRatioTTM"]
+    _, metrics = ttm_rows(r, m)
+    assert metrics["currentRatioTTM"] == r["currentRatioTTM"]

@@ -45,9 +45,9 @@ def test_fetch_etf_prices_is_named_for_itself(pipeline):
 def test_dataset_fetchers_count_symbols(pipeline):
     write_constituents(pipeline, "sp500_const", ["AAA", "BAD"])
     pipeline._get = fake_get({
-        "ratios-ttm/AAA": [{"peRatioTTM": 10}],
-        "key-metrics-ttm/AAA": [{"marketCapTTM": 1}],
-        "ratios-ttm/BAD": [],
+        "/stable/ratios-ttm?symbol=AAA": [{"peRatioTTM": 10}],
+        "/stable/key-metrics-ttm?symbol=AAA": [{"marketCapTTM": 1}],
+        "/stable/ratios-ttm?symbol=BAD": [],
     })
     result = pipeline.fetch_ttm_ratios(constituent_keys=["sp500_const"])
     assert result.name == "fetch_ttm_ratios"

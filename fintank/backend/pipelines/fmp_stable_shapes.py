@@ -4,6 +4,8 @@ Pure functions: no I/O, no pandas, no Django.
 """
 from datetime import date
 
+from pipelines import pipeline_config as cfg
+
 # Stable /historical-price-eod/full returns at most this many rows per call.
 HISTORY_ROW_CAP = 5000
 
@@ -164,3 +166,108 @@ def statement_rows(kind: str, rows: list) -> list:
                               else None)
         out.append(row)
     return out
+
+
+# v3 TTM field -> (endpoint, stable field, scale). Endpoint "R" is stable
+# ratios-ttm, "M" is key-metrics-ttm. Fields that kept their v3 name are not
+# listed: ttm_rows copies them. Initial tables, to be checked against live
+# values in Task 8.
+RATIOS_TTM_SOURCES = {
+    "cashConversionCycleTTM": ("M", "cashConversionCycleTTM", 1),
+    "cashFlowCoverageRatiosTTM": ("R", "operatingCashFlowCoverageRatioTTM", 1),
+    "cashFlowToDebtRatioTTM": ("R", "operatingCashFlowCoverageRatioTTM", 1),
+    "companyEquityMultiplierTTM": ("R", "financialLeverageRatioTTM", 1),
+    "daysOfInventoryOutstandingTTM": ("M", "daysOfInventoryOutstandingTTM", 1),
+    "daysOfPayablesOutstandingTTM": ("M", "daysOfPayablesOutstandingTTM", 1),
+    "daysOfSalesOutstandingTTM": ("M", "daysOfSalesOutstandingTTM", 1),
+    "debtEquityRatioTTM": ("R", "debtToEquityRatioTTM", 1),
+    "debtRatioTTM": ("R", "debtToAssetsRatioTTM", 1),
+    "dividendYielPercentageTTM": ("R", "dividendYieldTTM", 100),
+    "dividendYielTTM": ("R", "dividendYieldTTM", 1),
+    "ebitPerRevenueTTM": ("R", "ebitMarginTTM", 1),
+    "interestCoverageTTM": ("R", "interestCoverageRatioTTM", 1),
+    "longTermDebtToCapitalizationTTM": ("R", "longTermDebtToCapitalRatioTTM", 1),
+    "operatingCycleTTM": ("M", "operatingCycleTTM", 1),
+    "payoutRatioTTM": ("R", "dividendPayoutRatioTTM", 1),
+    "peRatioTTM": ("R", "priceToEarningsRatioTTM", 1),
+    "pegRatioTTM": ("R", "priceToEarningsGrowthRatioTTM", 1),
+    "priceBookValueRatioTTM": ("R", "priceToBookRatioTTM", 1),
+    "priceCashFlowRatioTTM": ("R", "priceToOperatingCashFlowRatioTTM", 1),
+    "priceEarningsRatioTTM": ("R", "priceToEarningsRatioTTM", 1),
+    "priceEarningsToGrowthRatioTTM": ("R", "priceToEarningsGrowthRatioTTM", 1),
+    "priceFairValueTTM": ("R", "priceToFairValueTTM", 1),
+    "priceSalesRatioTTM": ("R", "priceToSalesRatioTTM", 1),
+    "priceToFreeCashFlowsRatioTTM": ("R", "priceToFreeCashFlowRatioTTM", 1),
+    "priceToOperatingCashFlowsRatioTTM": ("R", "priceToOperatingCashFlowRatioTTM", 1),
+    "returnOnAssetsTTM": ("M", "returnOnAssetsTTM", 1),
+    "returnOnCapitalEmployedTTM": ("M", "returnOnCapitalEmployedTTM", 1),
+    "returnOnEquityTTM": ("M", "returnOnEquityTTM", 1),
+    "shortTermCoverageRatiosTTM": ("R", "shortTermOperatingCashFlowCoverageRatioTTM", 1),
+    "totalDebtToCapitalizationTTM": ("R", "debtToCapitalRatioTTM", 1),
+}
+
+METRICS_TTM_SOURCES = {
+    "bookValuePerShareTTM": ("R", "bookValuePerShareTTM", 1),
+    "capexPerShareTTM": ("R", "capexPerShareTTM", 1),
+    "cashPerShareTTM": ("R", "cashPerShareTTM", 1),
+    "daysOfInventoryOnHandTTM": ("M", "daysOfInventoryOutstandingTTM", 1),
+    "daysPayablesOutstandingTTM": ("M", "daysOfPayablesOutstandingTTM", 1),
+    "daysSalesOutstandingTTM": ("M", "daysOfSalesOutstandingTTM", 1),
+    "debtToAssetsTTM": ("R", "debtToAssetsRatioTTM", 1),
+    "debtToEquityTTM": ("R", "debtToEquityRatioTTM", 1),
+    "debtToMarketCapTTM": ("R", "debtToMarketCapTTM", 1),
+    "dividendPerShareTTM": ("R", "dividendPerShareTTM", 1),
+    "dividendYieldPercentageTTM": ("R", "dividendYieldTTM", 100),
+    "dividendYieldTTM": ("R", "dividendYieldTTM", 1),
+    "enterpriseValueOverEBITDATTM": ("M", "evToEBITDATTM", 1),
+    "freeCashFlowPerShareTTM": ("R", "freeCashFlowPerShareTTM", 1),
+    "interestCoverageTTM": ("R", "interestCoverageRatioTTM", 1),
+    "interestDebtPerShareTTM": ("R", "interestDebtPerShareTTM", 1),
+    "inventoryTurnoverTTM": ("R", "inventoryTurnoverTTM", 1),
+    "marketCapTTM": ("M", "marketCap", 1),
+    "netIncomePerShareTTM": ("R", "netIncomePerShareTTM", 1),
+    "operatingCashFlowPerShareTTM": ("R", "operatingCashFlowPerShareTTM", 1),
+    "payablesTurnoverTTM": ("R", "payablesTurnoverTTM", 1),
+    "payoutRatioTTM": ("R", "dividendPayoutRatioTTM", 1),
+    "pbRatioTTM": ("R", "priceToBookRatioTTM", 1),
+    "peRatioTTM": ("R", "priceToEarningsRatioTTM", 1),
+    "pfcfRatioTTM": ("R", "priceToFreeCashFlowRatioTTM", 1),
+    "pocfratioTTM": ("R", "priceToOperatingCashFlowRatioTTM", 1),
+    "priceToSalesRatioTTM": ("R", "priceToSalesRatioTTM", 1),
+    "ptbRatioTTM": ("R", "priceToBookRatioTTM", 1),
+    "receivablesTurnoverTTM": ("R", "receivablesTurnoverTTM", 1),
+    "revenuePerShareTTM": ("R", "revenuePerShareTTM", 1),
+    "roeTTM": ("M", "returnOnEquityTTM", 1),
+    "roicTTM": ("M", "returnOnInvestedCapitalTTM", 1),
+    "shareholdersEquityPerShareTTM": ("R", "shareholdersEquityPerShareTTM", 1),
+    "tangibleBookValuePerShareTTM": ("R", "tangibleBookValuePerShareTTM", 1),
+}
+
+
+def _ttm_row(mapping, sources, own, other, both):
+    row = {}
+    for key in mapping:
+        if key in sources:
+            endpoint, field, scale = sources[key]
+            value = both[endpoint].get(field)
+            row[key] = value * scale if value is not None and scale != 1 else value
+        elif key in own:
+            row[key] = own[key]
+        else:
+            row[key] = other.get(key)
+    return row
+
+
+def ttm_rows(ratios: dict, metrics: dict) -> tuple:
+    """Stable ratios-ttm + key-metrics-ttm rows -> (v3 ratios row, v3 metrics row).
+
+    Every FIELD_MAPPINGS['company_ratios_ttm'] / ['company_metrics_ttm'] key is
+    present (None when unsourced). Sourced renames come from RATIOS_TTM_SOURCES /
+    METRICS_TTM_SOURCES (scale 100 only when the value is not None); other keys
+    are copied by name from the row's own endpoint, falling back to the other
+    endpoint when absent there."""
+    both = {"R": ratios, "M": metrics}
+    return (_ttm_row(cfg.FIELD_MAPPINGS["company_ratios_ttm"], RATIOS_TTM_SOURCES,
+                     ratios, metrics, both),
+            _ttm_row(cfg.FIELD_MAPPINGS["company_metrics_ttm"], METRICS_TTM_SOURCES,
+                     metrics, ratios, both))

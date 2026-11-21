@@ -100,7 +100,8 @@ from pipelines import pipeline_config as cfg  # noqa: E402
 from pipelines.attribution import compute_attribution  # noqa: E402
 from pipelines.factor_windows import WINDOWS, window_return_and_std  # noqa: E402
 from pipelines.fmp_stable_shapes import (HISTORY_ROW_CAP, etf_list_rows, holdings_rows,  # noqa: E402
-                                         index_payload, price_payload, statement_rows)
+                                         index_payload, price_payload, statement_rows,
+                                         ttm_rows)
 from pipelines.results import StageResult, redact  # noqa: E402
 
 warnings.filterwarnings("ignore")
@@ -356,15 +357,27 @@ class StockDataPipeline:
         return self._stable("key-metrics", symbol=symbol, period="quarter",
                             limit=limit)
 
-    # [v3-only] stable/ratios-ttm drops 31 v3 fields incl. peRatioTTM,
-    # dividendYielTTM, payoutRatioTTM — all mapped in company_ratios_ttm.
-    def _ratios_ttm_url(self, symbol):
-        return self._v3(f"ratios-ttm/{symbol}")
+    # [stable] ratios-ttm and key-metrics-ttm are reshaped to the v3 TTM rows
+    # by fmp_stable_shapes.ttm_rows (31 / 34 v3 fields renamed, some drawn from
+    # the other endpoint). _ttm_pair fetches both once per symbol; the two
+    # datasets in fetch_ttm_ratios share it, so a symbol costs 2 calls.
+    def _ttm_pair(self, symbol):
+        """(v3 ratios row, v3 metrics row) from the two stable TTM endpoints.
 
-    # [v3-only for now] stable/key-metrics-ttm works but renames fields that
-    # FIELD_MAPPINGS['company_metrics_ttm'] maps; keep v3 until that is audited.
-    def _metrics_ttm_url(self, symbol):
-        return self._v3(f"key-metrics-ttm/{symbol}")
+        Memoised for the last symbol only, and only after both calls and the
+        reshape succeeded, so a failure never leaves a memo behind."""
+        memo = getattr(self, "_ttm_memo", None)
+        if memo is not None and memo[0] == symbol:
+            return memo[1]
+        ratios = self._stable_rows("ratios-ttm", symbol=symbol)
+        metrics = self._stable_rows("key-metrics-ttm", symbol=symbol)
+        if not ratios or not metrics:
+            self._ttm_memo = None
+            which = "ratios_ttm" if not ratios else "metrics_ttm"
+            raise ValueError(f"empty {which} payload")
+        pair = ttm_rows(ratios[0], metrics[0])
+        self._ttm_memo = (symbol, pair)
+        return pair
 
     # [stable] Verified against v4 on 2026-09-26: identical numbers, but stable
     # also carries reportedCurrency and a top-level date/fiscalYear/period.
@@ -1022,13 +1035,14 @@ class StockDataPipeline:
             constituent_keys=constituent_keys, limit=limit)
 
     def fetch_ttm_ratios(self, constituent_keys=None, limit=None):
-        """TTM ratios + key metrics (v3 — stable drops 31 mapped fields).
+        """TTM ratios + key metrics (stable, reshaped to the v3 rows by
+        fmp_stable_shapes.ttm_rows; each file is a one-row list as in v3).
         Snapshots: files are overwritten each run. The original passed
         update=True, but TTM rows carry no 'date', so its merge was a no-op
         and the files never refreshed after first write. ~20,200 calls."""
         return self._fetch_constituent_datasets(
-            [("ratios_ttm", self._fetch_json(self._ratios_ttm_url), "_ratios_ttm.json", False),
-             ("metrics_ttm", self._fetch_json(self._metrics_ttm_url), "_metrics_ttm.json", False)],
+            [("ratios_ttm", lambda s: [self._ttm_pair(s)[0]], "_ratios_ttm.json", False),
+             ("metrics_ttm", lambda s: [self._ttm_pair(s)[1]], "_metrics_ttm.json", False)],
             manifest_group="metrics_ttm", stage_name="fetch_ttm_ratios",
             constituent_keys=constituent_keys, limit=limit)
 
