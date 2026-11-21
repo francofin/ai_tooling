@@ -1,0 +1,223 @@
+{
+  "Comment": "Fintank earnings backfill: Claude batch, stage, approval gate, publish. See docs/superpowers/specs/2026-11-21-earnings-hub-design.md",
+  "QueryLanguage": "JSONata",
+  "TimeoutSeconds": 691200,
+  "StartAt": "Init",
+  "States": {
+    "Init": {
+      "Type": "Pass",
+      "Assign": {
+        "run_id": "{% $exists($states.input.run_id) ? $states.input.run_id : 'earnings-backfill-' & $fromMillis($toMillis($states.context.Execution.StartTime), '[Y0001][M01][D01]-[H01][m01]') %}",
+        "no_claude": "{% $exists($states.input.no_claude) and $states.input.no_claude = true ? ['--no-claude'] : [] %}",
+        "submitted_at": 0,
+        "status": null,
+        "verdict": null,
+        "error": null,
+        "reason": null
+      },
+      "Next": "Submit"
+    },
+    "Submit": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::ecs:runTask.sync",
+      "Arguments": {
+        "Cluster": "${ClusterArn}",
+        "TaskDefinition": "${EarningsTaskDefinitionArn}",
+        "LaunchType": "FARGATE",
+        "NetworkConfiguration": {
+          "AwsvpcConfiguration": {
+            "Subnets": ${SubnetIds},
+            "SecurityGroups": ["${SecurityGroupId}"],
+            "AssignPublicIp": "ENABLED"
+          }
+        },
+        "Overrides": {"ContainerOverrides": [{"Name": "app", "Command": "{% $append(['earnings-backfill', 'submit', '--run-id', $run_id], $no_claude) %}"}]}
+      },
+      "TimeoutSeconds": 7200,
+      "Catch": [{"ErrorEquals": ["States.ALL"], "Assign": {"error": "{% $states.errorOutput %}"}, "Next": "NotifyFailed"}],
+      "Assign": {"submitted_at": "{% $millis() %}"},
+      "Next": "ReadStatus"
+    },
+    "ReadStatus": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:s3:getObject",
+      "Arguments": {
+        "Bucket": "${StateBucket}",
+        "Key": "{% 'runs/' & $run_id & '/backfill-status.json' %}"
+      },
+      "Assign": {"status": "{% $parse($states.result.Body).status %}"},
+      "Catch": [{"ErrorEquals": ["States.ALL"], "Assign": {"error": "{% $states.errorOutput %}"}, "Next": "NotifyFailed"}],
+      "Next": "Status?"
+    },
+    "Status?": {
+      "Type": "Choice",
+      "Choices": [
+        {"Condition": "{% $status = 'no_claude' or $status = 'nothing_to_do' %}", "Next": "NotifyNothingToDo"},
+        {"Condition": "{% $status = 'ended' %}", "Next": "Stage"}
+      ],
+      "Default": "TooLong?"
+    },
+    "TooLong?": {
+      "Type": "Choice",
+      "Choices": [{"Condition": "{% $millis() - $submitted_at > 93600000 %}", "Assign": {"error": "the batch did not end within 26 hours of the submit"}, "Next": "NotifyFailed"}],
+      "Default": "WaitPoll"
+    },
+    "WaitPoll": {
+      "Type": "Wait",
+      "Seconds": 1800,
+      "Next": "CheckTask"
+    },
+    "CheckTask": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::ecs:runTask.sync",
+      "Arguments": {
+        "Cluster": "${ClusterArn}",
+        "TaskDefinition": "${EarningsTaskDefinitionArn}",
+        "LaunchType": "FARGATE",
+        "NetworkConfiguration": {
+          "AwsvpcConfiguration": {
+            "Subnets": ${SubnetIds},
+            "SecurityGroups": ["${SecurityGroupId}"],
+            "AssignPublicIp": "ENABLED"
+          }
+        },
+        "Overrides": {"ContainerOverrides": [{"Name": "app", "Command": "{% ['earnings-backfill', 'check', '--run-id', $run_id] %}"}]}
+      },
+      "TimeoutSeconds": 3600,
+      "Catch": [{"ErrorEquals": ["States.ALL"], "Assign": {"error": "{% $states.errorOutput %}"}, "Next": "NotifyFailed"}],
+      "Next": "ReadStatus"
+    },
+    "NotifyNothingToDo": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Arguments": {
+        "TopicArn": "${TopicArn}",
+        "Subject": "{% '[Fintank] Earnings backfill ' & $run_id & ' finished early' %}",
+        "Message": "{% 'Backfill ' & $run_id & ' ended without a Claude batch (status: ' & $status & '). Nothing to approve.' %}"
+      },
+      "Next": "Done"
+    },
+    "Done": {"Type": "Succeed"},
+    "Stage": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::ecs:runTask.sync",
+      "Arguments": {
+        "Cluster": "${ClusterArn}",
+        "TaskDefinition": "${EarningsTaskDefinitionArn}",
+        "LaunchType": "FARGATE",
+        "NetworkConfiguration": {
+          "AwsvpcConfiguration": {
+            "Subnets": ${SubnetIds},
+            "SecurityGroups": ["${SecurityGroupId}"],
+            "AssignPublicIp": "ENABLED"
+          }
+        },
+        "Overrides": {"ContainerOverrides": [{"Name": "app", "Command": "{% ['earnings-backfill', 'stage', '--run-id', $run_id] %}"}]}
+      },
+      "TimeoutSeconds": 7200,
+      "Catch": [{"ErrorEquals": ["States.ALL"], "Assign": {"error": "{% $states.errorOutput %}"}, "Next": "NotifyFailed"}],
+      "Next": "ReadVerdict"
+    },
+    "ReadVerdict": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:s3:getObject",
+      "Arguments": {
+        "Bucket": "${StateBucket}",
+        "Key": "{% 'runs/' & $run_id & '/verdict.json' %}"
+      },
+      "Assign": {"verdict": "{% $parse($states.result.Body) %}"},
+      "Catch": [{"ErrorEquals": ["States.ALL"], "Assign": {"error": "{% $states.errorOutput %}"}, "Next": "NotifyFailed"}],
+      "Next": "WaitForApproval"
+    },
+    "WaitForApproval": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:s3:putObject.waitForTaskToken",
+      "Arguments": {
+        "Bucket": "${StateBucket}",
+        "Key": "{% 'runs/' & $run_id & '/approval-token.json' %}",
+        "Body": "{% $string({'task_token': $states.context.Task.Token, 'run_id': $run_id}) %}",
+        "ContentType": "application/json"
+      },
+      "TimeoutSeconds": 604800,
+      "Catch": [
+        {"ErrorEquals": ["States.Timeout"], "Assign": {"reason": "it was not approved within 7 days"}, "Next": "DiscardedTask"},
+        {"ErrorEquals": ["Discarded"], "Assign": {"reason": "it was discarded"}, "Next": "DiscardedTask"},
+        {"ErrorEquals": ["States.ALL"], "Assign": {"error": "{% $states.errorOutput %}"}, "Next": "NotifyFailed"}
+      ],
+      "Next": "Publish"
+    },
+    "Publish": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::ecs:runTask.sync",
+      "Arguments": {
+        "Cluster": "${ClusterArn}",
+        "TaskDefinition": "${EarningsTaskDefinitionArn}",
+        "LaunchType": "FARGATE",
+        "NetworkConfiguration": {
+          "AwsvpcConfiguration": {
+            "Subnets": ${SubnetIds},
+            "SecurityGroups": ["${SecurityGroupId}"],
+            "AssignPublicIp": "ENABLED"
+          }
+        },
+        "Overrides": {"ContainerOverrides": [{"Name": "app", "Command": "{% ['earnings-backfill', 'publish', '--run-id', $run_id] %}"}]}
+      },
+      "TimeoutSeconds": 7200,
+      "Catch": [{"ErrorEquals": ["States.ALL"], "Assign": {"error": "{% $states.errorOutput %}"}, "Next": "NotifyFailed"}],
+      "Next": "NotifyPublished"
+    },
+    "NotifyPublished": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Arguments": {
+        "TopicArn": "${TopicArn}",
+        "Subject": "{% '[Fintank] Earnings backfill ' & $run_id & ' published' %}",
+        "Message": "{% 'Backfill ' & $run_id & ' was approved and published to the live bucket.' %}"
+      },
+      "Next": "Published"
+    },
+    "Published": {"Type": "Succeed"},
+    "DiscardedTask": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::ecs:runTask.sync",
+      "Arguments": {
+        "Cluster": "${ClusterArn}",
+        "TaskDefinition": "${EarningsTaskDefinitionArn}",
+        "LaunchType": "FARGATE",
+        "NetworkConfiguration": {
+          "AwsvpcConfiguration": {
+            "Subnets": ${SubnetIds},
+            "SecurityGroups": ["${SecurityGroupId}"],
+            "AssignPublicIp": "ENABLED"
+          }
+        },
+        "Overrides": {"ContainerOverrides": [{"Name": "app", "Command": "{% ['earnings-backfill', 'discarded', '--run-id', $run_id] %}"}]}
+      },
+      "TimeoutSeconds": 1800,
+      "Catch": [{"ErrorEquals": ["States.ALL"], "Assign": {"error": "{% $states.errorOutput %}"}, "Next": "NotifyFailed"}],
+      "Next": "NotifyDiscarded"
+    },
+    "NotifyDiscarded": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Arguments": {
+        "TopicArn": "${TopicArn}",
+        "Subject": "{% '[Fintank] Earnings backfill ' & $run_id & ' discarded' %}",
+        "Message": "{% 'Backfill ' & $run_id & ' was not published because ' & $reason & '. The live notes are unchanged.' %}"
+      },
+      "Next": "Discarded"
+    },
+    "Discarded": {"Type": "Succeed"},
+    "NotifyFailed": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Arguments": {
+        "TopicArn": "${TopicArn}",
+        "Subject": "{% '[Fintank] Earnings backfill ' & $run_id & ' FAILED' %}",
+        "Message": "{% 'Backfill ' & $run_id & ' failed. Nothing was published unless the failure came from the publish step; check with python -m pipelines status.\\n\\nError: ' & $string($error) & '\\n\\nLogs: https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#logsV2:log-groups/log-group/$252Ffintank$252Fpipeline' %}"
+      },
+      "Next": "Failed"
+    },
+    "Failed": {"Type": "Fail", "Error": "EarningsBackfillFailed"}
+  }
+}

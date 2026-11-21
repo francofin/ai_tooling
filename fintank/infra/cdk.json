@@ -5,6 +5,7 @@
     "news_notify": "all",
     "weekly_schedule": "off",
     "news_schedule": "off",
+    "earnings_schedule": "off",
     "s3_endpoint": "on"
   }
 }
