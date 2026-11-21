@@ -27,8 +27,8 @@ Dropped as provably unreferenced (defined in the notebook, never called):
 
 # ── Universe ─────────────────────────────────────────────────────────────────
 # Constituent list key → the proxy ETF whose holdings define it. Membership is
-# read through v3 `etf-holder`; stable/etf/holdings is an Ultimate-plan
-# Restricted Endpoint, so the whole constituent pipeline hangs off v3.
+# read through stable `etf/holdings` (reshaped to the v3 etf-holder rows), so
+# the whole constituent pipeline hangs off that one call.
 #
 # Insertion order is the run order for every fetcher that defaults to "all
 # lists" — preserved from the notebook's `constituent_urls`.
@@ -49,8 +49,8 @@ CONSTITUENT_PROXY_ETFS = {
 ATTRIBUTION_CURRENCY = {"msci_eafe": "local", "msci_sm": "local",
                         "tsx": "CAD", "tsx_small_cap": "CAD"}
 
-# [v3-only] stable/etf-list returns only {symbol, name} — no 'exchange' field
-# to apply this filter to.
+# [stable] stable/etf-list returns only {symbol, name}; the exchange this filter
+# matches comes from the profile-bulk CSV (exchangeFullName), joined by symbol.
 ETF_EXCHANGE_FILTER = [
     "New York Stock Exchange Arca", "NASDAQ Global Market", "NASDAQ",
     "American Stock Exchange", "Chicago Board Options Exchange",

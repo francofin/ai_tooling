@@ -62,7 +62,9 @@ Two deliberate changes from the notebook, both flagged where they occur:
 """
 from __future__ import annotations
 
+import csv
 import datetime
+import io
 import json
 import os
 import re
@@ -97,7 +99,8 @@ if BACKEND_DIR not in sys.path:
 from pipelines import pipeline_config as cfg  # noqa: E402
 from pipelines.attribution import compute_attribution  # noqa: E402
 from pipelines.factor_windows import WINDOWS, window_return_and_std  # noqa: E402
-from pipelines.fmp_stable_shapes import HISTORY_ROW_CAP, index_payload, price_payload  # noqa: E402
+from pipelines.fmp_stable_shapes import (HISTORY_ROW_CAP, etf_list_rows, holdings_rows,  # noqa: E402
+                                         index_payload, price_payload)
 from pipelines.results import StageResult, redact  # noqa: E402
 
 warnings.filterwarnings("ignore")
@@ -140,6 +143,10 @@ FACTOR_METRICS_COLUMNS = (["symbol", "name", "sector", "as_of"]
 # survives for everything except return-ranked charts.
 FACTOR_WINDOW_COLUMNS = (["1M", "3M", "6M", "ytd"]
                          + ["1MSTD", "3MSTD", "6MSTD", "YTDSTD"])
+
+
+# Safety stop for the profile-bulk part loop (FMP has ~4 parts today).
+_PROFILE_BULK_MAX_PARTS = 20
 
 
 class FetchHTTPError(RuntimeError):
@@ -321,15 +328,6 @@ class StockDataPipeline:
     def _stable(self, path, **params):
         return self._url(STABLE_BASE, path, **params)
 
-    # [v3-only] stable/etf/holdings is a Restricted Endpoint (Ultimate plan).
-    # The entire constituent pipeline hangs off this.
-    def _etf_holder_url(self, etf_symbol):
-        return self._v3(f"etf-holder/{etf_symbol}")
-
-    # [v3-only] stable/etf-list returns only {symbol, name} — no 'exchange'.
-    def _etf_list_url(self):
-        return self._v3("etf/list")
-
     # [stable] FIELD_MAPPINGS profile dicts use the stable names.
     def _profile_url(self, symbol):
         return self._stable("profile", symbol=symbol)
@@ -394,8 +392,8 @@ class StockDataPipeline:
         return url
 
     @staticmethod
-    def _get(url, timeout=30):
-        """GET a URL and return parsed JSON; raises on HTTP errors.
+    def _fetch(url, timeout):
+        """GET a URL and return the response; raises on HTTP errors.
 
         requests puts the full URL — apikey included — in its error messages,
         so they are re-raised redacted, without the original chained on."""
@@ -408,7 +406,17 @@ class StockDataPipeline:
         except requests.RequestException as e:
             raise RuntimeError(redact(str(e))) from None
         StockDataPipeline.bytes_downloaded += len(response.content)
-        return response.json()
+        return response
+
+    @staticmethod
+    def _get(url, timeout=30):
+        """GET a URL and return parsed JSON; raises on HTTP errors."""
+        return StockDataPipeline._fetch(url, timeout).json()
+
+    @staticmethod
+    def _get_text(url, timeout=60):
+        """GET a URL and return the body text (CSV); same errors as _get."""
+        return StockDataPipeline._fetch(url, timeout).text
 
     def _stable_rows(self, path, **params):
         """One stable GET plus one limiter tick; returns the JSON list.
@@ -420,6 +428,31 @@ class StockDataPipeline:
         if not isinstance(body, list):
             raise ValueError(f"unexpected {path} response: {type(body).__name__}")
         return body
+
+    def _profile_bulk(self):
+        """All stable profile-bulk rows (CSV parts 0, 1, 2 ...) as dicts.
+
+        Stops at the first part with no data rows, or at a 400 on a part after
+        the first (FMP answers HTTP 400, not an empty body, past the last
+        part). An error on part 0 propagates. One limiter tick per part."""
+        rows = []
+        for part in range(_PROFILE_BULK_MAX_PARTS):
+            try:
+                text = self._get_text(self._stable("profile-bulk", part=part))
+            except FetchHTTPError as e:
+                if part > 0 and e.status == 400:
+                    break
+                raise
+            finally:
+                self.limiter.tick()
+            part_rows = list(csv.DictReader(io.StringIO(text)))
+            if not part_rows:
+                break
+            rows.extend(part_rows)
+        else:
+            raise RuntimeError(
+                f"profile-bulk still returning data after {_PROFILE_BULK_MAX_PARTS} parts")
+        return rows
 
     def _stable_history(self, path, symbol, from_date):
         """A symbol's daily rows from `from_date`, newest first, one per date.
@@ -596,9 +629,11 @@ class StockDataPipeline:
         """Refresh index membership → index_data/constituents/{key}_constituents.json.
 
         For each key in CONSTITUENT_PROXY_ETFS, fetch the index's members via
-        the v3 etf-holder proxy ETF and keep rows carrying an 'asset' symbol.
+        stable etf/holdings for the proxy ETF (reshaped to the v3 etf-holder
+        rows; rows without an 'asset' symbol are dropped).
         With include_etf_list=True also refreshes the tradable-ETF snapshot
-        (v3 etf/list filtered to ETF_EXCHANGE_FILTER) as etf_data_constituents.json.
+        (stable etf-list joined to profile-bulk exchange/price, in the v3
+        etf/list shape, filtered to ETF_EXCHANGE_FILTER) as etf_data_constituents.json.
 
         On a failed or empty fetch the key is skipped and any existing file is
         left in place — the constituent JSONs drive every downstream fetcher,
@@ -652,9 +687,8 @@ class StockDataPipeline:
 
         for key, proxy_etf in cfg.CONSTITUENT_PROXY_ETFS.items():
             def holdings(proxy_etf=proxy_etf):
-                response = self._get(self._etf_holder_url(proxy_etf))
-                self.limiter.tick()
-                members = [item for item in response if item.get("asset")]
+                members = holdings_rows(
+                    self._stable_rows("etf/holdings", symbol=proxy_etf))
                 if not members:
                     raise ValueError("no rows with an 'asset' symbol in payload")
                 return members
@@ -662,10 +696,9 @@ class StockDataPipeline:
 
         if include_etf_list:
             def etf_list():
-                etf_data = self._get(self._etf_list_url())
-                self.limiter.tick()
-                requested = [x for x in etf_data
-                             if x.get("exchange") in cfg.ETF_EXCHANGE_FILTER]
+                requested = etf_list_rows(
+                    self._stable_rows("etf-list"), self._profile_bulk(),
+                    cfg.ETF_EXCHANGE_FILTER)
                 if not requested:
                     raise ValueError("exchange filter matched no ETFs")
                 return requested

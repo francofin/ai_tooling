@@ -54,3 +54,47 @@ def index_payload(symbol: str, full_rows: list) -> dict:
     return {"symbol": symbol,
             "historical": [_row(r, r.get("close"))
                            for r in _newest_first(full_rows)]}
+
+
+def holdings_rows(stable_rows: list[dict]) -> list[dict]:
+    """Stable etf/holdings rows -> v3 etf-holder rows.
+
+    securityCusip -> cusip, updatedAt -> updated, `symbol` (the ETF) dropped,
+    and rows without an `asset` (cash lines) dropped."""
+    return [{
+        "asset": r["asset"],
+        "name": r.get("name"),
+        "isin": r.get("isin"),
+        "cusip": r.get("securityCusip"),
+        "sharesNumber": r.get("sharesNumber"),
+        "weightPercentage": r.get("weightPercentage"),
+        "marketValue": r.get("marketValue"),
+        "updated": r.get("updatedAt"),
+    } for r in stable_rows if r.get("asset")]
+
+
+def _price(v):
+    return float(v) if v not in (None, "") else None
+
+
+def etf_list_rows(etf_list: list[dict], bulk_rows: list[dict],
+                  exchange_filter: list[str]) -> list[dict]:
+    """Stable etf-list ({symbol, name}) joined to profile-bulk CSV rows for the
+    v3 etf/list shape. Keeps symbols present in both whose exchangeFullName is
+    in `exchange_filter`; exchangeFullName -> exchange, exchange ->
+    exchangeShortName, price parsed to float (empty -> None)."""
+    by_symbol = {r["symbol"]: r for r in bulk_rows}
+    out = []
+    for e in etf_list:
+        b = by_symbol.get(e.get("symbol"))
+        if b is None or b.get("exchangeFullName") not in exchange_filter:
+            continue
+        out.append({
+            "symbol": e["symbol"],
+            "name": e.get("name"),
+            "price": _price(b.get("price")),
+            "exchange": b["exchangeFullName"],
+            "exchangeShortName": b.get("exchange"),
+            "type": "etf",
+        })
+    return out
