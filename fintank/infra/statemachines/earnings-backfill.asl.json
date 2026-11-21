@@ -1,7 +1,7 @@
 {
   "Comment": "Fintank earnings backfill: Claude batch, stage, approval gate, publish. See docs/superpowers/specs/2026-11-21-earnings-hub-design.md",
   "QueryLanguage": "JSONata",
-  "TimeoutSeconds": 691200,
+  "TimeoutSeconds": 777600,
   "StartAt": "Init",
   "States": {
     "Init": {
@@ -84,6 +84,7 @@
         "Overrides": {"ContainerOverrides": [{"Name": "app", "Command": "{% ['earnings-backfill', 'check', '--run-id', $run_id] %}"}]}
       },
       "TimeoutSeconds": 3600,
+      "Retry": [{"ErrorEquals": ["States.ALL"], "MaxAttempts": 2, "IntervalSeconds": 300, "BackoffRate": 1}],
       "Catch": [{"ErrorEquals": ["States.ALL"], "Assign": {"error": "{% $states.errorOutput %}"}, "Next": "NotifyFailed"}],
       "Next": "ReadStatus"
     },
@@ -214,7 +215,7 @@
       "Arguments": {
         "TopicArn": "${TopicArn}",
         "Subject": "{% '[Fintank] Earnings backfill ' & $run_id & ' FAILED' %}",
-        "Message": "{% 'Backfill ' & $run_id & ' failed. Nothing was published unless the failure came from the publish step; check with python -m pipelines status.\\n\\nError: ' & $string($error) & '\\n\\nLogs: https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#logsV2:log-groups/log-group/$252Ffintank$252Fpipeline' %}"
+        "Message": "{% 'Backfill ' & $run_id & ' failed. If Submit had succeeded, a paid Claude batch may still be in flight. Daily earnings runs stay blocked until the backfill is staged or discarded. Recover with: python -m pipelines earnings-backfill check|stage|discarded --run-id ' & $run_id & '\\n\\nError: ' & $string($error) & '\\n\\nLogs: https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#logsV2:log-groups/log-group/$252Ffintank$252Fpipeline' %}"
       },
       "Next": "Failed"
     },

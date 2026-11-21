@@ -144,7 +144,7 @@ def test_backfill_machine_waits_for_approval_before_publish():
     wait = states["WaitForApproval"]
     assert wait["Resource"].endswith("putObject.waitForTaskToken")
     assert wait["TimeoutSeconds"] == 604800
-    assert d["TimeoutSeconds"] == 691200
+    assert d["TimeoutSeconds"] == 777600 > wait["TimeoutSeconds"]
     cmd = states["Publish"]["Arguments"]["Overrides"]["ContainerOverrides"][0]["Command"]
     assert "'earnings-backfill', 'publish'" in cmd
 
@@ -299,3 +299,18 @@ def test_news_machine_passes_search_flag_from_input():
     assert "--search" in states["Init"]["Assign"]["search"]
     command = states["RunNews"]["Arguments"]["Overrides"]["ContainerOverrides"][0]["Command"]
     assert "$search" in command
+
+
+def test_backfill_retries_only_the_idempotent_check():
+    states = _asl("earnings-backfill.asl.json")["States"]
+    assert states["CheckTask"]["Retry"] == [{"ErrorEquals": ["States.ALL"], "MaxAttempts": 2,
+                                             "IntervalSeconds": 300, "BackoffRate": 1}]
+    for name in ("Submit", "Stage", "Publish"):
+        assert "Retry" not in states[name], name
+
+
+def test_backfill_failure_email_explains_recovery():
+    msg = _asl("earnings-backfill.asl.json")["States"]["NotifyFailed"]["Arguments"]["Message"]
+    assert "paid Claude batch may still be in flight" in msg
+    assert "stay blocked" in msg
+    assert "earnings-backfill check|stage|discarded --run-id ' & $run_id" in msg
