@@ -182,3 +182,12 @@ def test_balance_and_cashflow_renames_carry_values():
     assert row["debtRepayment"] == c["netDebtIssuance"]
     assert row["dividendsPaid"] == c["netDividendsPaid"]
     assert row["otherInvestingActivites"] == c["otherInvestingActivities"]
+
+
+def test_debt_repayment_sign_convention_pinned():
+    # Approximation: debtRepayment is stable's net debt issuance (see
+    # STATEMENT_RENAMES); AAPL's first fixture quarter is a net repayment.
+    c = load_fixture("cashflow_q_aapl")[0]
+    row = statement_rows("cashflow", [c])[0]
+    assert row["debtRepayment"] == c["netDebtIssuance"]
+    assert row["debtRepayment"] < 0

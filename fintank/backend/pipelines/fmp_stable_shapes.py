@@ -113,6 +113,10 @@ STATEMENT_RENAMES = {
                 "link": None, "finalLink": None},
     "cashflow": {**_COMMON_RENAMES,
                  "commonStockIssued": "commonStockIssuance",
+                 # APPROXIMATION: stable has no repayments-only field. netDebtIssuance
+                 # is issuance minus repayment, so it can be positive in a quarter
+                 # with net borrowing, unlike v3's repayment-only value. The Task 8
+                 # live comparison against v3-era S3 values decides if this stands.
                  "debtRepayment": "netDebtIssuance",
                  "dividendsPaid": "netDividendsPaid",
                  "netCashUsedForInvestingActivites": "netCashProvidedByInvestingActivities",
