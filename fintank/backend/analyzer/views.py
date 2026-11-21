@@ -388,6 +388,45 @@ def get_analyst_quarterly(request, symbol):
         return server_error_response(logger, "get_analyst_quarterly", e)
 
 
+def _earnings_response(request, getter_name, *args):
+    from .analyzer_utils import earnings_hub
+    try:
+        return Response(getattr(earnings_hub, getter_name)(*args), status=status.HTTP_200_OK)
+    except KeyError:
+        return Response({"detail": "No earnings notes found"}, status=status.HTTP_404_NOT_FOUND)
+    except earnings_hub.NotesUnavailable as e:
+        # Class name only: the cause's message can hold the FMP URL with the apikey.
+        logger.warning("earnings %s upstream failed: %s", getter_name, type(e.__cause__).__name__)
+        return Response({"detail": client_safe_message(e)}, status=status.HTTP_502_BAD_GATEWAY)
+    except Exception as e:
+        return server_error_response(logger, getter_name, e)
+
+
+@api_view(['GET'])
+def get_earnings_calendar(request):
+    from datetime import date, datetime
+    from zoneinfo import ZoneInfo
+    raw = request.query_params.get("week")
+    if raw:
+        try:
+            week = date.fromisoformat(raw)
+        except ValueError:
+            return Response({"detail": "week must be YYYY-MM-DD"}, status=status.HTTP_400_BAD_REQUEST)
+    else:
+        week = datetime.now(ZoneInfo("America/Toronto")).date()
+    return _earnings_response(request, "get_earnings_calendar", week)
+
+
+@api_view(['GET'])
+def get_earnings_notes(request, symbol):
+    return _earnings_response(request, "get_note_index", symbol)
+
+
+@api_view(['GET'])
+def get_earnings_note(request, symbol, quarter):
+    return _earnings_response(request, "get_note", symbol, quarter)
+
+
 @api_view(['GET'])
 def get_stock_price_data_monthly(request, symbol):
     from .analyzer_utils.CorePerformanceTools import get_stock_price_data_monthly as _getter
