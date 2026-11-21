@@ -14,6 +14,7 @@ import StockHeader from '@componentsLegacy/StockDetail/StockHeader';
 import PriceChart from '@componentsLegacy/StockDetail/PriceChart';
 import MomentumCharts from '@componentsLegacy/StockDetail/MomentumCharts';
 import StatementsSection from '@componentsLegacy/StockDetail/StatementsSection';
+import AnalystView from '@componentsLegacy/StockDetail/AnalystView';
 import SectorNews from '@componentsLegacy/StockDetail/SectorNews';
 import QuoteCard from '@componentsLegacy/StockDetail/QuoteCard';
 import { fetchProfile, fetchEtfProfile, fetchPrices } from '@utils/stockApi';
@@ -141,6 +142,7 @@ const StockDetail = ({ symbol, profile, dates, series, asOfDate, unknownSymbol }
             {series && <MomentumCharts dates={dates} series={series} />}
 
             <StatementsSection symbol={symbol} />
+            <AnalystView symbol={symbol} currency={profile.currency} />
             <SectorNews sector={profile.sector} />
           </Col>
         </Row>
