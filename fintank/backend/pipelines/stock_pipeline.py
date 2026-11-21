@@ -179,6 +179,32 @@ class RateLimiter:
             self.count = 0
 
 
+RETRY_BACKOFF_SECONDS = 5
+
+
+def _sleep(seconds):
+    """Indirection so tests can skip the retry backoff."""
+    time.sleep(seconds)
+
+
+def _is_transient(error):
+    """A network failure, HTTP 429 or a 5xx: worth one more try."""
+    if isinstance(error, FetchHTTPError):
+        return error.status == 429 or (error.status or 0) >= 500
+    return True
+
+
+def _retry_once(call):
+    """call(), and on a transient RuntimeError wait and call() once more."""
+    try:
+        return call()
+    except RuntimeError as e:
+        if not _is_transient(e):
+            raise
+        _sleep(RETRY_BACKOFF_SECONDS)
+        return call()
+
+
 class StockDataPipeline:
     """Fetch → transform → upload for the Fintank market-data lake.
 
@@ -442,22 +468,30 @@ class StockDataPipeline:
             raise ValueError(f"unexpected {path} response: {type(body).__name__}")
         return body
 
+    def _etf_list_request(self):
+        """Stable etf-list rows; a transient failure is retried once."""
+        return _retry_once(lambda: self._stable_rows("etf-list"))
+
     def _profile_bulk(self):
         """All stable profile-bulk rows (CSV parts 0, 1, 2 ...) as dicts.
 
         Stops at the first part with no data rows, or at a 400 on a part after
         the first (FMP answers HTTP 400, not an empty body, past the last
         part). An error on part 0 propagates. One limiter tick per part."""
+        def fetch_part(part):
+            try:
+                return self._get_text(self._stable("profile-bulk", part=part))
+            finally:
+                self.limiter.tick()
+
         rows = []
         for part in range(_PROFILE_BULK_MAX_PARTS):
             try:
-                text = self._get_text(self._stable("profile-bulk", part=part))
+                text = _retry_once(lambda: fetch_part(part))
             except FetchHTTPError as e:
                 if part > 0 and e.status == 400:
                     break
                 raise
-            finally:
-                self.limiter.tick()
             part_rows = list(csv.DictReader(io.StringIO(text)))
             if not part_rows:
                 break
@@ -710,7 +744,7 @@ class StockDataPipeline:
         if include_etf_list:
             def etf_list():
                 requested = etf_list_rows(
-                    self._stable_rows("etf-list"), self._profile_bulk(),
+                    self._etf_list_request(), self._profile_bulk(),
                     cfg.ETF_EXCHANGE_FILTER)
                 if not requested:
                     raise ValueError("exchange filter matched no ETFs")
