@@ -201,12 +201,14 @@ class CachedGetterTests(SimpleTestCase):
         self.assertEqual(calls["stock:analyst:RY.TO:v1"].kwargs["timeout"], av.PAYLOAD_TTL)
         self.assertEqual(calls["fx:usdcad:v1"].kwargs["timeout"], av.FX_TTL)
 
-    def test_fmp_error_raises_unavailable_and_caches_nothing(self):
+    def test_fmp_error_raises_unavailable_and_caches_no_payload(self):
         self.m["grades_consensus"].side_effect = requests.ConnectionError("boom")
         with self.assertRaises(av.AnalystUnavailable):
             av.get_analyst_view("RY.TO")
         self.assertIsNone(cache.get("stock:analyst:RY.TO:v1"))
         self.assertIsNone(cache.get("stock:analyst:missing:RY.TO:v1"))
+        # the listing is an independent 30-day result and stays cached (R7)
+        self.assertIsNotNone(cache.get("stock:analyst:listing:RY.TO:v1"))
 
     def test_value_error_raises_unavailable(self):
         self.m["analyst_estimates"].side_effect = ValueError("bad json")
