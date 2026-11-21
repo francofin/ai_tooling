@@ -1,7 +1,12 @@
 """python -m pipelines <command> — the pipeline's command line.
 
-On AWS the containers run `run`, `publish` and `news`. Everything else is for
-Franc's terminal, with AWS_PROFILE=fintank set."""
+On AWS the containers run `run`, `publish`, `news`, `earnings` and
+`earnings-backfill`. Everything else is for Franc's terminal, with
+AWS_PROFILE=fintank set.
+
+ANTHROPIC_API_KEY is read from the process environment only (the ECS secret on
+AWS), never from a .env file; missing means "unset", and an unset key makes no
+Claude call."""
 from __future__ import annotations
 
 import argparse
@@ -20,7 +25,10 @@ from pipelines.store import (LocalStore, S3Store, aws_client, default_state_buck
 
 WEEKLY_MACHINE = "fintank-weekly-data-run"
 NEWS_MACHINE = "fintank-daily-news"
-CRASH_EMAIL_COMMANDS = ("run", "publish", "news")
+EARNINGS_MACHINE = "fintank-daily-earnings"
+EARNINGS_BACKFILL_MACHINE = "fintank-earnings-backfill"
+CRASH_EMAIL_COMMANDS = ("run", "publish", "news", "earnings", "earnings-backfill")
+BACKFILL_STEPS = ("submit", "check", "stage", "publish", "discarded")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -47,6 +55,20 @@ def build_parser() -> argparse.ArgumentParser:
     searching.add_argument("--no-search", dest="search", action="store_false",
                            help="skip the SerpAPI topics even on a search day")
 
+    earn = sub.add_parser("earnings", help="daily earnings notes (the AWS task's entry point)")
+    earn.add_argument("--run-id")
+    earn.add_argument("--no-claude", action="store_true",
+                      help="every step except the paid Claude call; writes the requests")
+    earn.add_argument("--dry-run", action="store_true",
+                      help="local stores only; implies --no-claude")
+    backfill = sub.add_parser("earnings-backfill",
+                              help="one backfill step (the backfill state machine's tasks)")
+    backfill.add_argument("step", choices=BACKFILL_STEPS)
+    backfill.add_argument("--run-id", required=True)
+    backfill.add_argument("--no-claude", action="store_true")
+    backfill.add_argument("--from-results", metavar="RUN_ID",
+                          help="stage: re-check that run's saved results; no Claude call")
+
     start = sub.add_parser("start", help="start the weekly state machine now")
     start.add_argument("--mode", choices=["lean", "full"], required=True)
     start.add_argument("--limit", type=int)
@@ -54,6 +76,15 @@ def build_parser() -> argparse.ArgumentParser:
     start_news = sub.add_parser("start-news", help="start the news state machine now")
     start_news.add_argument("--search", action="store_true",
                             help="include the SerpAPI topics even on a non-search day")
+    start_earn = sub.add_parser("start-earnings", help="start the daily earnings machine now")
+    start_earn.add_argument("--no-claude", action="store_true")
+    start_backfill = sub.add_parser("start-earnings-backfill",
+                                    help="start the earnings backfill machine")
+    start_backfill.add_argument("--no-claude", action="store_true",
+                                help="free end-to-end test: builds the requests, no Claude")
+    pull_note = sub.add_parser("pull-note", help="withdraw one published earnings note")
+    pull_note.add_argument("symbol")
+    pull_note.add_argument("quarter", help="<FY>-Q<n>, e.g. 2026-Q3")
 
     for name, text in (("approve", "publish a held run"),
                        ("discard", "throw a held run away"),
@@ -148,6 +179,89 @@ def cmd_news(args) -> int:
     return 0
 
 
+def _earnings_keys() -> tuple[str, str]:
+    from pipelines.stock_pipeline import BACKEND_DIR, env_values
+
+    env = env_values(os.path.join(BACKEND_DIR, ".env"))   # FMP only; local runs
+    fmp_key = env("FMP_API")
+    if not fmp_key:
+        raise SystemExit("FMP_API must be set")
+    # Spend safety: the environment only, never a .env file.
+    return fmp_key, os.environ.get("ANTHROPIC_API_KEY") or "unset"
+
+
+def _earnings_stores(dry_run):
+    """(state store, live store, notifier, state bucket)."""
+    if dry_run:
+        root = _data_root()
+        return LocalStore(os.path.join(root, ".runs")), LocalStore(root), None, None
+    s3, bucket = aws_client("s3"), default_state_bucket()
+    return S3Store(bucket, s3), S3Store(live_bucket(), s3), Notifier(), bucket
+
+
+def cmd_earnings(args) -> int:
+    from pipelines import earnings
+
+    fmp_key, claude_key = _earnings_keys()
+    no_claude = args.no_claude or args.dry_run
+    if args.dry_run:
+        claude_key = "unset"
+    store, live, notifier, bucket = _earnings_stores(args.dry_run)
+    run_id = args.run_id or f"earnings-{_utcnow():%Y%m%d-%H%M}"
+    report = earnings.run_daily(run_id, fmp_key, claude_key, store, live, batch_client=None,
+                                no_claude=no_claude, notifier=notifier,
+                                state_bucket=bucket)
+    print(report.summary())
+    return 0
+
+
+def _claude_client(claude_key):
+    from pipelines.earnings_claude import AnthropicBatchClient, has_key
+
+    if not has_key(claude_key):
+        raise SystemExit("ANTHROPIC_API_KEY is unset; this step needs Claude")
+    return AnthropicBatchClient(claude_key)
+
+
+def cmd_earnings_backfill(args) -> int:
+    from pipelines import earnings
+
+    store, live, _, _ = _earnings_stores(False)
+    run_id = args.run_id
+    if args.step == "submit":
+        fmp_key, claude_key = _earnings_keys()
+        result = earnings.backfill_submit(run_id, fmp_key, claude_key, store, live,
+                                          batch_client=None, no_claude=args.no_claude)
+    elif args.step == "check":
+        result = earnings.backfill_check(run_id, store,
+                                         batch_client=_claude_client(_earnings_keys()[1]))
+    elif args.step == "stage":
+        client = (None if args.from_results
+                  else _claude_client(_earnings_keys()[1]))
+        result = earnings.backfill_stage(run_id, store, batch_client=client,
+                                         from_results=args.from_results)
+    elif args.step == "publish":
+        result = {"published": earnings.backfill_publish(run_id, store, live)}
+    else:
+        earnings.backfill_discarded(run_id, store)
+        result = {"discarded": run_id}
+    print(json.dumps(result))
+    return 0
+
+
+def cmd_pull_note(args) -> int:
+    from pipelines import earnings
+
+    live = S3Store(live_bucket(), aws_client("s3"))
+    try:
+        earnings.pull_note(live, args.symbol, args.quarter)
+    except KeyError:
+        raise SystemExit(f"{args.symbol} has no {args.quarter} note") from None
+    print(f"withdrew {args.symbol} {args.quarter}; the site drops it within the hour "
+          "(the notes cache lasts 3600 s)")
+    return 0
+
+
 def _machine_arn(sfn, name) -> str:
     for page in sfn.get_paginator("list_state_machines").paginate():
         for machine in page["stateMachines"]:
@@ -173,6 +287,17 @@ def cmd_start_news(args) -> int:
     sfn = aws_client("stepfunctions")
     payload = {"search": True} if args.search else {}
     response = sfn.start_execution(stateMachineArn=_machine_arn(sfn, NEWS_MACHINE),
+                                   input=json.dumps(payload))
+    print(f"started {response['executionArn']}")
+    return 0
+
+
+def cmd_start_earnings(args) -> int:
+    sfn = aws_client("stepfunctions")
+    machine = (EARNINGS_BACKFILL_MACHINE if args.command == "start-earnings-backfill"
+               else EARNINGS_MACHINE)
+    payload = {"no_claude": True} if args.no_claude else {}
+    response = sfn.start_execution(stateMachineArn=_machine_arn(sfn, machine),
                                    input=json.dumps(payload))
     print(f"started {response['executionArn']}")
     return 0
@@ -270,7 +395,10 @@ def cmd_status(args) -> int:
 
 COMMANDS = {
     "run": cmd_run, "publish": cmd_publish, "news": cmd_news,
+    "earnings": cmd_earnings, "earnings-backfill": cmd_earnings_backfill,
+    "pull-note": cmd_pull_note,
     "start": cmd_start, "start-news": cmd_start_news,
+    "start-earnings": cmd_start_earnings, "start-earnings-backfill": cmd_start_earnings,
     "approve": cmd_approve, "discard": cmd_discard, "rollback": cmd_rollback,
     "seed-state": cmd_seed_state, "pull-state": cmd_pull_state, "status": cmd_status,
 }

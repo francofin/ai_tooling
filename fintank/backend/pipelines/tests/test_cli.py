@@ -23,8 +23,16 @@ class FakeSfn:
     def get_paginator(self, name):
         assert name == "list_state_machines"
         machines = [{"name": cli.WEEKLY_MACHINE, "stateMachineArn": "arn:weekly"},
-                    {"name": cli.NEWS_MACHINE, "stateMachineArn": "arn:news"}]
+                    {"name": cli.NEWS_MACHINE, "stateMachineArn": "arn:news"},
+                    {"name": cli.EARNINGS_MACHINE, "stateMachineArn": "arn:earnings"},
+                    {"name": cli.EARNINGS_BACKFILL_MACHINE,
+                     "stateMachineArn": "arn:earnings-backfill"}]
         return type("P", (), {"paginate": lambda self: [{"stateMachines": machines}]})()
+
+
+@pytest.fixture(autouse=True)
+def _no_anthropic_key(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
 
 
 @pytest.fixture
@@ -178,3 +186,146 @@ def test_approve_reads_the_token_as_step_functions_writes_it(wired):
                   Body=json.dumps(inner).encode())
     cli.main(["approve", "lean-1"])
     assert sfn.calls[0][1]["taskToken"] == "tok"
+
+
+# --- earnings -------------------------------------------------------------------
+
+def test_earnings_parser_cases():
+    parse = cli.build_parser().parse_args
+    a = parse(["earnings"])
+    assert (a.run_id, a.no_claude, a.dry_run) == (None, False, False)
+    a = parse(["earnings", "--run-id", "e-1", "--no-claude", "--dry-run"])
+    assert (a.run_id, a.no_claude, a.dry_run) == ("e-1", True, True)
+    for step in ("submit", "check", "stage", "publish", "discarded"):
+        a = parse(["earnings-backfill", step, "--run-id", "b-1"])
+        assert (a.step, a.run_id, a.no_claude, a.from_results) == (step, "b-1", False, None)
+    a = parse(["earnings-backfill", "stage", "--run-id", "b-2", "--from-results", "b-1"])
+    assert a.from_results == "b-1"
+    with pytest.raises(SystemExit):
+        parse(["earnings-backfill", "submit"])                # --run-id is required
+    with pytest.raises(SystemExit):
+        parse(["earnings-backfill", "approve", "--run-id", "b-1"])
+    assert parse(["start-earnings"]).command == "start-earnings"
+    assert parse(["start-earnings-backfill"]).no_claude is False
+    assert parse(["start-earnings-backfill", "--no-claude"]).no_claude is True
+    a = parse(["pull-note", "BBD-B.TO", "2026-Q3"])
+    assert (a.symbol, a.quarter) == ("BBD-B.TO", "2026-Q3")
+    assert cli.EARNINGS_MACHINE == "fintank-daily-earnings"
+    assert cli.EARNINGS_BACKFILL_MACHINE == "fintank-earnings-backfill"
+
+
+def test_start_earnings_machines(wired):
+    sfn, _ = wired
+    cli.main(["start-earnings"])
+    cli.main(["start-earnings-backfill", "--no-claude"])
+    cli.main(["start-earnings-backfill"])
+    assert [(c[1]["stateMachineArn"], json.loads(c[1]["input"])) for c in sfn.calls] == [
+        ("arn:earnings", {}), ("arn:earnings-backfill", {"no_claude": True}),
+        ("arn:earnings-backfill", {})]
+
+
+@pytest.fixture
+def earnings_env(clean_env, tmp_path, monkeypatch):
+    """A backend/.env holding a Claude key: the CLI must never read it."""
+    from pipelines import stock_pipeline as sp
+    (tmp_path / ".env").write_text("ANTHROPIC_API_KEY=from-the-file\nFMP_API=file-fmp\n")
+    monkeypatch.setattr(sp, "BACKEND_DIR", str(tmp_path))
+    monkeypatch.setenv("PIPELINE_DATA_ROOT", str(tmp_path / "data"))
+    return tmp_path
+
+
+class _Report:
+    verdict = "pass"
+
+    def summary(self):
+        return "ok"
+
+
+def test_earnings_dry_run_is_local_no_claude_and_ignores_env_file(earnings_env, monkeypatch):
+    from pipelines import earnings
+    seen = {}
+
+    def fake_run_daily(run_id, fmp_key, anthropic_key, store, live, **kw):
+        seen.update(fmp=fmp_key, key=anthropic_key, store=type(store).__name__,
+                    live=type(live).__name__, no_claude=kw["no_claude"],
+                    client=kw.get("batch_client"), notifier=kw.get("notifier"))
+        return _Report()
+
+    monkeypatch.setattr(earnings, "run_daily", fake_run_daily)
+    assert cli.main(["earnings", "--dry-run", "--run-id", "e-1"]) == 0
+    assert seen == {"fmp": "test-fmp-key", "key": "unset", "store": "LocalStore",
+                    "live": "LocalStore", "no_claude": True, "client": None,
+                    "notifier": None}
+
+
+def test_earnings_reads_the_claude_key_from_the_environment_only(earnings_env, wired,
+                                                                  monkeypatch):
+    from pipelines import earnings
+    seen = {}
+
+    def fake_run_daily(run_id, fmp_key, anthropic_key, store, live, **kw):
+        seen.update(key=anthropic_key, store=type(store).__name__,
+                    no_claude=kw["no_claude"], client=kw.get("batch_client"))
+        return _Report()
+
+    monkeypatch.setattr(earnings, "run_daily", fake_run_daily)
+    cli.main(["earnings", "--run-id", "e-1"])
+    assert seen == {"key": "unset", "store": "S3Store", "no_claude": False, "client": None}
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "env-placeholder")
+    cli.main(["earnings", "--run-id", "e-2", "--no-claude"])
+    assert (seen["key"], seen["no_claude"]) == ("env-placeholder", True)
+
+
+def test_earnings_requires_fmp_key(earnings_env, monkeypatch):
+    monkeypatch.delenv("FMP_API")
+    (earnings_env / ".env").write_text("")
+    with pytest.raises(SystemExit, match="FMP_API"):
+        cli.main(["earnings", "--dry-run"])
+
+
+def test_backfill_steps_dispatch(earnings_env, wired, monkeypatch):
+    from pipelines import earnings
+    calls = []
+    monkeypatch.setattr(earnings, "backfill_submit",
+                        lambda run_id, fmp, key, store, live, **kw:
+                        calls.append(("submit", run_id, key, kw["no_claude"],
+                                      kw["batch_client"])) or {"status": "no_claude"})
+    monkeypatch.setattr(earnings, "backfill_stage",
+                        lambda run_id, store, **kw:
+                        calls.append(("stage", run_id, kw)) or {"hold": True})
+    monkeypatch.setattr(earnings, "backfill_publish",
+                        lambda run_id, store, live: calls.append(("publish", run_id)) or 2)
+    monkeypatch.setattr(earnings, "backfill_discarded",
+                        lambda run_id, store: calls.append(("discarded", run_id)))
+    cli.main(["earnings-backfill", "submit", "--run-id", "b-1", "--no-claude"])
+    cli.main(["earnings-backfill", "stage", "--run-id", "b-2", "--from-results", "b-1"])
+    cli.main(["earnings-backfill", "publish", "--run-id", "b-1"])
+    cli.main(["earnings-backfill", "discarded", "--run-id", "b-1"])
+    assert calls == [("submit", "b-1", "unset", True, None),
+                     ("stage", "b-2", {"batch_client": None, "from_results": "b-1"}),
+                     ("publish", "b-1"), ("discarded", "b-1")]
+
+
+def test_backfill_check_without_key_builds_no_client(earnings_env, wired):
+    with pytest.raises(SystemExit, match="ANTHROPIC_API_KEY"):
+        cli.main(["earnings-backfill", "check", "--run-id", "b-1"])
+
+
+def test_pull_note(wired, monkeypatch):
+    from pipelines import earnings
+    calls = []
+    monkeypatch.setattr(earnings, "pull_note",
+                        lambda live, sym, q: calls.append((live.bucket, sym, q)))
+    assert cli.main(["pull-note", "BBD-B.TO", "2026-Q3"]) == 0
+    assert calls == [("thetradingfloor", "BBD-B.TO", "2026-Q3")]
+
+
+def test_pull_note_unknown_quarter_exits(wired, monkeypatch):
+    from pipelines import earnings
+
+    def missing(live, sym, q):
+        raise KeyError(q)
+
+    monkeypatch.setattr(earnings, "pull_note", missing)
+    with pytest.raises(SystemExit, match="no 2026-Q9"):
+        cli.main(["pull-note", "RY.TO", "2026-Q9"])
