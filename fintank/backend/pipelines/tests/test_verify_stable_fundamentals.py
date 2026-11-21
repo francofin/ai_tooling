@@ -86,9 +86,52 @@ def test_verdict_fail_below_threshold_even_after_drift():
     assert vs.ttm_verdict(_st(raw=0, drift_only=35)) == "FAIL"   # 87.5%
 
 
-def test_verdict_fail_below_half_is_a_search_candidate():
-    v = vs.ttm_verdict(_st(raw=8))                              # 20%
-    assert v == "FAIL" and 8 / 40 < vs.TTM_MOST
+def test_verdict_fail_below_half():
+    assert vs.ttm_verdict(_st(raw=8)) == "FAIL"                 # 20%
+
+
+# ── search_candidates ────────────────────────────────────────────────────
+def _search_inputs():
+    live = {"A": 1.0, "B": 2.0, "C": 3.0, "D": 4.0}
+    good = [1.0, 2.0, 3.0, 9.0]       # matches 3 of 4 symbols (75%)
+    weak = [1.0, 9.0, 9.0, 9.0]       # matches 1 of 4 (25%): below the 50% bar
+    pct = [0.01, 0.02, 0.03, 0.04]    # matches all four only after x100
+    raw = {s: {"R": {"goodField": good[i], "weakField": weak[i]},
+               "M": {"pctField": pct[i], "label": "text"}}
+           for i, s in enumerate(live)}
+    return live, raw
+
+
+def test_search_candidates_keeps_matches_over_half_and_drops_weak_ones():
+    live, raw = _search_inputs()
+    found = vs.search_candidates("fooTTM", live, raw, {})
+    by_field = {(ep, k, scale): share for share, ep, k, scale, nn in found}
+    assert by_field[("R", "goodField", 1)] == pytest.approx(0.75)
+    assert not any(k == "weakField" for _, k, _ in by_field)
+
+
+def test_search_candidates_finds_x100_variant_and_ranks_it_first():
+    live, raw = _search_inputs()
+    found = vs.search_candidates("fooTTM", live, raw, {})
+    share, ep, k, scale, nn = found[0]
+    assert (ep, k, scale, share) == ("M", "pctField", 100, 1.0)
+
+
+def test_search_candidates_empty_when_nothing_reaches_half():
+    live, raw = _search_inputs()
+    for rows in raw.values():
+        rows["R"].pop("goodField")
+        rows["M"].pop("pctField")
+    assert vs.search_candidates("fooTTM", live, raw, {}) == []
+
+
+def test_search_candidates_applies_price_drift_for_price_driven_fields():
+    live = {"A": 10.0, "B": 20.0}
+    raw = {"A": {"R": {"peRatioTTM": 8.0}}, "B": {"R": {"peRatioTTM": 16.0}}}
+    ratios = {s: {"price": 0.8, "ev": None} for s in live}
+    found = vs.search_candidates("peRatioTTM", live, raw, ratios)
+    assert [(ep, k, scale) for _, ep, k, scale, _ in found][0] == ("R", "peRatioTTM", 1)
+    assert vs.search_candidates("returnOnEquityTTM", live, raw, ratios) == []
 
 
 def test_verdict_fail_when_new_side_null_over_5_percent():
