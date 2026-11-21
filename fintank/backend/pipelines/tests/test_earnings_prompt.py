@@ -143,3 +143,15 @@ def test_result_conversion():
     assert err.kind == "errored" and "overloaded_error" in err.error and "busy" in err.error
     assert C._convert(_item("a", "expired")).kind == "expired"
     assert C._convert(_item("a", "canceled")).kind == "canceled"
+
+
+def test_stored_note_drops_what_changed_without_a_previous_note():
+    out = {"lean": "neutral", "headline": "h", "key_points": ["a", "b", "c"],
+           "sections": {k: "x" for k in ep.NOTE_SCHEMA["properties"]["sections"]["properties"]}}
+    out["sections"]["what_changed"] = "The model compared against nothing."
+    note = ep.to_stored_note(job(), out, "2026-11-21T00:00:00Z")
+    assert note["sections"]["what_changed"] is None
+    assert note["sections"]["guidance"] == "x"
+    assert out["sections"]["what_changed"] == "The model compared against nothing."  # input untouched
+    with_prev = ep.to_stored_note(job(previous={"headline": "old"}), out, "2026-11-21T00:00:00Z")
+    assert with_prev["sections"]["what_changed"] == "The model compared against nothing."

@@ -11,11 +11,12 @@ TODAY = dt.date(2026, 11, 21)
 
 
 def test_lock_blocks_second_run_and_stale_lock_is_taken(tmp_path):
+    assert st.LOCK_STALE_HOURS == 20
     s = LocalStore(str(tmp_path))
     assert st.acquire_lock(s, "r1", NOW) is True
-    assert st.acquire_lock(s, "r2", NOW + dt.timedelta(hours=29)) is False
+    assert st.acquire_lock(s, "r2", NOW + dt.timedelta(hours=19)) is False
     assert s.get_json(st.LOCK_KEY)["run_id"] == "r1"
-    assert st.acquire_lock(s, "r3", NOW + dt.timedelta(hours=31)) is True
+    assert st.acquire_lock(s, "r3", NOW + dt.timedelta(hours=21)) is True
     assert s.get_json(st.LOCK_KEY)["run_id"] == "r3"
 
 
@@ -33,7 +34,7 @@ def test_load_state_default_and_round_trip(tmp_path):
     state = st.load_state(s)
     assert state == {"waiting": {}, "pending_batches": [], "written": [],
                      "attempts": {}, "last_run": None, "backfill_pending": None,
-                     "handled": {}}
+                     "handled": {}, "backfill_runs": []}
     state["written"].append("A|2026-Q1")
     st.save_state(s, state)
     assert st.load_state(s)["written"] == ["A|2026-Q1"]

@@ -112,6 +112,10 @@ def build_request(job: NoteJob, index: int) -> dict:
 
 
 def to_stored_note(job: NoteJob, output: dict, generated_at: str) -> dict:
+    sections = dict(output["sections"])
+    if job.previous_note is None:
+        # Nothing to compare against: whatever the model wrote is not a comparison.
+        sections["what_changed"] = None
     return {
         "symbol": job.symbol,
         "company_name": job.company_name,
@@ -122,7 +126,7 @@ def to_stored_note(job: NoteJob, output: dict, generated_at: str) -> dict:
         "lean": output["lean"],
         "headline": output["headline"],
         "key_points": list(output["key_points"]),
-        "sections": dict(output["sections"]),
+        "sections": sections,
         "model": MODEL,
         "generated_at": generated_at,
         "source": SOURCE,

@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import datetime as dt
 
-LOCK_STALE_HOURS = 30
+# A daily task that is killed without running its `finally` leaves the lock behind;
+# 20 hours lets the next day's run take it over.
+LOCK_STALE_HOURS = 20
 WAIT_DAYS = 7
 STATE_KEY = "earnings/state.json"
 LOCK_KEY = "earnings/lock.json"
@@ -21,7 +23,7 @@ def company_index_key(symbol):
 def _default_state():
     return {"waiting": {}, "pending_batches": [], "written": [], "attempts": {},
             "last_run": None, "backfill_pending": None,
-            "handled": {}}
+            "handled": {}, "backfill_runs": []}
 
 
 def load_state(store) -> dict:
@@ -45,7 +47,8 @@ def acquire_lock(store, run_id, now, log=print) -> bool:
     Residual risk: S3 has no compare-and-delete, so two runs that both judge the
     same stale lock stale can still interleave between our re-read and delete.
     We re-read before deleting and verify ownership after creating, which makes
-    that window tiny but not zero; runs are daily and 30 hours apart in practice."""
+    that window tiny but not zero; runs are daily, so a lock is stale
+    long before the next run in practice."""
     body = {"run_id": run_id, "taken_at": now.isoformat()}
     if store.put_json_if_absent(LOCK_KEY, body):
         return True
