@@ -9,6 +9,8 @@
       "Assign": {
         "run_id": "{% $exists($states.input.run_id) ? $states.input.run_id : 'earnings-backfill-' & $fromMillis($toMillis($states.context.Execution.StartTime), '[Y0001][M01][D01]-[H01][m01]') %}",
         "no_claude": "{% $exists($states.input.no_claude) and $states.input.no_claude = true ? ['--no-claude'] : [] %}",
+        "force": "{% $exists($states.input.force) and $states.input.force = true ? ['--force'] : [] %}",
+        "status_doc": null,
         "submitted_at": 0,
         "status": null,
         "verdict": null,
@@ -31,7 +33,7 @@
             "AssignPublicIp": "ENABLED"
           }
         },
-        "Overrides": {"ContainerOverrides": [{"Name": "app", "Command": "{% $append(['earnings-backfill', 'submit', '--run-id', $run_id], $no_claude) %}"}]}
+        "Overrides": {"ContainerOverrides": [{"Name": "app", "Command": "{% $append($append(['earnings-backfill', 'submit', '--run-id', $run_id], $no_claude), $force) %}"}]}
       },
       "TimeoutSeconds": 7200,
       "Catch": [{"ErrorEquals": ["States.ALL"], "Assign": {"error": "{% $states.errorOutput %}"}, "Next": "NotifyFailed"}],
@@ -45,7 +47,7 @@
         "Bucket": "${StateBucket}",
         "Key": "{% 'runs/' & $run_id & '/backfill-status.json' %}"
       },
-      "Assign": {"status": "{% $parse($states.result.Body).status %}"},
+      "Assign": {"status": "{% $parse($states.result.Body).status %}", "status_doc": "{% $parse($states.result.Body) %}"},
       "Catch": [{"ErrorEquals": ["States.ALL"], "Assign": {"error": "{% $states.errorOutput %}"}, "Next": "NotifyFailed"}],
       "Next": "Status?"
     },
@@ -94,7 +96,7 @@
       "Arguments": {
         "TopicArn": "${TopicArn}",
         "Subject": "{% '[Fintank] Earnings backfill ' & $run_id & ' finished early' %}",
-        "Message": "{% 'Backfill ' & $run_id & ' ended without a Claude batch (status: ' & $status & '). Nothing to approve.' %}"
+        "Message": "{% 'Backfill ' & $run_id & ' ended without a Claude batch (status: ' & $status & '). Nothing was generated and nothing was sent to Claude' & ($status_doc.no_key = true ? ' (ANTHROPIC_API_KEY is unset)' : '') & '.\\n\\nTargets: ' & $string($status_doc.targets) & '\\nEstimated input tokens: ' & $string($status_doc.estimated_input_tokens) & ($status = 'no_claude' ? '\\nRequests: runs/' & $run_id & '/requests.json' : '') & '\\n\\nNothing to approve.' %}"
       },
       "Next": "Done"
     },

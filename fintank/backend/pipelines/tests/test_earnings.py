@@ -694,3 +694,120 @@ def test_stage_refuses_a_batch_that_has_not_ended(world):
         bf.backfill_stage("backfill-1", world.store, batch_client=client)
     assert not world.store.exists(run_key("backfill-1", "results.json"))
     assert not world.store.exists(run_key("backfill-1", "verdict.json"))
+
+
+# --- fix wave: held email, saved-results guard, SIGTERM ---------------------------
+
+def test_backfill_stage_emails_held_for_approval(world):
+    backfill_world(world)
+    client = FakeBatch(bad={"AAPL"})
+    submit(world, "backfill-1", client)
+    bf.backfill_stage("backfill-1", world.store, batch_client=client, notifier=world,
+                      state_bucket="state-bkt", now=NOW, log=lambda *a: None)
+    assert len(world.sent) == 1
+    subject, body = world.sent[0]
+    assert subject == "[Fintank] Earnings backfill backfill-1 held - WARN, 3 staged, 1 failed"
+    assert "Staged (passed the checks): 3" in body and "Failed: 1" in body
+    assert "  AAPL 2026-Q1: " in body and "4.1 billion" in body        # the reason
+    assert "Tokens: 4,000 in, 2,000 out; cost $0.03" in body           # 4 x (1000, 500)
+    assert "Publish:  python -m pipelines approve backfill-1" in body
+    assert "Discard:  python -m pipelines discard backfill-1" in body
+    assert ("python -m pipelines earnings-backfill stage --run-id <new-id> "
+            "--from-results backfill-1") in body
+    assert "prefix=runs/backfill-1/report.json" in body
+
+
+def test_backfill_restage_email_points_at_the_manual_steps(world):
+    backfill_world(world)
+    client = FakeBatch()
+    submit(world, "backfill-1", client)
+    bf.backfill_stage("backfill-1", world.store, batch_client=client)
+    bf.backfill_discarded("backfill-1", world.store)
+    bf.backfill_stage("backfill-2", world.store, from_results="backfill-1", notifier=world)
+    subject, body = world.sent[-1]
+    assert "backfill-2 held - PASS, 4 staged, 0 failed" in subject
+    assert "earnings-backfill publish --run-id backfill-2" in body
+    assert "earnings-backfill discarded --run-id backfill-2" in body
+    assert "paid once, by backfill-1" in body
+    assert "--from-results backfill-1" in body
+
+
+def test_backfill_held_email_caps_the_failure_list():
+    from pipelines.notify import BACKFILL_FAILED_LISTED, backfill_held_message
+    failed = [{"symbol": f"S{i}", "quarter": "2026-Q1", "reasons": ["too short"]}
+              for i in range(BACKFILL_FAILED_LISTED + 5)]
+    report = RunReport("backfill-9", "earnings", "backfill", "2026-11-21T00:00:00Z")
+    verdict = {"verdict": "warn", "passed": 0, "failed": len(failed)}
+    _, body = backfill_held_message(report, {"failed": failed, "usage": {}, "cost_usd": 0},
+                                    verdict, None)
+    assert body.count("too short") == BACKFILL_FAILED_LISTED
+    assert "... and 5 more (runs/backfill-9/failed/)" in body
+
+
+def test_backfill_status_doc_carries_targets_and_tokens(world):
+    backfill_world(world)
+    no_claude = submit(world, "backfill-1", FakeBatch(), no_claude=True)
+    saved = world.store.get_json(run_key("backfill-1", "backfill-status.json"))
+    assert saved == no_claude
+    assert saved["targets"] == 4 and saved["estimated_input_tokens"] > 0
+    world.fmp.dates = {}
+    submit(world, "backfill-2", FakeBatch())
+    nothing = world.store.get_json(run_key("backfill-2", "backfill-status.json"))
+    assert (nothing["status"], nothing["targets"], nothing["estimated_input_tokens"]) == (
+        "nothing_to_do", 0, 0)
+
+
+def test_paid_backfill_submit_refused_while_saved_results_exist(world):
+    backfill_world(world)
+    client = FakeBatch()
+    submit(world, "backfill-1", client)
+    bf.backfill_stage("backfill-1", world.store, batch_client=client)
+    bf.backfill_discarded("backfill-1", world.store)
+    assert world.state()["backfill_runs"] == ["backfill-1"]
+    with pytest.raises(RuntimeError, match=r"--from-results backfill-1.*--force"):
+        submit(world, "backfill-2", client)
+    assert len(client.submits) == 1
+    assert not world.store.exists(st.LOCK_KEY)
+    assert submit(world, "backfill-3", client, no_claude=True)["status"] == "no_claude"
+    assert submit(world, "backfill-4", client, key="unset")["status"] == "no_claude"
+    forced = bf.backfill_submit("backfill-5", "fmp-test", FAKE_KEY, world.store, world.live,
+                                batch_client=client, force=True, get=world.fmp,
+                                log=lambda *a: None, now=NOW)
+    assert forced["status"] == "submitted" and len(client.submits) == 2
+
+
+def test_publishing_a_backfill_clears_its_saved_results_guard(world):
+    backfill_world(world)
+    client = FakeBatch(bad={"AAPL"})
+    submit(world, "backfill-1", client)
+    bf.backfill_stage("backfill-1", world.store, batch_client=client)
+    bf.backfill_discarded("backfill-1", world.store)
+    bf.backfill_stage("backfill-2", world.store, from_results="backfill-1")
+    assert world.state()["backfill_runs"] == ["backfill-1"]     # a re-check adds nothing
+    bf.backfill_publish("backfill-2", world.store, world.live)
+    assert world.state()["backfill_runs"] == []                 # source settled too
+    world.fmp.dates["AAPL"] = [{"fiscalYear": 2026, "quarter": 1, "date": "2026-11-01"}]
+    assert submit(world, "backfill-3", client)["status"] == "submitted"
+
+
+class KilledWhilePolling(FakeBatch):
+    """SIGTERM arrives mid-poll; the CLI's handler turns it into SystemExit."""
+
+    def status(self, batch_id):
+        raise SystemExit(143)
+
+
+def test_sigterm_during_daily_run_releases_the_lock(world):
+    world.fmp.report("RY.TO", "2026-11-20", 2026, 4)
+    with pytest.raises(SystemExit):
+        world.run("earnings-1", KilledWhilePolling())
+    assert not world.store.exists(st.LOCK_KEY)
+    assert world.state()["pending_batches"][0]["batch_id"] == "batch-1"   # never resubmitted
+
+
+def test_sigterm_during_backfill_step_releases_the_lock(world):
+    backfill_world(world)
+    submit(world, "backfill-1", FakeBatch())
+    with pytest.raises(SystemExit):
+        bf.backfill_check("backfill-1", world.store, batch_client=KilledWhilePolling())
+    assert not world.store.exists(st.LOCK_KEY)

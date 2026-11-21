@@ -13,6 +13,7 @@ import argparse
 import datetime as dt
 import json
 import os
+import signal
 import traceback
 
 from pipelines import publish as publishing
@@ -68,6 +69,9 @@ def build_parser() -> argparse.ArgumentParser:
     backfill.add_argument("--no-claude", action="store_true")
     backfill.add_argument("--from-results", metavar="RUN_ID",
                           help="stage: re-check that run's saved results; no Claude call")
+    backfill.add_argument("--force", action="store_true",
+                          help="submit: pay for a new batch even though an earlier "
+                               "backfill's results are saved (see stage --from-results)")
 
     start = sub.add_parser("start", help="start the weekly state machine now")
     start.add_argument("--mode", choices=["lean", "full"], required=True)
@@ -82,6 +86,9 @@ def build_parser() -> argparse.ArgumentParser:
                                     help="start the earnings backfill machine")
     start_backfill.add_argument("--no-claude", action="store_true",
                                 help="free end-to-end test: builds the requests, no Claude")
+    start_backfill.add_argument("--force", action="store_true",
+                                help="start even though an earlier backfill's results are "
+                                     "saved (re-check those free with stage --from-results)")
     pull_note = sub.add_parser("pull-note", help="withdraw one published earnings note")
     pull_note.add_argument("symbol")
     pull_note.add_argument("quarter", help="<FY>-Q<n>, e.g. 2026-Q3")
@@ -194,6 +201,15 @@ def _earnings_keys() -> tuple[str, str]:
     return fmp_key, _claude_key()
 
 
+def _exit_on_sigterm() -> None:
+    """ECS stops a task with SIGTERM. Raising SystemExit unwinds the stack, so the
+    run's `finally: release_lock` runs and the next run is not blocked by a
+    stale lock."""
+    def _handler(signum, frame):
+        raise SystemExit(128 + signum)
+    signal.signal(signal.SIGTERM, _handler)
+
+
 def _earnings_stores(dry_run):
     """(state store, live store, notifier, state bucket)."""
     if dry_run:
@@ -206,6 +222,7 @@ def _earnings_stores(dry_run):
 def cmd_earnings(args) -> int:
     from pipelines import earnings
 
+    _exit_on_sigterm()
     fmp_key, claude_key = _earnings_keys()
     no_claude = args.no_claude or args.dry_run
     if args.dry_run:
@@ -230,18 +247,21 @@ def _claude_client(claude_key):
 def cmd_earnings_backfill(args) -> int:
     from pipelines import earnings_backfill as backfill
 
+    _exit_on_sigterm()
     run_id = args.run_id
     fmp_key, claude_key = _earnings_keys() if args.step == "submit" else (None, _claude_key())
-    store, live, _, _ = _earnings_stores(False)
+    store, live, notifier, bucket = _earnings_stores(False)
     if args.step == "submit":
         result = backfill.backfill_submit(run_id, fmp_key, claude_key, store, live,
-                                          batch_client=None, no_claude=args.no_claude)
+                                          batch_client=None, no_claude=args.no_claude,
+                                          force=args.force)
     elif args.step == "check":
         result = backfill.backfill_check(run_id, store, batch_client=_claude_client(claude_key))
     elif args.step == "stage":
         client = None if args.from_results else _claude_client(claude_key)
         result = backfill.backfill_stage(run_id, store, batch_client=client,
-                                         from_results=args.from_results)
+                                         from_results=args.from_results,
+                                         notifier=notifier, state_bucket=bucket)
     elif args.step == "publish":
         result = {"published": backfill.backfill_publish(run_id, store, live)}
     else:
@@ -297,11 +317,27 @@ def cmd_start_news(args) -> int:
     return 0
 
 
+def _refuse_if_backfill_results_saved() -> None:
+    from pipelines.earnings_backfill import earlier_results
+    from pipelines.earnings_state import load_state
+    from pipelines.notify import backfill_refused_message
+
+    store = S3Store(default_state_bucket(), aws_client("s3"))
+    earlier = earlier_results(store, load_state(store))
+    if earlier:
+        raise SystemExit(f"start-earnings-backfill refused: {backfill_refused_message(earlier)}")
+
+
 def cmd_start_earnings(args) -> int:
     sfn = aws_client("stepfunctions")
-    machine = (EARNINGS_BACKFILL_MACHINE if args.command == "start-earnings-backfill"
-               else EARNINGS_MACHINE)
+    backfill = args.command == "start-earnings-backfill"
+    machine = EARNINGS_BACKFILL_MACHINE if backfill else EARNINGS_MACHINE
     payload = {"no_claude": True} if args.no_claude else {}
+    if backfill and not args.no_claude:
+        if args.force:
+            payload["force"] = True
+        else:
+            _refuse_if_backfill_results_saved()
     response = sfn.start_execution(stateMachineArn=_machine_arn(sfn, machine),
                                    input=json.dumps(payload))
     print(f"started {response['executionArn']}")

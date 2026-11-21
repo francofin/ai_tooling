@@ -314,3 +314,23 @@ def test_backfill_failure_email_explains_recovery():
     assert "paid Claude batch may still be in flight" in msg
     assert "stay blocked" in msg
     assert "earnings-backfill check|stage|discarded --run-id ' & $run_id" in msg
+
+
+def test_backfill_nothing_to_do_email_reports_targets_and_tokens():
+    states = _asl("earnings-backfill.asl.json")["States"]
+    assign = states["ReadStatus"]["Assign"]
+    assert assign["status_doc"] == "{% $parse($states.result.Body) %}"
+    msg = states["NotifyNothingToDo"]["Arguments"]["Message"]
+    assert "$string($status_doc.targets)" in msg
+    assert "$string($status_doc.estimated_input_tokens)" in msg
+    assert "Nothing was generated" in msg
+
+
+def test_backfill_force_reaches_only_the_submit_task():
+    states = _asl("earnings-backfill.asl.json")["States"]
+    assert "'--force'" in states["Init"]["Assign"]["force"]
+    commands = {name: s["Arguments"]["Overrides"]["ContainerOverrides"][0]["Command"]
+                for name, s in states.items()
+                if s.get("Resource", "").endswith("ecs:runTask.sync")}
+    assert "$force" in commands.pop("Submit")
+    assert not any("$force" in c for c in commands.values())

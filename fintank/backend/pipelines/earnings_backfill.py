@@ -4,7 +4,12 @@ submit -> check (looped) -> stage -> approve gate -> publish | discarded. Each
 step holds the run lock. Notes are staged under runs/<id>/notes/ and go live
 only through backfill_publish. A quarter already written, in a pending daily
 batch, or attempted MAX_ATTEMPTS times is never sent again; re-checking a
-discarded backfill goes through `stage --from-results`, which is free.
+discarded backfill goes through `stage --from-results`, which is free, and a
+paid submit is refused while an earlier backfill's results are still saved
+(state["backfill_runs"]) unless forced.
+
+Backfill notes use the call date as report_date: the backfill has no calendar
+row for old quarters, so the transcript's call date is the best report date.
 
 Caps and attempt limits are read from pipelines.earnings at call time."""
 from __future__ import annotations
@@ -23,12 +28,19 @@ from pipelines.earnings_claude import BatchResult, cost_usd
 from pipelines.earnings_fmp import covered_symbols, fetch_transcript, http_get_json
 from pipelines.earnings_prompt import NoteJob, to_stored_note
 from pipelines.earnings_state import is_written, load_state, save_state
+from pipelines.notify import backfill_held_message, backfill_refused_message
 from pipelines.report import RunReport, now_iso
 from pipelines.results import redact
 from pipelines.store import run_key
 
 def _status_key(run_id) -> str:
     return run_key(run_id, "backfill-status.json")
+
+
+def earlier_results(store, state, run_id=None) -> list:
+    """Backfill runs whose saved results.json can still be re-checked for free."""
+    return [r for r in state.get("backfill_runs") or []
+            if r != run_id and store.exists(run_key(r, "results.json"))]
 
 
 def _backfill_jobs(fmp_key, live, state, covered, get, log) -> list:
@@ -51,6 +63,7 @@ def _backfill_jobs(fmp_key, live, state, covered, get, log) -> list:
             continue
         info = covered[symbol]
         call_date = call_date or call
+        # No calendar row for an old quarter: the call date stands in as report_date.
         jobs.append(NoteJob(symbol=symbol, company_name=info["name"], region=info["region"],
                             fiscal_year=fy, fiscal_quarter=q, report_date=str(call_date)[:10],
                             call_date=call_date, transcript=content,
@@ -61,7 +74,8 @@ def _backfill_jobs(fmp_key, live, state, covered, get, log) -> list:
 
 
 def backfill_submit(run_id, fmp_key, anthropic_key, store, live, *, batch_client,
-                    no_claude=False, get=http_get_json, log=print, now=None) -> dict:
+                    no_claude=False, force=False, get=http_get_json, log=print,
+                    now=None) -> dict:
     now = now or dt.datetime.now(dt.timezone.utc)
     with _locked(store, run_id, now, log):
         state = load_state(store)
@@ -75,11 +89,15 @@ def backfill_submit(run_id, fmp_key, anthropic_key, store, live, *, batch_client
                                "console before doing anything else")
         if pending:
             raise RuntimeError(f"backfill {pending} is still waiting for approve/discard")
+        client = _claude(anthropic_key, batch_client, no_claude)
+        earlier = earlier_results(store, state, run_id)
+        if client is not None and earlier and not force:
+            raise RuntimeError(backfill_refused_message(earlier))
         jobs = _numbered(_backfill_jobs(fmp_key, live, state, covered_symbols(live.get_json),
                                         get, log))
-        client = _claude(anthropic_key, batch_client, no_claude)
         if not jobs:
-            status = {"status": "nothing_to_do", "batch_id": None, "targets": 0}
+            status = {"status": "nothing_to_do", "batch_id": None, "targets": 0,
+                      "estimated_input_tokens": 0}
         elif client is None:
             tokens = _write_requests(store, run_id, jobs)
             status = {"status": "no_claude", "batch_id": None, "targets": len(jobs),
@@ -116,7 +134,7 @@ def backfill_check(run_id, store, *, batch_client, now=None, log=print) -> dict:
 
 
 def backfill_stage(run_id, store, *, batch_client=None, from_results: str | None = None,
-                   now=None, log=print) -> dict:
+                   notifier=None, state_bucket=None, now=None, log=print) -> dict:
     now = now or dt.datetime.now(dt.timezone.utc)
     with _locked(store, run_id, now, log):
         state = load_state(store)
@@ -140,6 +158,9 @@ def backfill_stage(run_id, store, *, batch_client=None, from_results: str | None
                                    "not ended; run the check step until it ends")
             results = list(batch_client.results(batch_id))
             store.put_json(run_key(run_id, "results.json"), [asdict(r) for r in results])
+            runs = state.setdefault("backfill_runs", [])
+            if run_id not in runs:
+                runs.append(run_id)               # a later paid submit asks for --force
         report = RunReport(run_id, "earnings", "backfill", now_iso())
         summary = _empty_summary()
         staged, generated_at = [], now.isoformat(timespec="seconds")
@@ -162,10 +183,14 @@ def backfill_stage(run_id, store, *, batch_client=None, from_results: str | None
         state["backfill_pending"] = run_id
         save_state(store, state)
         verdict = {"run_id": run_id, "verdict": WARN if summary["failed"] else PASS,
-                   "hold": True, "passed": len(staged), "failed": len(summary["failed"])}
+                   "hold": True, "passed": len(staged), "failed": len(summary["failed"]),
+                   "results_run": source}
         summary["staged_not_live"] = True
         _finish(report, summary, store, None, None, run_id, verdict["verdict"])
         store.put_json(run_key(run_id, "verdict.json"), verdict)
+        if notifier is not None:
+            notifier.send(*backfill_held_message(report, summary, verdict, state_bucket,
+                                                 results_run_id=source))
         return verdict
 
 
@@ -191,6 +216,10 @@ def backfill_publish(run_id, store, live, *, now=None, log=print) -> int:
             count += 1
             save_state(store, state)
         state["backfill_pending"] = None
+        source = (store.get_json(run_key(run_id, "verdict.json")) or {}).get("results_run")
+        settled = {run_id, source}             # published: nothing left to re-check
+        state["backfill_runs"] = [r for r in state.get("backfill_runs") or []
+                                  if r not in settled]
         save_state(store, state)
         return count
 

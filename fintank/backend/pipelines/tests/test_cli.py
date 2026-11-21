@@ -1,4 +1,5 @@
 import json
+import signal
 
 import pytest
 
@@ -33,6 +34,13 @@ class FakeSfn:
 @pytest.fixture(autouse=True)
 def _no_anthropic_key(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _restore_sigterm():
+    old = signal.getsignal(signal.SIGTERM)
+    yield
+    signal.signal(signal.SIGTERM, old)
 
 
 @pytest.fixture
@@ -301,9 +309,58 @@ def test_backfill_steps_dispatch(earnings_env, wired, monkeypatch):
     cli.main(["earnings-backfill", "stage", "--run-id", "b-2", "--from-results", "b-1"])
     cli.main(["earnings-backfill", "publish", "--run-id", "b-1"])
     cli.main(["earnings-backfill", "discarded", "--run-id", "b-1"])
-    assert calls == [("submit", "b-1", "unset", True, None),
-                     ("stage", "b-2", {"batch_client": None, "from_results": "b-1"}),
-                     ("publish", "b-1"), ("discarded", "b-1")]
+    stage_kw = calls[1][2]
+    assert (stage_kw["batch_client"], stage_kw["from_results"]) == (None, "b-1")
+    assert type(stage_kw["notifier"]).__name__ == "Notifier"     # held email, as the daily run
+    assert stage_kw["state_bucket"] == "state"
+    assert calls[0] == ("submit", "b-1", "unset", True, None)
+    assert calls[2:] == [("publish", "b-1"), ("discarded", "b-1")]
+
+
+def test_backfill_submit_passes_force(earnings_env, wired, monkeypatch):
+    from pipelines import earnings_backfill
+    seen = []
+    monkeypatch.setattr(earnings_backfill, "backfill_submit",
+                        lambda *a, **kw: seen.append(kw["force"]) or {})
+    cli.main(["earnings-backfill", "submit", "--run-id", "b-1"])
+    cli.main(["earnings-backfill", "submit", "--run-id", "b-2", "--force"])
+    assert seen == [False, True]
+
+
+def _save_backfill_results(s3, run_ids, saved):
+    store = S3Store("state", s3)
+    store.put_json("earnings/state.json", {"backfill_runs": list(run_ids)})
+    for r in saved:
+        store.put_json(run_key(r, "results.json"), [])
+
+
+def test_start_backfill_refuses_while_earlier_results_are_saved(wired):
+    sfn, s3 = wired
+    _save_backfill_results(s3, ["backfill-old", "backfill-gone"], ["backfill-old"])
+    with pytest.raises(SystemExit, match=r"--from-results backfill-old") as err:
+        cli.main(["start-earnings-backfill"])
+    assert "--force" in str(err.value) and "backfill-gone" not in str(err.value)
+    assert sfn.calls == []
+    cli.main(["start-earnings-backfill", "--no-claude"])             # free: allowed
+    cli.main(["start-earnings-backfill", "--force"])
+    assert [json.loads(c[1]["input"]) for c in sfn.calls] == [{"no_claude": True},
+                                                               {"force": True}]
+
+
+def test_earnings_entry_points_turn_sigterm_into_system_exit(earnings_env, wired,
+                                                             monkeypatch):
+    from pipelines import earnings, earnings_backfill
+    monkeypatch.setattr(earnings, "run_daily", lambda *a, **kw: _Report())
+    monkeypatch.setattr(earnings_backfill, "backfill_discarded", lambda *a, **kw: None)
+    for argv in (["earnings", "--dry-run"],
+                 ["earnings-backfill", "discarded", "--run-id", "b-1"]):
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        cli.main(argv)
+        handler = signal.getsignal(signal.SIGTERM)
+        assert callable(handler)
+        with pytest.raises(SystemExit) as err:
+            handler(signal.SIGTERM, None)
+        assert err.value.code == 128 + signal.SIGTERM
 
 
 def test_backfill_check_without_key_builds_no_client(earnings_env, wired):
