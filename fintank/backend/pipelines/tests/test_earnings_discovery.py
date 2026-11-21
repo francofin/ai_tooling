@@ -32,7 +32,8 @@ def test_load_state_default_and_round_trip(tmp_path):
     s = LocalStore(str(tmp_path))
     state = st.load_state(s)
     assert state == {"waiting": {}, "pending_batches": [], "written": [],
-                     "attempts": {}, "last_run": None, "backfill_pending": None}
+                     "attempts": {}, "last_run": None, "backfill_pending": None,
+                     "handled": {}}
     state["written"].append("A|2026-Q1")
     st.save_state(s, state)
     assert st.load_state(s)["written"] == ["A|2026-Q1"]
@@ -145,3 +146,70 @@ def test_http_get_never_leaks_the_api_key(monkeypatch):
     with pytest.raises(RuntimeError) as info:
         fmp.http_get_json("https://f/x", params={"apikey": "SECRET"})
     assert "SECRET" not in str(info.value)
+
+
+COV = {"AAPL": {"region": "us", "name": "Apple"}}
+
+
+def _fresh():
+    return st.load_state(LocalStore("/nonexistent-never-written"))
+
+
+def test_dropped_symbol_does_not_reenter():
+    state = _fresh()
+    row = {"symbol": "AAPL", "date": "2026-11-15"}
+    st.update_waiting(state, [row], COV, dt.date(2026, 11, 15))
+    later = dt.date(2026, 11, 23)
+    assert st.expire_waiting(state, later) == ["AAPL"]
+    assert state["handled"] == {"AAPL|2026-11-15": "dropped"}
+    st.update_waiting(state, [row], COV, later)
+    assert state["waiting"] == {}
+
+
+def test_handled_published_does_not_reenter():
+    state = _fresh()
+    st.mark_handled(state, "AAPL", "2026-11-20", "published")
+    st.update_waiting(state, [{"symbol": "AAPL", "date": "2026-11-20"}], COV, TODAY)
+    assert state["waiting"] == {}
+
+
+def test_row_age_limit_is_wait_days():
+    old, edge = _fresh(), _fresh()
+    st.update_waiting(old, [{"symbol": "AAPL", "date": "2026-11-13"}], COV, TODAY)   # 8 days
+    st.update_waiting(edge, [{"symbol": "AAPL", "date": "2026-11-14"}], COV, TODAY)  # 7 days
+    assert old["waiting"] == {} and "AAPL" in edge["waiting"]
+
+
+def test_malformed_calendar_rows_are_skipped():
+    state = _fresh()
+    st.update_waiting(state, [{"symbol": "AAPL", "date": "garbage"}, {"symbol": "AAPL"},
+                              {"symbol": "AAPL", "date": None}], COV, TODAY)
+    assert state["waiting"] == {}
+
+
+def test_stale_takeover_aborts_if_lock_replaced_midway(tmp_path):
+    class Racy(LocalStore):
+        reads = 0
+
+        def get_json(self, key, default=None):
+            v = super().get_json(key, default)
+            if key == st.LOCK_KEY:
+                Racy.reads += 1
+                if Racy.reads == 1:        # right after our first read, another run takes over
+                    self.put_json(key, {"run_id": "other", "taken_at": NOW.isoformat()})
+            return v
+
+    s = Racy(str(tmp_path))
+    LocalStore.put_json(s, st.LOCK_KEY, {"run_id": "old", "taken_at":
+                                         (NOW - dt.timedelta(hours=40)).isoformat()})
+    assert st.acquire_lock(s, "mine", NOW) is False
+    assert LocalStore.get_json(s, st.LOCK_KEY)["run_id"] == "other"
+
+
+def test_malformed_lock_is_held_and_logged(tmp_path):
+    s = LocalStore(str(tmp_path))
+    s.put_json(st.LOCK_KEY, {"oops": 1})
+    msgs = []
+    assert st.acquire_lock(s, "r", NOW, log=msgs.append) is False
+    assert "malformed" in msgs[0] and "earnings/lock.json" in msgs[0]
+    assert s.get_json(st.LOCK_KEY) == {"oops": 1}
