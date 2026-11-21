@@ -15,6 +15,7 @@ import argparse
 import io
 import json
 import os
+import re
 import sys
 import tempfile
 
@@ -91,10 +92,16 @@ class CountingPipeline(StockDataPipeline):
         self.limiter.tick = tick
 
 
+def sanitise(text):
+    """Make free text safe for a report: no URLs, no api keys."""
+    text = re.sub(r"apikey=[^&\s]+", "apikey=<redacted>", str(text), flags=re.I)
+    return re.sub(r"https?://\S+", "<url>", text)
+
+
 def md_table(headers, rows):
     out = ["| " + " | ".join(headers) + " |",
            "|" + "|".join("---" for _ in headers) + "|"]
-    out += ["| " + " | ".join(str(c) for c in r) + " |" for r in rows]
+    out += ["| " + " | ".join(sanitise(c) for c in r) + " |" for r in rows]
     return "\n".join(out)
 
 
@@ -239,7 +246,13 @@ def run_prices(pipe, live, root):
             idx_rows.append((k, cfg.INDEX_TICKERS[k]["ticker"], "FAIL", "-", "-", "-", "-", "no local parquet (fetch failed)"))
             continue
         new = pd.read_parquet(local)
-        r = compare_prices(live.index_prices(k), new)
+        try:
+            live_idx = live.index_prices(k)
+        except Exception as e:  # missing live key
+            idx_rows.append((k, cfg.INDEX_TICKERS[k]["ticker"], "FAIL", "-", "-", "-", "-",
+                             f"no live parquet: {type(e).__name__}"))
+            continue
+        r = compare_prices(live_idx, new)
         note = "; ".join(r["dtype_diffs"])
         if r["oldest_gap_days"] > OLDEST_DATE_TRADING_DAYS:
             note += f"; oldest gap {r['oldest_gap_days']} trading days"
@@ -296,7 +309,7 @@ def run_prices(pipe, live, root):
     for res in (fetch_results, idx_result, build):
         if res is not None and res.failed_items:
             failed_fetch += list(res.failed_items)
-    out += ["## Fetch problems", "", ("; ".join(map(str, failed_fetch)) or "none"), "",
+    out += ["## Fetch problems", "", (sanitise("; ".join(map(str, failed_fetch))) or "none"), "",
             f"FMP calls this run: {pipe.calls}", ""]
     ok = (all(r[2] == "PASS" for r in rows) and all(r[2] == "PASS" for r in idx_rows))
     n_pass = sum(r[2] == "PASS" for r in rows)
