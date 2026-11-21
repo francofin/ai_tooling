@@ -98,3 +98,65 @@ def etf_list_rows(etf_list: list[dict], bulk_rows: list[dict],
             "type": "etf",
         })
     return out
+
+
+# v3 field -> stable field that holds the same concept (None: no stable
+# equivalent, the v3 key is emitted as None). Applies per statement kind, on
+# top of the common filingDate/fiscalYear renames below.
+_COMMON_RENAMES = {"fillingDate": "filingDate", "calendarYear": "fiscalYear"}
+STATEMENT_RENAMES = {
+    "income": {**_COMMON_RENAMES, "epsdiluted": "epsDiluted",
+               "link": None, "finalLink": None},
+    "balance": {**_COMMON_RENAMES,
+                "othertotalStockholdersEquity": "otherTotalStockholdersEquity",
+                "totalLiabilitiesAndStockholdersEquity": "totalLiabilitiesAndTotalEquity",
+                "link": None, "finalLink": None},
+    "cashflow": {**_COMMON_RENAMES,
+                 "commonStockIssued": "commonStockIssuance",
+                 "debtRepayment": "netDebtIssuance",
+                 "dividendsPaid": "netDividendsPaid",
+                 "netCashUsedForInvestingActivites": "netCashProvidedByInvestingActivities",
+                 "netCashUsedProvidedByFinancingActivities": "netCashProvidedByFinancingActivities",
+                 "otherFinancingActivites": "otherFinancingActivities",
+                 "otherInvestingActivites": "otherInvestingActivities",
+                 "link": None, "finalLink": None},
+}
+
+_MAPPED_SOURCES = {"totalLiabilitiesAndTotalEquity"}
+
+# v3 ratio field -> the income field it divides by revenue.
+_INCOME_RATIOS = {
+    "grossProfitRatio": "grossProfit",
+    "ebitdaratio": "ebitda",
+    "operatingIncomeRatio": "operatingIncome",
+    "incomeBeforeTaxRatio": "incomeBeforeTax",
+    "netIncomeRatio": "netIncome",
+}
+
+
+def statement_rows(kind: str, rows: list) -> list:
+    """Stable statement rows -> v3-shaped rows (FIELD_MAPPINGS keys all present).
+
+    Stable keys are kept; renamed ones move to the v3 spelling (the stable
+    spelling is dropped so a row never carries both). calendarYear stays a
+    str as in v3. Income ratios are derived (part / revenue, None when revenue
+    is 0 or None); link/finalLink are None."""
+    renames = STATEMENT_RENAMES[kind]
+    # totalLiabilitiesAndTotalEquity is itself a mapped v3 column (v3 carried
+    # it alongside totalLiabilitiesAndStockholdersEquity), so it stays.
+    sources = {s for s in renames.values() if s} - _MAPPED_SOURCES
+    out = []
+    for r in rows:
+        row = {k: v for k, v in r.items() if k not in sources}
+        for v3_key, src in renames.items():
+            row[v3_key] = r.get(src) if src else None
+        if row["calendarYear"] is not None:
+            row["calendarYear"] = str(row["calendarYear"])
+        if kind == "income":
+            revenue = r.get("revenue")
+            for ratio, part in _INCOME_RATIOS.items():
+                num = r.get(part)
+                row[ratio] = (num / revenue if revenue and num is not None
+                              else None)
+        out.append(row)
+    return out

@@ -100,7 +100,7 @@ from pipelines import pipeline_config as cfg  # noqa: E402
 from pipelines.attribution import compute_attribution  # noqa: E402
 from pipelines.factor_windows import WINDOWS, window_return_and_std  # noqa: E402
 from pipelines.fmp_stable_shapes import (HISTORY_ROW_CAP, etf_list_rows, holdings_rows,  # noqa: E402
-                                         index_payload, price_payload)
+                                         index_payload, price_payload, statement_rows)
 from pipelines.results import StageResult, redact  # noqa: E402
 
 warnings.filterwarnings("ignore")
@@ -332,19 +332,20 @@ class StockDataPipeline:
     def _profile_url(self, symbol):
         return self._stable("profile", symbol=symbol)
 
-    # [v3-only for now] stable renames fillingDate→filingDate,
-    # calendarYear→fiscalYear, epsdiluted→epsDiluted, and DROPS fields mapped
-    # to Django columns (grossProfitRatio, ebitdaratio, operatingIncomeRatio,
-    # incomeBeforeTaxRatio, netIncomeRatio, link, finalLink). Migrate only
-    # together with a derivation step for those ratios.
-    def _income_url(self, symbol):
-        return self._v3(f"income-statement/{symbol}", period="quarter")
+    # [stable] statements are fetched with limit=400 (stable defaults to five
+    # rows) and reshaped to the v3 field names by fmp_stable_shapes.statement_rows
+    # (renames, derived income ratios, link/finalLink None); see fetch_financial_statements.
+    def _statement_fetch(self, kind, path):
+        return lambda s: statement_rows(
+            kind, self._stable_rows(path, symbol=s, period="quarter", limit=400))
 
-    def _balance_url(self, symbol):
-        return self._v3(f"balance-sheet-statement/{symbol}", period="quarter")
-
-    def _cashflow_url(self, symbol):
-        return self._v3(f"cash-flow-statement/{symbol}", period="quarter")
+    def _fetch_json(self, url_builder):
+        """fetch(symbol) callable for a URL builder: one _get + one tick."""
+        def fetch(symbol):
+            payload = self._get(url_builder(symbol))
+            self.limiter.tick()
+            return payload
+        return fetch
 
     # [stable] limit=400: stable defaults to FIVE rows (v3 returned full
     # history — 164 quarters for AAPL); probed 2026-08-01.
@@ -910,7 +911,8 @@ class StockDataPipeline:
         """Shared driver for the per-symbol fetchers (profiles, statements,
         ratios, TTM) — one skeleton instead of four near-identical methods.
 
-        datasets: (data_type, url_builder, file_suffix, merge) tuples.
+        datasets: (data_type, fetch, file_suffix, merge) tuples;
+            fetch(symbol) does its own GET and limiter tick and returns the payload.
             merge=True merges by 'date' (time series); merge=False overwrites
             (snapshots — TTM/profiles; the original's update=True on dateless
             TTM rows was a silent no-op, so those files never refreshed).
@@ -940,9 +942,8 @@ class StockDataPipeline:
                     continue
                 entry = {}
                 try:
-                    for data_type, url_builder, suffix, merge in datasets:
-                        payload = self._get(url_builder(symbol))
-                        self.limiter.tick()
+                    for data_type, fetch, suffix, merge in datasets:
+                        payload = fetch(symbol)
                         if not payload:
                             raise ValueError(f"empty {data_type} payload")
                         path = f"{self.json_dir(data_type, sub_universe)}{symbol}{suffix}"
@@ -979,28 +980,35 @@ class StockDataPipeline:
         FIELD_MAPPINGS profile dicts use the stable names). Snapshot: files
         are overwritten each run."""
         return self._fetch_constituent_datasets(
-            [("company_profiles", self._profile_url, "_profile.json", False)],
+            [("company_profiles", self._fetch_json(self._profile_url), "_profile.json", False)],
             manifest_group="profiles", stage_name="fetch_profiles",
             constituent_keys=constituent_keys, limit=limit)
 
     def fetch_etf_profiles(self, limit=None):
         """Profiles for the tradable-ETF snapshot → company_profiles/etfs/."""
         return self._fetch_constituent_datasets(
-            [("company_profiles", self._profile_url, "_profile.json", False)],
+            [("company_profiles", self._fetch_json(self._profile_url), "_profile.json", False)],
             manifest_group="profiles", stage_name="fetch_etf_profiles",
             constituent_keys=["etf_data"], limit=limit)
 
     def fetch_financial_statements(self, constituent_keys=None, limit=None):
-        """Quarterly income/balance/cash-flow statements (v3 — stable drops
-        mapped Django fields). Merged by date, so reruns only add new quarters.
+        """Quarterly income/balance/cash-flow statements (stable, reshaped to
+        the v3 field names the Django mappings use). Merged by date, so reruns
+        only add new quarters.
 
         No date parameter: always the full window. ~30,400 calls, the longest
         stage at roughly 2 hours.
         """
         return self._fetch_constituent_datasets(
-            [("income_statements", self._income_url, "_income_statement.json", True),
-             ("balance_sheet_statements", self._balance_url, "_balance_sheet.json", True),
-             ("cash_flow_statements", self._cashflow_url, "_cash_flow.json", True)],
+            [("income_statements",
+              self._statement_fetch("income", "income-statement"),
+              "_income_statement.json", True),
+             ("balance_sheet_statements",
+              self._statement_fetch("balance", "balance-sheet-statement"),
+              "_balance_sheet.json", True),
+             ("cash_flow_statements",
+              self._statement_fetch("cashflow", "cash-flow-statement"),
+              "_cash_flow.json", True)],
             manifest_group="fundamentals", stage_name="fetch_financial_statements",
             constituent_keys=constituent_keys, limit=limit)
 
@@ -1008,8 +1016,8 @@ class StockDataPipeline:
         """Quarterly ratios + key metrics (stable). Merged by date. No date
         parameter — always the full window. ~20,200 calls."""
         return self._fetch_constituent_datasets(
-            [("ratios", self._ratios_url, "_ratios.json", True),
-             ("metrics", self._key_metrics_url, "_metrics.json", True)],
+            [("ratios", self._fetch_json(self._ratios_url), "_ratios.json", True),
+             ("metrics", self._fetch_json(self._key_metrics_url), "_metrics.json", True)],
             manifest_group="metrics", stage_name="fetch_ratios",
             constituent_keys=constituent_keys, limit=limit)
 
@@ -1019,8 +1027,8 @@ class StockDataPipeline:
         update=True, but TTM rows carry no 'date', so its merge was a no-op
         and the files never refreshed after first write. ~20,200 calls."""
         return self._fetch_constituent_datasets(
-            [("ratios_ttm", self._ratios_ttm_url, "_ratios_ttm.json", False),
-             ("metrics_ttm", self._metrics_ttm_url, "_metrics_ttm.json", False)],
+            [("ratios_ttm", self._fetch_json(self._ratios_ttm_url), "_ratios_ttm.json", False),
+             ("metrics_ttm", self._fetch_json(self._metrics_ttm_url), "_metrics_ttm.json", False)],
             manifest_group="metrics_ttm", stage_name="fetch_ttm_ratios",
             constituent_keys=constituent_keys, limit=limit)
 

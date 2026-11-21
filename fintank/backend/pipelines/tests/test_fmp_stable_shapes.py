@@ -1,9 +1,12 @@
 import csv
 import io
 
+import pytest
+
 from pipelines import pipeline_config as cfg
 from pipelines.fmp_stable_shapes import (etf_list_rows, holdings_rows,
-                                         index_payload, price_payload, v3_label)
+                                         index_payload, price_payload,
+                                         statement_rows, v3_label)
 
 from .helpers import load_fixture
 
@@ -116,3 +119,66 @@ def test_etf_list_rows_empty_price_is_none():
              "exchange": "NASDAQ"}]
     out = etf_list_rows([{"symbol": "A", "name": "a"}], bulk, ["NASDAQ"])
     assert out[0]["price"] is None
+
+
+_STATEMENTS = [("income", "income_q_aapl", "income_statements"),
+               ("balance", "balance_q_aapl", "balance_sheet_statements"),
+               ("cashflow", "cashflow_q_aapl", "cash_flow_statements")]
+
+
+@pytest.mark.parametrize("kind,fixture,mapping", _STATEMENTS)
+def test_statement_rows_cover_field_mappings(kind, fixture, mapping):
+    raw = load_fixture(fixture)
+    out = statement_rows(kind, raw)
+    assert len(out) == len(raw)
+    for row in out:
+        assert set(cfg.FIELD_MAPPINGS[mapping]) <= set(row)
+
+
+@pytest.mark.parametrize("kind,fixture,mapping", _STATEMENTS)
+def test_statement_rows_never_carry_both_spellings(kind, fixture, mapping):
+    for row in statement_rows(kind, load_fixture(fixture)):
+        assert not {"filingDate", "fiscalYear", "epsDiluted"} & set(row)
+
+
+def test_income_ratios_derived():
+    raw = load_fixture("income_q_aapl")
+    row = statement_rows("income", raw)[0]
+    r = raw[0]
+    assert row["grossProfitRatio"] == pytest.approx(r["grossProfit"] / r["revenue"])
+    assert row["ebitdaratio"] == pytest.approx(r["ebitda"] / r["revenue"])
+    assert row["operatingIncomeRatio"] == pytest.approx(r["operatingIncome"] / r["revenue"])
+    assert row["incomeBeforeTaxRatio"] == pytest.approx(r["incomeBeforeTax"] / r["revenue"])
+    assert row["netIncomeRatio"] == pytest.approx(r["netIncome"] / r["revenue"])
+    assert row["epsdiluted"] == r["epsDiluted"]
+    assert row["fillingDate"] == r["filingDate"]
+    assert row["link"] is None and row["finalLink"] is None
+
+
+@pytest.mark.parametrize("revenue", [0, None])
+def test_income_ratios_none_when_revenue_zero(revenue):
+    raw = [dict(load_fixture("income_q_aapl")[0], revenue=revenue)]
+    row = statement_rows("income", raw)[0]
+    for k in ("grossProfitRatio", "ebitdaratio", "operatingIncomeRatio",
+              "incomeBeforeTaxRatio", "netIncomeRatio"):
+        assert row[k] is None
+
+
+@pytest.mark.parametrize("kind,fixture,mapping", _STATEMENTS)
+def test_calendar_year_keeps_v3_type(kind, fixture, mapping):
+    raw = load_fixture(fixture)
+    row = statement_rows(kind, raw)[0]
+    assert type(row["calendarYear"]) is str
+    assert row["calendarYear"] == str(raw[0]["fiscalYear"])
+
+
+def test_balance_and_cashflow_renames_carry_values():
+    b = load_fixture("balance_q_aapl")[0]
+    row = statement_rows("balance", [b])[0]
+    assert row["othertotalStockholdersEquity"] == b["otherTotalStockholdersEquity"]
+    assert row["totalLiabilitiesAndStockholdersEquity"] == b["totalLiabilitiesAndTotalEquity"]
+    c = load_fixture("cashflow_q_aapl")[0]
+    row = statement_rows("cashflow", [c])[0]
+    assert row["debtRepayment"] == c["netDebtIssuance"]
+    assert row["dividendsPaid"] == c["netDividendsPaid"]
+    assert row["otherInvestingActivites"] == c["otherInvestingActivities"]
