@@ -55,6 +55,17 @@ export const fetchAnalystView = (symbol) =>
 export const fetchAnalystQuarterly = (symbol) =>
   request(`/analyst-view/${encodeURIComponent(symbol)}/quarterly/`, 'analyst quarterly');
 
+// AI earnings notes. 404 means no note (or withdrawn). `quarter` is "2026-Q3".
+export const fetchEarningsNotes = (symbol) =>
+  request(`/earnings-notes/${encodeURIComponent(symbol)}/`, 'earnings notes');
+
+export const fetchEarningsNote = (symbol, quarter) =>
+  request(`/earnings-notes/${encodeURIComponent(symbol)}/${encodeURIComponent(quarter)}/`, 'earnings note');
+
+// Covered companies reporting in the week starting `weekISO` (a Monday).
+export const fetchEarningsCalendar = (weekISO) =>
+  request(`/earnings-calendar/?week=${encodeURIComponent(weekISO)}`, 'earnings calendar');
+
 // Funds live on their own route: /stock-data/ reads the equity-only
 // long_profiles parquet and 404s for every ETF. stock-data/[ticker].js catches
 // that and redirects, so this is purely an optimisation -- callers holding a

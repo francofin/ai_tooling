@@ -48,6 +48,9 @@ const Team = () => {
                 {data.subtitle}
                 </h1>
                 <p className="text-lg text-shadow mt-3">{data.content}</p>
+                <p className="text-sm text-shadow mt-3">
+                  Earnings notes are written by AI (Claude) from each company&apos;s earnings call transcript; each is one opinion, not investment advice.
+                </p>
               </Col>
             </Row>
           </Container>
