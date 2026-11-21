@@ -6,6 +6,8 @@ import { withIsLoading } from './swrLoading'
 // coverage and never resolves on retry.
 const OPTIONS = {
   revalidateOnFocus: false,
+  errorRetryCount: 6,
+  errorRetryInterval: 60 * 1000,
   shouldRetryOnError: (err) => err?.status !== 404,
 }
 

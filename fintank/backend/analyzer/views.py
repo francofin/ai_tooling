@@ -366,6 +366,8 @@ def get_analyst_view(request, symbol):
     except KeyError:
         return Response({"detail": f"No analyst data for '{symbol}'"}, status=status.HTTP_404_NOT_FOUND)
     except AnalystUnavailable as e:
+        # Class name only: the cause's message can hold the FMP URL with the apikey.
+        logger.warning("analyst view upstream failed for %s: %s", symbol, type(e.__cause__).__name__)
         return Response({"detail": client_safe_message(e)}, status=status.HTTP_502_BAD_GATEWAY)
     except Exception as e:
         return server_error_response(logger, "get_analyst_view", e)
@@ -380,6 +382,7 @@ def get_analyst_quarterly(request, symbol):
     except KeyError:
         return Response({"detail": f"No analyst data for '{symbol}'"}, status=status.HTTP_404_NOT_FOUND)
     except AnalystUnavailable as e:
+        logger.warning("analyst quarterly upstream failed for %s: %s", symbol, type(e.__cause__).__name__)
         return Response({"detail": client_safe_message(e)}, status=status.HTTP_502_BAD_GATEWAY)
     except Exception as e:
         return server_error_response(logger, "get_analyst_quarterly", e)

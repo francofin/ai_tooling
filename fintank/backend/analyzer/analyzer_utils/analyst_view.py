@@ -1,4 +1,4 @@
-"""Pure shaping helpers for the stock-page analyst view (no Django/cache/network)."""
+"""Stock-page analyst view: pure shaping helpers first, then the cached FMP getters below."""
 from datetime import date
 
 import requests

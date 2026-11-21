@@ -2,7 +2,7 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { fmtRange, targetLabel, upsidePct } from './analystViewFormat.mjs'
+import { fmtRange, sourceLabel, targetLabel, upsidePct } from './analystViewFormat.mjs'
 
 const source = { symbol: 'SHOP', exchange: 'NYSE' }
 
@@ -18,6 +18,16 @@ describe('targetLabel', () => {
   })
   it('is null without a source', () => {
     assert.equal(targetLabel({ consensus: 178.25 }, null), null)
+  })
+})
+
+describe('sourceLabel', () => {
+  it('names the US listing the ratings come from', () => {
+    assert.equal(sourceLabel({ symbol: 'RY', exchange: 'NYSE' }), "from RY's NYSE listing")
+  })
+  it('is null without a source', () => {
+    assert.equal(sourceLabel(null), null)
+    assert.equal(sourceLabel(undefined), null)
   })
 })
 

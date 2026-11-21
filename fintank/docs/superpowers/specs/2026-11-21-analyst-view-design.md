@@ -67,6 +67,7 @@ Page loads read from Redis. FMP is called only when the cached copy is missing o
 | `search-exchange-variants` | Once per .TO stock per **30 days**. Cross-listings rarely change. |
 | `income-statement?limit=1` (reporting currency for the estimates label) | Once per stock per **30 days**, cached with the listing lookup. Added in the plan. |
 | `quote?symbol=USDCAD` | Once per day for the whole site |
+| Quote for the US listing (upside % on interlisted stocks) | Reuses /api/stock-quote/ caching: 15 min while trading, held while closed |
 
 - **Per stock per day:** about 4 calls (5 if the quarterly toggle is opened).
 - **Example:** 200 different stocks viewed in a day comes to about 800–1,000 FMP calls, however many times the pages are loaded.

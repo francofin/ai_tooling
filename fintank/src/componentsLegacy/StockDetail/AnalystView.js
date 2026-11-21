@@ -3,7 +3,7 @@ import { ButtonGroup, Button, ProgressBar, Table } from 'react-bootstrap'
 import { useAnalystView, useAnalystQuarterly } from '@hooks/useAnalystView'
 import useStockQuote from '@hooks/useStockQuote'
 import { formatPrice, formatMarketCap, EMPTY } from '@utils/stockQuoteFormat'
-import { fmtRange, targetLabel, upsidePct } from '@utils/analystViewFormat.mjs'
+import { fmtRange, sourceLabel, targetLabel, upsidePct } from '@utils/analystViewFormat.mjs'
 
 const METRICS = [
   ['revenue', 'Revenue', (v, c) => formatMarketCap(v, c)],
@@ -50,11 +50,13 @@ const EstimatesTable = ({ periods, currency }) => (
   </div>
 )
 
-const RatingsBar = ({ ratings }) => (
+const RatingsBar = ({ ratings, source }) => (
   <div className="mb-4">
     <div className="mb-1">
       <strong>{ratings.consensus || EMPTY}</strong>
-      <span className="text-muted ms-2">{ratings.total} analysts</span>
+      <span className="text-muted ms-2">
+        {ratings.total} analysts{source ? ` · ${sourceLabel(source)}` : ''}
+      </span>
     </div>
     <ProgressBar>
       {RATING_BARS.map(([key, label, variant]) =>
@@ -153,13 +155,17 @@ const AnalystView = ({ symbol, currency }) => {
           </div>
           {period === 'quarter' && quarterly.isLoading && <p className="text-muted">Loading quarterly estimates…</p>}
           {period === 'quarter' && quarterly.error && (
-            <p className="text-muted">Quarterly estimates unavailable right now.</p>
+            <p className="text-muted">
+              {quarterly.error?.status === 404
+                ? 'No quarterly estimates.'
+                : 'Quarterly estimates unavailable right now.'}
+            </p>
           )}
           {periods.length > 0 && <EstimatesTable periods={periods} currency={data.reporting_currency} />}
         </div>
       )}
 
-      {ratings && <RatingsBar ratings={ratings} />}
+      {ratings && <RatingsBar ratings={ratings} source={source} />}
       {target && <PriceTarget target={target} source={source} currency={currency} price={quoteData?.quote?.price} />}
 
       <p className="text-muted text-xs mb-0">

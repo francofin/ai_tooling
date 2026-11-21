@@ -142,7 +142,7 @@ const StockDetail = ({ symbol, profile, dates, series, asOfDate, unknownSymbol }
             {series && <MomentumCharts dates={dates} series={series} />}
 
             <StatementsSection symbol={symbol} />
-            <AnalystView symbol={symbol} currency={profile.currency} />
+            <AnalystView key={symbol} symbol={symbol} currency={profile.currency} />
             <SectorNews sector={profile.sector} />
           </Col>
         </Row>

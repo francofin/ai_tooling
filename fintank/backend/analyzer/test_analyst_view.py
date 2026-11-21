@@ -288,6 +288,18 @@ class AnalystViewEndpointTests(SimpleTestCase):
         self.assertNotIn("apikey", body)
         self.assertNotIn("SECRET123", body)
 
+    def test_view_502_logs_cause_class_only(self):
+        cause = requests.ConnectionError("https://x/stable/y?apikey=SECRET123")
+        err = av.AnalystUnavailable("RY")
+        err.__cause__ = cause
+        with mock.patch("analyzer.analyzer_utils.analyst_view.get_analyst_view", side_effect=err):
+            with self.assertLogs("analyzer.views", level="WARNING") as logs:
+                self.client.get(ROUTE.format("RY"))
+        out = "\n".join(logs.output)
+        self.assertIn("analyst view upstream failed for RY: ConnectionError", out)
+        self.assertNotIn("apikey", out)
+        self.assertNotIn("SECRET123", out)
+
     def test_view_500_hides_unexpected_error(self):
         with mock.patch("analyzer.analyzer_utils.analyst_view.get_analyst_view",
                         side_effect=RuntimeError("apikey=SECRET123")):
