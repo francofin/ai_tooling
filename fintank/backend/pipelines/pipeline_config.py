@@ -17,8 +17,8 @@ Renamed for consistency when moved out of the notebook (old name → new):
                         what owns the API key)
 
 Dropped as provably unreferenced (defined in the notebook, never called):
-    index_urls, index_history_url (the stable variant — the live path uses
-    the v3 one), tsx_industrials_url, available_indexes_url,
+    index_urls, index_history_url (the stable variant, superseded by the
+    live path), tsx_industrials_url, available_indexes_url,
     index_prices_file_names, INDEX_PRICES_DIR, INDEX_PRICES_V1_DIR,
     EXCEL_ROOT, aggregated_excel_path, statement_excel_path,
     aggregated_parquet_path, statement_parquet_path  (the Excel View
@@ -27,8 +27,8 @@ Dropped as provably unreferenced (defined in the notebook, never called):
 
 # ── Universe ─────────────────────────────────────────────────────────────────
 # Constituent list key → the proxy ETF whose holdings define it. Membership is
-# read through v3 `etf-holder`; stable/etf/holdings is an Ultimate-plan
-# Restricted Endpoint, so the whole constituent pipeline hangs off v3.
+# read through stable `etf/holdings` (reshaped to the old v3 etf-holder rows), so
+# the whole constituent pipeline hangs off that one call.
 #
 # Insertion order is the run order for every fetcher that defaults to "all
 # lists" — preserved from the notebook's `constituent_urls`.
@@ -49,8 +49,8 @@ CONSTITUENT_PROXY_ETFS = {
 ATTRIBUTION_CURRENCY = {"msci_eafe": "local", "msci_sm": "local",
                         "tsx": "CAD", "tsx_small_cap": "CAD"}
 
-# [v3-only] stable/etf-list returns only {symbol, name} — no 'exchange' field
-# to apply this filter to.
+# [stable] stable/etf-list returns only {symbol, name}; the exchange this filter
+# matches comes from the profile-bulk CSV (exchangeFullName), joined by symbol.
 ETF_EXCHANGE_FILTER = [
     "New York Stock Exchange Arca", "NASDAQ Global Market", "NASDAQ",
     "American Stock Exchange", "Chicago Board Options Exchange",
@@ -89,7 +89,7 @@ FACTOR_SUB_UNIVERSES = [s for s in ALL_SUB_UNIVERSES if s != "etfs"]
 
 # ── Indexes ──────────────────────────────────────────────────────────────────
 # Index key → FMP ticker + display name. Drives fetch_index_prices()
-# (v3 historical-price-full; most are ^-symbols, plan-gated on stable).
+# (stable historical-price-eod; most are ^-symbols).
 INDEX_TICKERS = {
     'tsx': {'ticker': '^GSPTSE', 'full_name': 'S&P/TSX Composite Index'},
     'tsx_indust': {'ticker': '^TTIN', 'full_name': 'S&P/TSX Industrials Index'},
@@ -389,8 +389,8 @@ RELATIVE_PERF_PAIRS = {
 # ── Field mappings (FMP → Django column names) ───────────────────────────────
 # Profile mappings use STABLE field names (probed 2026-08-01: marketCap,
 # lastDividend, averageVolume, and stable's exchange swap — `exchange` short
-# code / `exchangeFullName` long name); statement and TTM mappings keep v3
-# names, since those endpoints stay on v3.
+# code / `exchangeFullName` long name); statement and TTM mappings keep the retired v3
+# API's names; the stable rows are reshaped to them by fmp_stable_shapes.
 FIELD_MAPPINGS = {
     'company_profiles': {
         'symbol': 'symbol',

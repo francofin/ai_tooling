@@ -1,0 +1,57 @@
+[
+ {
+  "symbol": "SPY",
+  "sector": "Technology",
+  "weightPercentage": 35.53
+ },
+ {
+  "symbol": "SPY",
+  "sector": "Financial Services",
+  "weightPercentage": 12.56
+ },
+ {
+  "symbol": "SPY",
+  "sector": "Healthcare",
+  "weightPercentage": 10.38
+ },
+ {
+  "symbol": "SPY",
+  "sector": "Consumer Cyclical",
+  "weightPercentage": 9.79
+ },
+ {
+  "symbol": "SPY",
+  "sector": "Communication Services",
+  "weightPercentage": 8.89
+ },
+ {
+  "symbol": "SPY",
+  "sector": "Industrials",
+  "weightPercentage": 8.28
+ },
+ {
+  "symbol": "SPY",
+  "sector": "Consumer Defensive",
+  "weightPercentage": 5.28
+ },
+ {
+  "symbol": "SPY",
+  "sector": "Energy",
+  "weightPercentage": 3.52
+ },
+ {
+  "symbol": "SPY",
+  "sector": "Utilities",
+  "weightPercentage": 2.16
+ },
+ {
+  "symbol": "SPY",
+  "sector": "Real Estate",
+  "weightPercentage": 1.88
+ },
+ {
+  "symbol": "SPY",
+  "sector": "Basic Materials",
+  "weightPercentage": 1.73
+ }
+]

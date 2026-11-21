@@ -83,4 +83,6 @@ after three clean runs):
 | `attribution.<sub>.residual` | sum of contributions vs the proxy ETF's price return is over the per-window limit; MSCI lists are reported, not checked, and so are YTD/1Y for r2000, rmicro, tsx_small_cap (members that graduated to a bigger index at reconstitution are missing from the snapshot, so those windows fall short of the ETF by several pp) |
 | `build_index_attribution.failure_rate` | a list was skipped (capped at WARN) |
 
+The pipeline fetches from FMP stable since 2026-11-21 (branch `fix/fmp-stable-pipeline`); outputs keep the v3 shapes.
+
 Tests: `../../.venv/bin/python -m pytest pipelines/tests -q`.

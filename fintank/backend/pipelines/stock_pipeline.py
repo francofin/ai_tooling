@@ -62,7 +62,9 @@ Two deliberate changes from the notebook, both flagged where they occur:
 """
 from __future__ import annotations
 
+import csv
 import datetime
+import io
 import json
 import os
 import re
@@ -97,11 +99,13 @@ if BACKEND_DIR not in sys.path:
 from pipelines import pipeline_config as cfg  # noqa: E402
 from pipelines.attribution import compute_attribution  # noqa: E402
 from pipelines.factor_windows import WINDOWS, window_return_and_std  # noqa: E402
+from pipelines.fmp_stable_shapes import (HISTORY_ROW_CAP, etf_list_rows, holdings_rows,  # noqa: E402
+                                         index_payload, price_payload, sector_snapshot_rows,
+                                         statement_rows, ttm_rows)
 from pipelines.results import StageResult, redact  # noqa: E402
 
 warnings.filterwarnings("ignore")
 
-V3_BASE = "https://financialmodelingprep.com/api/v3"
 STABLE_BASE = "https://financialmodelingprep.com/stable"
 FRED_BASE = "https://api.stlouisfed.org/fred/series/observations"
 START_DATE = "1999-01-01"
@@ -141,6 +145,10 @@ FACTOR_WINDOW_COLUMNS = (["1M", "3M", "6M", "ytd"]
                          + ["1MSTD", "3MSTD", "6MSTD", "YTDSTD"])
 
 
+# Safety stop for the profile-bulk part loop (FMP has ~4 parts today).
+_PROFILE_BULK_MAX_PARTS = 20
+
+
 class FetchHTTPError(RuntimeError):
     """An HTTP error from _get, redacted, with the status code kept so callers
     can tell "not on our FMP plan" (402) from a real failure."""
@@ -169,6 +177,32 @@ class RateLimiter:
             print(f"\nSleeping {self.pause}s to respect API limit...")
             time.sleep(self.pause)
             self.count = 0
+
+
+RETRY_BACKOFF_SECONDS = 5
+
+
+def _sleep(seconds):
+    """Indirection so tests can skip the retry backoff."""
+    time.sleep(seconds)
+
+
+def _is_transient(error):
+    """A network failure, HTTP 429 or a 5xx: worth one more try."""
+    if isinstance(error, FetchHTTPError):
+        return error.status == 429 or (error.status or 0) >= 500
+    return True
+
+
+def _retry_once(call):
+    """call(), and on a transient RuntimeError wait and call() once more."""
+    try:
+        return call()
+    except RuntimeError as e:
+        if not _is_transient(e):
+            raise
+        _sleep(RETRY_BACKOFF_SECONDS)
+        return call()
 
 
 class StockDataPipeline:
@@ -304,9 +338,9 @@ class StockDataPipeline:
     # Plumbing: URLs, HTTP, JSON/parquet writes.
     #
     # Endpoint generation was verified live against our key on 2026-07-31.
-    #   [v3-only]  stable gates this behind a higher plan (403 "Premium Query
-    #              Parameter" / "Restricted Endpoint") or drops fields we
-    #              depend on — do NOT migrate without re-verifying.
+    # Every endpoint is now on FMP stable (migrated off the retired v3 API,
+    # verified 2026-11-21). Responses are reshaped to the old v3 row shapes by
+    # fmp_stable_shapes so the stored files and Django mappings are unchanged.
     #   [stable]   verified working on our plan.
     # ─────────────────────────────────────────────────────────────────────
     def _url(self, base, path, **params):
@@ -314,49 +348,27 @@ class StockDataPipeline:
         query = "&".join(f"{k}={v}" for k, v in params.items() if v is not None)
         return f"{base}/{path}?{query}"
 
-    def _v3(self, path, **params):
-        return self._url(V3_BASE, path, **params)
-
     def _stable(self, path, **params):
         return self._url(STABLE_BASE, path, **params)
-
-    # [v3-only] Canadian index symbols 403 on every stable price route under
-    # the current plan; v3 serves them fine.
-    def _index_history_url(self, symbol, from_date=START_DATE):
-        return self._v3(f"historical-price-full/{symbol}", **{"from": from_date})
-
-    # [v3-only] stable/etf/holdings is a Restricted Endpoint (Ultimate plan).
-    # The entire constituent pipeline hangs off this.
-    def _etf_holder_url(self, etf_symbol):
-        return self._v3(f"etf-holder/{etf_symbol}")
-
-    # [v3-only] stable/etf-list returns only {symbol, name} — no 'exchange'.
-    def _etf_list_url(self):
-        return self._v3("etf/list")
-
-    # [v3-only] stable historical-price-eod/full drops adjClose (the metric
-    # calculators dropna on adjClose); the dividend-adjusted variant drops raw
-    # OHLC, which would double the call count per symbol.
-    def _prices_url(self, symbol, from_date=None):
-        return self._v3(f"historical-price-full/{symbol}", **{"from": from_date})
 
     # [stable] FIELD_MAPPINGS profile dicts use the stable names.
     def _profile_url(self, symbol):
         return self._stable("profile", symbol=symbol)
 
-    # [v3-only for now] stable renames fillingDate→filingDate,
-    # calendarYear→fiscalYear, epsdiluted→epsDiluted, and DROPS fields mapped
-    # to Django columns (grossProfitRatio, ebitdaratio, operatingIncomeRatio,
-    # incomeBeforeTaxRatio, netIncomeRatio, link, finalLink). Migrate only
-    # together with a derivation step for those ratios.
-    def _income_url(self, symbol):
-        return self._v3(f"income-statement/{symbol}", period="quarter")
+    # [stable] statements are fetched with limit=400 (stable defaults to five
+    # rows) and reshaped to the v3 field names by fmp_stable_shapes.statement_rows
+    # (renames, derived income ratios, link/finalLink None); see fetch_financial_statements.
+    def _statement_fetch(self, kind, path):
+        return lambda s: statement_rows(
+            kind, self._stable_rows(path, symbol=s, period="quarter", limit=400))
 
-    def _balance_url(self, symbol):
-        return self._v3(f"balance-sheet-statement/{symbol}", period="quarter")
-
-    def _cashflow_url(self, symbol):
-        return self._v3(f"cash-flow-statement/{symbol}", period="quarter")
+    def _fetch_json(self, url_builder):
+        """fetch(symbol) callable for a URL builder: one _get + one tick."""
+        def fetch(symbol):
+            payload = self._get(url_builder(symbol))
+            self.limiter.tick()
+            return payload
+        return fetch
 
     # [stable] limit=400: stable defaults to FIVE rows (v3 returned full
     # history — 164 quarters for AAPL); probed 2026-08-01.
@@ -367,15 +379,27 @@ class StockDataPipeline:
         return self._stable("key-metrics", symbol=symbol, period="quarter",
                             limit=limit)
 
-    # [v3-only] stable/ratios-ttm drops 31 v3 fields incl. peRatioTTM,
-    # dividendYielTTM, payoutRatioTTM — all mapped in company_ratios_ttm.
-    def _ratios_ttm_url(self, symbol):
-        return self._v3(f"ratios-ttm/{symbol}")
+    # [stable] ratios-ttm and key-metrics-ttm are reshaped to the v3 TTM rows
+    # by fmp_stable_shapes.ttm_rows (31 / 34 v3 fields renamed, some drawn from
+    # the other endpoint). _ttm_pair fetches both once per symbol; the two
+    # datasets in fetch_ttm_ratios share it, so a symbol costs 2 calls.
+    def _ttm_pair(self, symbol):
+        """(v3 ratios row, v3 metrics row) from the two stable TTM endpoints.
 
-    # [v3-only for now] stable/key-metrics-ttm works but renames fields that
-    # FIELD_MAPPINGS['company_metrics_ttm'] maps; keep v3 until that is audited.
-    def _metrics_ttm_url(self, symbol):
-        return self._v3(f"key-metrics-ttm/{symbol}")
+        Memoised for the last symbol only, and only after both calls and the
+        reshape succeeded, so a failure never leaves a memo behind."""
+        memo = getattr(self, "_ttm_memo", None)
+        if memo is not None and memo[0] == symbol:
+            return memo[1]
+        ratios = self._stable_rows("ratios-ttm", symbol=symbol)
+        metrics = self._stable_rows("key-metrics-ttm", symbol=symbol)
+        if not ratios or not metrics:
+            self._ttm_memo = None
+            which = "ratios_ttm" if not ratios else "metrics_ttm"
+            raise ValueError(f"empty {which} payload")
+        pair = ttm_rows(ratios[0], metrics[0])
+        self._ttm_memo = (symbol, pair)
+        return pair
 
     # [stable] Verified against v4 on 2026-09-26: identical numbers, but stable
     # also carries reportedCurrency and a top-level date/fiscalYear/period.
@@ -404,8 +428,8 @@ class StockDataPipeline:
         return url
 
     @staticmethod
-    def _get(url, timeout=30):
-        """GET a URL and return parsed JSON; raises on HTTP errors.
+    def _fetch(url, timeout):
+        """GET a URL and return the response; raises on HTTP errors.
 
         requests puts the full URL — apikey included — in its error messages,
         so they are re-raised redacted, without the original chained on."""
@@ -418,7 +442,89 @@ class StockDataPipeline:
         except requests.RequestException as e:
             raise RuntimeError(redact(str(e))) from None
         StockDataPipeline.bytes_downloaded += len(response.content)
-        return response.json()
+        return response
+
+    @staticmethod
+    def _get(url, timeout=30):
+        """GET a URL and return parsed JSON; raises on HTTP errors."""
+        return StockDataPipeline._fetch(url, timeout).json()
+
+    @staticmethod
+    def _get_text(url, timeout=60):
+        """GET a URL and return the body text (CSV); same errors as _get."""
+        # requests assumes ISO-8859-1 for text/csv without a charset; FMP sends UTF-8.
+        return StockDataPipeline._fetch(url, timeout).content.decode("utf-8")
+
+    def _stable_rows(self, path, **params):
+        """One stable GET plus one limiter tick (also on failure); returns the JSON list.
+
+        Stable bodies are lists; anything else (an FMP error dict) raises
+        ValueError. Callers must not tick again."""
+        try:
+            body = self._get(self._stable(path, **params))
+        finally:
+            self.limiter.tick()
+        if not isinstance(body, list):
+            raise ValueError(f"unexpected {path} response: {type(body).__name__}")
+        return body
+
+    def _etf_list_request(self):
+        """Stable etf-list rows; a transient failure is retried once."""
+        return _retry_once(lambda: self._stable_rows("etf-list"))
+
+    def _profile_bulk(self):
+        """All stable profile-bulk rows (CSV parts 0, 1, 2 ...) as dicts.
+
+        Stops at the first part with no data rows, or at a 400 on a part after
+        the first (FMP answers HTTP 400, not an empty body, past the last
+        part). An error on part 0 propagates. One limiter tick per part."""
+        def fetch_part(part):
+            try:
+                return self._get_text(self._stable("profile-bulk", part=part))
+            finally:
+                self.limiter.tick()
+
+        rows = []
+        for part in range(_PROFILE_BULK_MAX_PARTS):
+            try:
+                text = _retry_once(lambda: fetch_part(part))
+            except FetchHTTPError as e:
+                if part > 0 and e.status == 400:
+                    break
+                raise
+            part_rows = list(csv.DictReader(io.StringIO(text)))
+            if not part_rows:
+                break
+            rows.extend(part_rows)
+        else:
+            raise RuntimeError(
+                f"profile-bulk still returning data after {_PROFILE_BULK_MAX_PARTS} parts")
+        return rows
+
+    def _stable_history(self, path, symbol, from_date):
+        """A symbol's daily rows from `from_date`, newest first, one per date.
+
+        Stable caps a call at HISTORY_ROW_CAP rows (newest first), so while a
+        page is full and its oldest date is still after `from_date`, the next
+        request uses to = oldest date - 1 day. With from_date None stable
+        returns its default 5-year window, which never fills a page."""
+        rows, to = {}, None
+        while True:
+            page = self._stable_rows(path, symbol=symbol,
+                                     **{"from": from_date, "to": to})
+            for r in page:
+                rows[r["date"]] = r
+            if len(page) < HISTORY_ROW_CAP:
+                break
+            oldest = min(r["date"] for r in page)
+            if from_date and oldest <= from_date:
+                break
+            next_to = (datetime.date.fromisoformat(oldest)
+                       - datetime.timedelta(days=1)).isoformat()
+            if to is not None and next_to >= to:
+                break
+            to = next_to
+        return sorted(rows.values(), key=lambda r: r["date"], reverse=True)
 
     @staticmethod
     def _write_parquet(data: pd.DataFrame, file_name: str):
@@ -570,9 +676,11 @@ class StockDataPipeline:
         """Refresh index membership → index_data/constituents/{key}_constituents.json.
 
         For each key in CONSTITUENT_PROXY_ETFS, fetch the index's members via
-        the v3 etf-holder proxy ETF and keep rows carrying an 'asset' symbol.
+        stable etf/holdings for the proxy ETF (reshaped to the v3 etf-holder
+        rows; rows without an 'asset' symbol are dropped).
         With include_etf_list=True also refreshes the tradable-ETF snapshot
-        (v3 etf/list filtered to ETF_EXCHANGE_FILTER) as etf_data_constituents.json.
+        (stable etf-list joined to profile-bulk exchange/price, in the v3
+        etf/list shape, filtered to ETF_EXCHANGE_FILTER) as etf_data_constituents.json.
 
         On a failed or empty fetch the key is skipped and any existing file is
         left in place — the constituent JSONs drive every downstream fetcher,
@@ -626,9 +734,8 @@ class StockDataPipeline:
 
         for key, proxy_etf in cfg.CONSTITUENT_PROXY_ETFS.items():
             def holdings(proxy_etf=proxy_etf):
-                response = self._get(self._etf_holder_url(proxy_etf))
-                self.limiter.tick()
-                members = [item for item in response if item.get("asset")]
+                members = holdings_rows(
+                    self._stable_rows("etf/holdings", symbol=proxy_etf))
                 if not members:
                     raise ValueError("no rows with an 'asset' symbol in payload")
                 return members
@@ -636,10 +743,9 @@ class StockDataPipeline:
 
         if include_etf_list:
             def etf_list():
-                etf_data = self._get(self._etf_list_url())
-                self.limiter.tick()
-                requested = [x for x in etf_data
-                             if x.get("exchange") in cfg.ETF_EXCHANGE_FILTER]
+                requested = etf_list_rows(
+                    self._etf_list_request(), self._profile_bulk(),
+                    cfg.ETF_EXCHANGE_FILTER)
                 if not requested:
                     raise ValueError("exchange filter matched no ETFs")
                 return requested
@@ -691,11 +797,11 @@ class StockDataPipeline:
             compared first; if close or adjClose moved, that symbol's full
             history is downloaded and REPLACES the file.
 
-        The call count is unchanged (one per symbol, plus one per restated
-        symbol); the bytes drop by ~95%.
+        Two calls per symbol (raw OHLC plus dividend-adjusted close); more on
+        a full download past 5,000 rows. The bytes drop by ~95%.
 
-        from_date: start of a full download. None asks FMP for its default
-                   window, so pass START_DATE for real runs.
+        from_date: start of a full download. None means START_DATE (stable's
+                   own default window is only 5 years).
 
         constituent_keys: subset of CONSTITUENT_PROXY_ETFS; default all eight.
         limit:            per-list member cap, for smoke-testing.
@@ -755,26 +861,33 @@ class StockDataPipeline:
             last = max(r["date"] for r in saved)
             window_from = (datetime.date.fromisoformat(last)
                            - datetime.timedelta(days=PRICE_OVERLAP_DAYS)).isoformat()
-            payload = self._get(self._prices_url(symbol, window_from))
-            self.limiter.tick()
-            recent = payload.get("historical")
+            payload = self._price_payload(symbol, window_from)
+            recent = payload["historical"]
             # No recent rows (a halted symbol): fall through to a full
             # download rather than count a symbol with history as failed.
             if recent:
                 if not self._restated(saved, recent):
                     self._save_json(payload, path, update=True)
                     return "incremental"
-                payload = self._price_payload(symbol, from_date)
+                payload = self._full_price_payload(symbol, from_date)
                 self._save_json(payload, path)
                 return "restated"
-        payload = self._price_payload(symbol, from_date)
+        payload = self._full_price_payload(symbol, from_date)
         self._save_json(payload, path, update=True)
         return "full"
 
     def _price_payload(self, symbol, from_date):
-        payload = self._get(self._prices_url(symbol, from_date))
-        self.limiter.tick()
-        if not payload.get("historical"):
+        """v3-shaped payload from stable's raw and dividend-adjusted series."""
+        full = self._stable_history("historical-price-eod/full", symbol, from_date)
+        adjusted = self._stable_history("historical-price-eod/dividend-adjusted",
+                                        symbol, from_date)
+        if full and not adjusted:
+            raise ValueError("no dividend-adjusted rows")
+        return price_payload(symbol, full, adjusted)
+
+    def _full_price_payload(self, symbol, from_date):
+        payload = self._price_payload(symbol, from_date or START_DATE)
+        if not payload["historical"]:
             raise ValueError("empty 'historical' payload")
         return payload
 
@@ -846,7 +959,8 @@ class StockDataPipeline:
         """Shared driver for the per-symbol fetchers (profiles, statements,
         ratios, TTM) — one skeleton instead of four near-identical methods.
 
-        datasets: (data_type, url_builder, file_suffix, merge) tuples.
+        datasets: (data_type, fetch, file_suffix, merge) tuples;
+            fetch(symbol) does its own GET and limiter tick and returns the payload.
             merge=True merges by 'date' (time series); merge=False overwrites
             (snapshots — TTM/profiles; the original's update=True on dateless
             TTM rows was a silent no-op, so those files never refreshed).
@@ -876,9 +990,8 @@ class StockDataPipeline:
                     continue
                 entry = {}
                 try:
-                    for data_type, url_builder, suffix, merge in datasets:
-                        payload = self._get(url_builder(symbol))
-                        self.limiter.tick()
+                    for data_type, fetch, suffix, merge in datasets:
+                        payload = fetch(symbol)
                         if not payload:
                             raise ValueError(f"empty {data_type} payload")
                         path = f"{self.json_dir(data_type, sub_universe)}{symbol}{suffix}"
@@ -915,28 +1028,35 @@ class StockDataPipeline:
         FIELD_MAPPINGS profile dicts use the stable names). Snapshot: files
         are overwritten each run."""
         return self._fetch_constituent_datasets(
-            [("company_profiles", self._profile_url, "_profile.json", False)],
+            [("company_profiles", self._fetch_json(self._profile_url), "_profile.json", False)],
             manifest_group="profiles", stage_name="fetch_profiles",
             constituent_keys=constituent_keys, limit=limit)
 
     def fetch_etf_profiles(self, limit=None):
         """Profiles for the tradable-ETF snapshot → company_profiles/etfs/."""
         return self._fetch_constituent_datasets(
-            [("company_profiles", self._profile_url, "_profile.json", False)],
+            [("company_profiles", self._fetch_json(self._profile_url), "_profile.json", False)],
             manifest_group="profiles", stage_name="fetch_etf_profiles",
             constituent_keys=["etf_data"], limit=limit)
 
     def fetch_financial_statements(self, constituent_keys=None, limit=None):
-        """Quarterly income/balance/cash-flow statements (v3 — stable drops
-        mapped Django fields). Merged by date, so reruns only add new quarters.
+        """Quarterly income/balance/cash-flow statements (stable, reshaped to
+        the v3 field names the Django mappings use). Merged by date, so reruns
+        only add new quarters.
 
         No date parameter: always the full window. ~30,400 calls, the longest
         stage at roughly 2 hours.
         """
         return self._fetch_constituent_datasets(
-            [("income_statements", self._income_url, "_income_statement.json", True),
-             ("balance_sheet_statements", self._balance_url, "_balance_sheet.json", True),
-             ("cash_flow_statements", self._cashflow_url, "_cash_flow.json", True)],
+            [("income_statements",
+              self._statement_fetch("income", "income-statement"),
+              "_income_statement.json", True),
+             ("balance_sheet_statements",
+              self._statement_fetch("balance", "balance-sheet-statement"),
+              "_balance_sheet.json", True),
+             ("cash_flow_statements",
+              self._statement_fetch("cashflow", "cash-flow-statement"),
+              "_cash_flow.json", True)],
             manifest_group="fundamentals", stage_name="fetch_financial_statements",
             constituent_keys=constituent_keys, limit=limit)
 
@@ -944,19 +1064,20 @@ class StockDataPipeline:
         """Quarterly ratios + key metrics (stable). Merged by date. No date
         parameter — always the full window. ~20,200 calls."""
         return self._fetch_constituent_datasets(
-            [("ratios", self._ratios_url, "_ratios.json", True),
-             ("metrics", self._key_metrics_url, "_metrics.json", True)],
+            [("ratios", self._fetch_json(self._ratios_url), "_ratios.json", True),
+             ("metrics", self._fetch_json(self._key_metrics_url), "_metrics.json", True)],
             manifest_group="metrics", stage_name="fetch_ratios",
             constituent_keys=constituent_keys, limit=limit)
 
     def fetch_ttm_ratios(self, constituent_keys=None, limit=None):
-        """TTM ratios + key metrics (v3 — stable drops 31 mapped fields).
+        """TTM ratios + key metrics (stable, reshaped to the v3 rows by
+        fmp_stable_shapes.ttm_rows; each file is a one-row list as in v3).
         Snapshots: files are overwritten each run. The original passed
         update=True, but TTM rows carry no 'date', so its merge was a no-op
         and the files never refreshed after first write. ~20,200 calls."""
         return self._fetch_constituent_datasets(
-            [("ratios_ttm", self._ratios_ttm_url, "_ratios_ttm.json", False),
-             ("metrics_ttm", self._metrics_ttm_url, "_metrics_ttm.json", False)],
+            [("ratios_ttm", lambda s: [self._ttm_pair(s)[0]], "_ratios_ttm.json", False),
+             ("metrics_ttm", lambda s: [self._ttm_pair(s)[1]], "_metrics_ttm.json", False)],
             manifest_group="metrics_ttm", stage_name="fetch_ttm_ratios",
             constituent_keys=constituent_keys, limit=limit)
 
@@ -1205,8 +1326,8 @@ class StockDataPipeline:
         do not split, so the narrow-window seam that makes self-detection
         unsafe for stock prices does not arise here.
 
-        Stays on v3 historical-price-full: most tickers are ^-symbols,
-        plan-gated on stable. 65 calls.
+        Uses stable historical-price-eod/full (one call per index on an
+        update, more on a backfill past 5,000 rows).
 
         indexes: optional list of INDEX_TICKERS keys to refresh a subset.
         Returns a StageResult (one attempt per index); failures are collected
@@ -1226,8 +1347,9 @@ class StockDataPipeline:
                 fetch_from = (last_date.strftime("%Y-%m-%d")
                               if last_date is not None else from_date)
 
-                response = self._get(self._index_history_url(ticker, fetch_from))
-                historical = response.get("historical")
+                rows = self._stable_history("historical-price-eod/full",
+                                            ticker, fetch_from)
+                historical = index_payload(ticker, rows)["historical"]
 
                 if not historical:
                     if existing_raw is None:
@@ -1364,19 +1486,24 @@ class StockDataPipeline:
             print(f"{len(failed)} series failed: {failed}")
         return result
 
-    def get_sector_snapshot(self):
-        """Today's sector performance snapshot (v3 sector-performance) plus a
-        market-breadth headline. Returns (rows, message); rows keep FMP's shape
-        {'sector': ..., 'changesPercentage': '0.63%'}.
+    def get_sector_snapshot(self, today: datetime.date | None = None):
+        """Latest-weekday sector performance snapshot (stable
+        sector-performance-snapshot, NYSE and NASDAQ averaged per sector) plus
+        a market-breadth headline. Returns (rows, message); rows keep the old
+        shape {'sector': ..., 'changesPercentage': '0.63%'}.
 
-        Stays on v3: its changesPercentage comes as "0.63%" strings, and this
-        parser and the endpoint must migrate together (stable's
-        sector-performance-snapshot returns floats per exchange).
+        Uses today when it is a weekday, else the previous Friday; if both
+        exchanges return nothing (holiday), retries once on the previous
+        weekday.
 
         The original hardcoded ==11 for "all sectors up" and crashed on any
         unparsable percentage; this counts against the rows actually parsed.
         """
-        data = self._get(self._v3("sector-performance"))
+        day = self._latest_weekday(today or datetime.date.today())
+        data = self._sector_rows_for(day)
+        if not data:
+            data = self._sector_rows_for(self._latest_weekday(
+                day - datetime.timedelta(days=1)))
 
         changes = []
         for row in data:
@@ -1398,11 +1525,23 @@ class StockDataPipeline:
 
         return data, message
 
+    @staticmethod
+    def _latest_weekday(d):
+        while d.weekday() >= 5:
+            d -= datetime.timedelta(days=1)
+        return d
+
+    def _sector_rows_for(self, day):
+        by_exchange = [self._stable_rows("sector-performance-snapshot",
+                                         date=day.isoformat(), exchange=ex)
+                       for ex in ("NYSE", "NASDAQ")]
+        return sector_snapshot_rows(by_exchange)
+
     def get_index_sector_exposure(self, const_key):
         """Sector weights of the index's proxy ETF. The one piece with no
-        local source — 1 live v3 etf-sector-weightings call."""
+        local source — 1 live stable etf/sector-weightings call."""
         etf = cfg.CONSTITUENT_PROXY_ETFS[const_key]
-        data = self._get(self._v3(f"etf-sector-weightings/{etf}"))
+        data = self._stable_rows("etf/sector-weightings", symbol=etf)
         rows = [{"sector": r["sector"],
                  "weight": float(str(r["weightPercentage"]).rstrip("%"))}
                 for r in data]

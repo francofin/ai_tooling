@@ -5,7 +5,8 @@ import pytest
 import requests
 
 from pipelines import stock_pipeline as sp
-from pipelines.tests.helpers import price_rows, write_constituents, write_price_json
+from pipelines.tests.helpers import (price_rows, stable_history_get,
+                                     write_constituents, write_price_json)
 
 
 def fake_get(routes):
@@ -23,10 +24,10 @@ def fake_get(routes):
 
 def test_fetch_stock_prices_counts_each_symbol(pipeline):
     write_constituents(pipeline, "sp500_const", ["AAA", "BBB", "BAD"])
-    pipeline._get = fake_get({
-        "/AAA?": {"symbol": "AAA", "historical": price_rows("2026-10-09", 5)},
-        "/BBB?": {"symbol": "BBB", "historical": price_rows("2026-10-09", 5)},
-        "/BAD?": requests.HTTPError("500"),
+    pipeline._get, _ = stable_history_get({
+        "AAA": price_rows("2026-10-09", 5),
+        "BBB": price_rows("2026-10-09", 5),
+        "BAD": requests.HTTPError("500"),
     })
     result = pipeline.fetch_stock_prices(constituent_keys=["sp500_const"])
     assert result.name == "fetch_stock_prices"
@@ -44,9 +45,9 @@ def test_fetch_etf_prices_is_named_for_itself(pipeline):
 def test_dataset_fetchers_count_symbols(pipeline):
     write_constituents(pipeline, "sp500_const", ["AAA", "BAD"])
     pipeline._get = fake_get({
-        "ratios-ttm/AAA": [{"peRatioTTM": 10}],
-        "key-metrics-ttm/AAA": [{"marketCapTTM": 1}],
-        "ratios-ttm/BAD": [],
+        "/stable/ratios-ttm?symbol=AAA": [{"peRatioTTM": 10}],
+        "/stable/key-metrics-ttm?symbol=AAA": [{"marketCapTTM": 1}],
+        "/stable/ratios-ttm?symbol=BAD": [],
     })
     result = pipeline.fetch_ttm_ratios(constituent_keys=["sp500_const"])
     assert result.name == "fetch_ttm_ratios"
@@ -58,8 +59,8 @@ def test_refresh_constituents_keeps_shrunk_list(pipeline, monkeypatch):
                         {"sp500_const": "SPY", "nas_const": "QQQ"})
     write_constituents(pipeline, "sp500_const", [f"S{i}" for i in range(10)])
     pipeline._get = fake_get({
-        "etf-holder/SPY": [{"asset": "S1"}, {"asset": "S2"}],          # shrank 10 → 2
-        "etf-holder/QQQ": [{"asset": "Q1"}, {"asset": "Q2"}],          # first time
+        "etf/holdings?symbol=SPY": [{"asset": "S1"}, {"asset": "S2"}],          # shrank 10 → 2
+        "etf/holdings?symbol=QQQ": [{"asset": "Q1"}, {"asset": "Q2"}],          # first time
     })
     result = pipeline.refresh_constituents(include_etf_list=False)
     lists = result.detail["lists"]
@@ -73,8 +74,8 @@ def test_refresh_constituents_keeps_shrunk_list(pipeline, monkeypatch):
         assert len(json.load(f)) == 10                      # old file intact
 
 
-HOLDINGS = [{"asset": "A", "weightPercentage": 60, "updated": "2026-11-12 15:56:35"},
-            {"asset": "B", "weightPercentage": 40, "updated": "2026-11-12 15:56:35"}]
+HOLDINGS = [{"asset": "A", "weightPercentage": 60, "updatedAt": "2026-11-12 15:56:35"},
+            {"asset": "B", "weightPercentage": 40, "updatedAt": "2026-11-12 15:56:35"}]
 
 
 def _snapshot_path(p, sub, date):
@@ -83,7 +84,7 @@ def _snapshot_path(p, sub, date):
 
 def test_refresh_constituents_writes_a_dated_snapshot(pipeline, monkeypatch):
     monkeypatch.setattr(sp.cfg, "CONSTITUENT_PROXY_ETFS", {"sp500_const": "SPY"})
-    pipeline._get = fake_get({"etf-holder/SPY": HOLDINGS})
+    pipeline._get = fake_get({"etf/holdings?symbol=SPY": HOLDINGS})
     result = pipeline.refresh_constituents(include_etf_list=False)
     assert result.detail["lists"]["sp500_const"]["snapshot"] == "2026-11-12"
     with open(_snapshot_path(pipeline, "sp500", "2026-11-12")) as f:
@@ -92,7 +93,7 @@ def test_refresh_constituents_writes_a_dated_snapshot(pipeline, monkeypatch):
 
 def test_same_holdings_date_does_not_rewrite_the_snapshot(pipeline, monkeypatch):
     monkeypatch.setattr(sp.cfg, "CONSTITUENT_PROXY_ETFS", {"sp500_const": "SPY"})
-    pipeline._get = fake_get({"etf-holder/SPY": HOLDINGS})
+    pipeline._get = fake_get({"etf/holdings?symbol=SPY": HOLDINGS})
     pipeline.refresh_constituents(include_etf_list=False)
     path = _snapshot_path(pipeline, "sp500", "2026-11-12")
     os.utime(path, (1_000_000_000, 1_000_000_000))
@@ -104,7 +105,7 @@ def test_same_holdings_date_does_not_rewrite_the_snapshot(pipeline, monkeypatch)
 def test_kept_list_writes_no_snapshot(pipeline, monkeypatch):
     monkeypatch.setattr(sp.cfg, "CONSTITUENT_PROXY_ETFS", {"sp500_const": "SPY"})
     write_constituents(pipeline, "sp500_const", [f"S{i}" for i in range(10)])
-    pipeline._get = fake_get({"etf-holder/SPY": HOLDINGS})          # shrank 10 → 2
+    pipeline._get = fake_get({"etf/holdings?symbol=SPY": HOLDINGS})          # shrank 10 → 2
     result = pipeline.refresh_constituents(include_etf_list=False)
     assert result.detail["lists"]["sp500_const"]["status"] == "kept"
     assert result.detail["lists"]["sp500_const"]["snapshot"] is None
@@ -113,7 +114,7 @@ def test_kept_list_writes_no_snapshot(pipeline, monkeypatch):
 
 def test_rows_without_updated_write_no_snapshot(pipeline, monkeypatch):
     monkeypatch.setattr(sp.cfg, "CONSTITUENT_PROXY_ETFS", {"sp500_const": "SPY"})
-    pipeline._get = fake_get({"etf-holder/SPY": [{"asset": "A"}, {"asset": "B"}]})
+    pipeline._get = fake_get({"etf/holdings?symbol=SPY": [{"asset": "A"}, {"asset": "B"}]})
     result = pipeline.refresh_constituents(include_etf_list=False)
     assert result.detail["lists"]["sp500_const"]["status"] == "updated"
     assert result.detail["lists"]["sp500_const"]["snapshot"] is None
@@ -122,7 +123,7 @@ def test_rows_without_updated_write_no_snapshot(pipeline, monkeypatch):
 
 def test_snapshot_failure_never_fails_the_refresh(pipeline, monkeypatch):
     monkeypatch.setattr(sp.cfg, "CONSTITUENT_PROXY_ETFS", {"sp500_const": "SPY"})
-    pipeline._get = fake_get({"etf-holder/SPY": HOLDINGS})
+    pipeline._get = fake_get({"etf/holdings?symbol=SPY": HOLDINGS})
 
     def broken(key, rows):
         raise OSError("disk full")
@@ -153,8 +154,8 @@ def test_index_prices_counts_indexes(pipeline, monkeypatch):
         "sp500": {"ticker": "^GSPC", "full_name": "S&P 500"},
         "dead": {"ticker": "^DEAD", "full_name": "Dead"},
     })
-    pipeline._get = fake_get({
-        "^GSPC": {"historical": price_rows("2026-10-09", 30)},
+    pipeline._get, _ = stable_history_get({
+        "^GSPC": price_rows("2026-10-09", 30),
         "^DEAD": requests.HTTPError("404"),
     })
     result = pipeline.fetch_index_prices()
@@ -233,13 +234,12 @@ def test_stock_prices_with_history_fetch_only_a_recent_window(pipeline):
     write_price_json(pipeline, "sp500", "AAA", "2026-10-09")
     old = saved_rows(pipeline, "sp500", "AAA")
     # Same prices on the overlapping dates, plus five new sessions.
-    fresh = price_rows("2026-10-16", 45)[:12]
-    pipeline._get, urls = recording_get([{"symbol": "AAA", "historical": fresh}])
+    pipeline._get, calls = stable_history_get({"AAA": price_rows("2026-10-16", 45)})
 
     result = pipeline.fetch_stock_prices(from_date="1999-01-01",
                                          constituent_keys=["sp500_const"])
 
-    assert len(urls) == 1 and "from=2026-09-29" in urls[0]
+    assert len(calls) == 2 and all(p["from"] == "2026-09-29" for _, p in calls)
     assert len(saved_rows(pipeline, "sp500", "AAA")) == len(old) + 5
     assert result.detail["incremental"] == 1 and result.detail["restated"] == 0
 
@@ -250,27 +250,27 @@ def test_restated_history_is_refetched_in_full_and_replaced(pipeline):
     # A split halves every adjClose, so the overlap no longer matches.
     restated = [dict(r, adjClose=r["adjClose"] / 2, close=r["close"] / 2)
                 for r in price_rows("2026-10-16", 45)]
-    pipeline._get, urls = recording_get([
-        {"symbol": "AAA", "historical": restated[:12]},
-        {"symbol": "AAA", "historical": restated},
-    ])
+    pipeline._get, calls = stable_history_get({"AAA": restated})
 
     result = pipeline.fetch_stock_prices(from_date="1999-01-01",
                                          constituent_keys=["sp500_const"])
 
-    assert "from=1999-01-01" in urls[1]
-    assert saved_rows(pipeline, "sp500", "AAA") == restated
+    assert [p["from"] for _, p in calls] == ["2026-09-29"] * 2 + ["1999-01-01"] * 2
+    out = saved_rows(pipeline, "sp500", "AAA")
+    assert [r["date"] for r in out] == [r["date"] for r in restated]
+    assert [r["close"] for r in out] == [r["close"] for r in restated]
+    assert [r["adjClose"] for r in out] == [r["adjClose"] for r in restated]
     assert result.detail["restated"] == 1 and result.saved == 1
 
 
 def test_symbol_without_history_gets_the_full_window(pipeline):
     write_constituents(pipeline, "sp500_const", ["NEW"])
-    pipeline._get, urls = recording_get([{"historical": price_rows("2026-10-16", 5)}])
+    pipeline._get, calls = stable_history_get({"NEW": price_rows("2026-10-16", 5)})
 
     result = pipeline.fetch_stock_prices(from_date="1999-01-01",
                                          constituent_keys=["sp500_const"])
 
-    assert len(urls) == 1 and "from=1999-01-01" in urls[0]
+    assert len(calls) == 2 and all(p["from"] == "1999-01-01" for _, p in calls)
     assert result.detail["full"] == 1
 
 
@@ -293,15 +293,14 @@ def test_get_counts_downloaded_bytes(monkeypatch):
 def test_symbol_with_no_recent_rows_falls_back_to_full_history(pipeline):
     write_constituents(pipeline, "sp500_const", ["HALT"])
     write_price_json(pipeline, "sp500", "HALT", "2026-08-03")
-    pipeline._get, urls = recording_get([
-        {"historical": []},
-        {"historical": price_rows("2026-08-03", 60)},
-    ])
+    rows = price_rows("2026-08-03", 60)
+    pipeline._get, calls = stable_history_get({
+        "HALT": lambda lo, hi, path: [] if lo != "1999-01-01" else rows})
 
     result = pipeline.fetch_stock_prices(from_date="1999-01-01",
                                          constituent_keys=["sp500_const"])
 
-    assert "from=1999-01-01" in urls[1]
+    assert [p["from"] for _, p in calls] == ["2026-07-24"] * 2 + ["1999-01-01"] * 2
     assert (result.saved, result.detail["full"]) == (1, 1)
 
 
@@ -311,7 +310,7 @@ def test_a_truncated_snapshot_is_rewritten(pipeline, monkeypatch):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
         f.write('[{"asset": "A", "weig')                  # died mid-write
-    pipeline._get = fake_get({"etf-holder/SPY": HOLDINGS})
+    pipeline._get = fake_get({"etf/holdings?symbol=SPY": HOLDINGS})
     result = pipeline.refresh_constituents(include_etf_list=False)
     assert result.detail["lists"]["sp500_const"]["snapshot"] == "2026-11-12"
     with open(path) as f:
