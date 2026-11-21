@@ -160,3 +160,70 @@ def test_blocklist_phrase_fails():
     note = make_note("A Price Target discussion.")
     assert any("price target" in r.lower() for r in check(note))
     assert not any("blocklist" in r for r in check(make_note("They recommended nothing.")))
+
+
+@pytest.mark.parametrize("raw,value,source", [
+    ("$10 billion", 10e9, 14.6e9),
+    ("$20 billion", 20e9, 15.1e9),
+    ("$100 million", 100e6, 51e6),
+    ("$3,000 million", 3e9, 2.5e9),
+])
+def test_trailing_zero_figures_are_strict(raw, value, source):
+    assert not e.matches(value, raw, [source])
+
+
+def test_strict_and_thousands_separator_slack():
+    assert e.matches(10e9, "$10 billion", [9.6e9])
+    assert e.matches(3.2e9, "3,200 million", [3_214_000_000.0])
+    assert e.matches(3e9, "$3,000 million", [3_020_000_000.0])
+    assert not e.matches(3.2e9, "3,200 million", [3_260_000_000.0])
+
+
+@pytest.mark.parametrize("bad", [
+    {"lean": "neutral", "headline": 5, "key_points": ["a", "b", "c"], "sections": {}},
+    {"lean": "neutral", "headline": "h", "key_points": ["a", "b", "c"], "sections": ["x"]},
+    {"lean": "neutral", "headline": "h", "key_points": "abc", "sections": {}},
+    {"lean": "neutral", "headline": "h", "key_points": [1, 2, 3], "sections": {"risks": 4}},
+    {"lean": 3, "headline": "h", "key_points": [], "sections": None},
+    "not a dict",
+])
+def test_malformed_output_returns_reasons(bad):
+    assert check(bad)
+
+
+def test_pp_kind():
+    note = make_note("Margin up 1.5 percentage points, or 1.5 pp, or 1.5 pts.")
+    assert unmatched(check(note, "margin rose 1.5 percentage points")) == []
+    assert unmatched(check(make_note("Margin up 2.5 pp."), "margin rose 1.5 percentage points"))
+    assert unmatched(check(make_note("Margin up 1.5%."), "margin rose 1.5 percentage points"))
+
+
+def test_cents():
+    est = {"eps_estimate": 3.21, "eps_actual": 3.34}
+    assert unmatched(check(make_note("A beat by 13 cents."), "", est)) == []
+    assert unmatched(check(make_note("A beat by 13 cents or $0.13."), "we earned 13 cents")) == []
+    assert unmatched(check(make_note("A beat by 40 cents."), "", est))
+    assert e.extract_figures("40 cents")[0][:2] == (0.4, "money")
+
+
+def test_spaced_and_hyphenated_units():
+    note = make_note("Sales up 12 %, revenue 3.2 bn and 3.2 B, a $500-million buyback and a $3.2-billion deal.")
+    src = "sales grew 12%, revenue $3.2 billion, a $500 million buyback and $3.2-billion deal"
+    assert unmatched(check(note, src)) == []
+    assert unmatched(check(make_note("A $700-million buyback."), src))
+    note = make_note("Revenue of $3.2 billion and a $500 million buyback.")
+    assert unmatched(check(note, "revenue of $3.2-billion with a $500-million buyback")) == []
+    assert e.extract_figures("a $500-million buyback")[0][:2] == (5e8, "money")
+
+
+def test_explicit_minus_requires_negative_source():
+    assert unmatched(check(make_note("EPS of -$0.05."), "EPS was $0.05"))
+    assert unmatched(check(make_note("EPS of -$0.05."), "EPS was ($0.05)")) == []
+    assert unmatched(check(make_note("Sales fell -5%."), "sales fell 5%"))
+    assert unmatched(check(make_note("Sales fell 5%."), "sales were (5%)")) == []
+    assert unmatched(check(make_note("Sales fell 5%."), "sales fell 5%")) == []
+
+
+def test_blocklist_plurals():
+    assert any("price target" in r for r in check(make_note("Analysts raised price targets.")))
+    assert any("buy rating" in r for r in check(make_note("Several buy ratings.")))

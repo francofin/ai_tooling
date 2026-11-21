@@ -9,20 +9,31 @@ Figure rules (extract_figures / matches)
   K/M/B/T/mn/bn glued to the number), a percent sign / "percent" / "per cent",
   or bp / bps / "basis points". Bare numbers (years, "Q3", "3 key risks",
   employee counts) are ignored.
-- Kinds: "money" (currency or scale), "percent", "bp". Kinds never cross-match.
+- Kinds: "money" (currency, scale or cents), "percent", "bp", and "pp"
+  (percentage points: "pp", "pts", "percentage points"; its own kind, matched
+  only against percentage-point figures in the sources). Kinds never
+  cross-match. "13 cents" is money 0.13.
 - Money is stored in units ("$3.2 billion" -> 3_200_000_000.0); percent and bp
   as written (12% -> 12.0). Thousands separators and decimals are read.
 - Negative: a leading "-" / minus sign, or the figure wrapped in parentheses
-  ("($0.05)", "$(0.05)", "(12%)").
+  ("($0.05)", "$(0.05)", "(12%)"). A parenthetical like "(4.0%)" is therefore
+  read as negative; that is harmless because sign only matters for an
+  explicit leading "-" in a note (see below).
+- Units may be spaced ("12 %", "3.2 bn", "3.2 B") or hyphenated
+  ("$500-million", "$3.2-billion").
 - A range "$3.2 to $3.4 billion" or "3.2-3.4 billion": the first figure
   inherits the unit of the second.
 - A note figure matches a source value when the source value, expressed in the
   note figure's unit scale and rounded (half up) to the note figure's number
   of decimals, equals the note value: "$3.2 billion" matches 3,214,000,000.
-  A scaled whole number ("3,200 million") counts its trailing zeros as
-  rounding, so it also matches 3,214 million.
-- Signs are ignored when matching: prose says "a loss of $0.05" or "down 5%"
-  without a minus sign, so magnitudes are compared.
+  Only slack (ruling R7): a figure written with thousands separators that
+  re-expresses exactly in the next scale up is read there, at that precision
+  with at least 1 decimal: "3,200 million" is 3.2 billion (matches
+  3.15-3.249B), "3,000 million" is 3.0 billion. Everything else is strict at
+  its stated decimals in its own scale ("$10 billion" matches 9.5-10.49B).
+- Unsigned (and parenthesised) note figures match on magnitude: prose says "a
+  loss of $0.05" or "down 5%" without a minus sign. A note figure written with
+  an explicit leading "-" ("-$0.05", "-5%") must match a source of the same sign.
 """
 from __future__ import annotations
 
@@ -41,20 +52,22 @@ SECTION_KEYS = (
     "results_vs_consensus", "guidance", "management_tone", "qa_themes",
     "what_changed", "risks", "bull_case", "bear_case", "watch_next",
 )
-KINDS = ("money", "percent", "bp")
+KINDS = ("money", "percent", "bp", "pp")
 
 _SCALES = {
     "thousand": 3, "k": 3, "million": 6, "mn": 6, "m": 6,
     "billion": 9, "bn": 9, "b": 9, "trillion": 12, "t": 12,
 }
+_PP_UNITS = ("pp", "pt", "pts")
 
 _NUMBER = r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?"
 _CURRENCY = r"(?:US\$|CA\$|C\$|\$|CAD\s?|USD\s?)"
 # Words (and bp) may follow a space; letters must be glued to the number and must not
 # start a longer word ("5M" yes, "5 men" no).
 _UNIT = (
-    r"(?:\s?(?P<word>trillion|billion|million|thousand|per\s?cent|percent|basis\s+points?|bps?)\b"
-    r"|(?P<sym>%|(?:bn|mn|[kmbt])(?![A-Za-z])))"
+    r"(?:[\s-]?(?P<word>trillion|billion|million|thousand|percentage\s+points?|per\s?cent|percent"
+    r"|basis\s+points?|bps?|cents?|pp|pts?)\b"
+    r"|(?P<sym>\s?%|(?:bn|mn|[kmbt])(?![A-Za-z])|\s(?:bn|mn|(?-i:[KMBT]))(?![A-Za-z])))"
 )
 _FIGURE = re.compile(
     r"(?<![\w$.,])"                      # not glued to a preceding word or number
@@ -74,7 +87,11 @@ _RANGE_TAIL = re.compile(
 
 def _unit_of(m: re.Match) -> tuple[str, int] | None:
     """(kind, power-of-ten scale) for the unit captured in `m`, or None."""
-    unit = re.sub(r"\s+", " ", (m.group("word") or m.group("sym") or "").lower())
+    unit = re.sub(r"\s+", " ", (m.group("word") or m.group("sym") or "").lower()).strip()
+    if unit.startswith("cent"):
+        return "money", -2
+    if unit.startswith("percentage") or unit in _PP_UNITS:
+        return "pp", 0
     if unit == "%" or unit.startswith("per"):
         return "percent", 0
     if unit.startswith("basis") or unit in ("bp", "bps"):
@@ -123,16 +140,21 @@ def matches(value: float, raw: str, candidates: list[float]) -> bool:
     m = re.search(_NUMBER, raw)
     if not m or value == 0:
         return any(c == value for c in candidates)
+    signed = raw.lstrip().startswith(("-", "\u2212"))
     num = Decimal(m.group(0).replace(",", ""))
     decimals = len(m.group(0).split(".")[1]) if "." in m.group(0) else 0
     scale = Decimal(10) ** round(math.log10(abs(value) / float(num))) if num else Decimal(1)
-    if scale > 1 and "." not in m.group(0):
-        # "3,200 million" is a rounded figure: trailing zeros are not precision.
-        decimals = -(len(m.group(0).replace(",", "")) - len(m.group(0).replace(",", "").rstrip("0")))
+    if "," in m.group(0) and scale in (Decimal(10) ** 3, Decimal(10) ** 6, Decimal(10) ** 9):
+        # "3,200 million" is read as 3.2 billion (ruling R7), at least 1 decimal.
+        num, scale = num / 1000, scale * 1000
+        decimals = max(1, -num.normalize().as_tuple().exponent)
     quantum = Decimal(1).scaleb(-decimals)
+    want = num.quantize(quantum, ROUND_HALF_UP)
     for c in candidates:
+        if signed and c >= 0:
+            continue
         rounded = (abs(Decimal(repr(float(c)))) / scale).quantize(quantum, ROUND_HALF_UP)
-        if rounded == num.quantize(quantum, ROUND_HALF_UP):
+        if rounded == want:
             return True
     return False
 
@@ -140,10 +162,14 @@ def matches(value: float, raw: str, candidates: list[float]) -> bool:
 def note_text(note: dict) -> str:
     """Headline, key points and every section text (works on Claude's output
     and on a stored note; a null what_changed is skipped)."""
-    parts = [note.get("headline") or ""]
-    parts += [p for p in (note.get("key_points") or []) if isinstance(p, str)]
-    sections = note.get("sections") or {}
-    parts += [v for v in sections.values() if isinstance(v, str)]
+    if not isinstance(note, dict):
+        return ""
+    headline = note.get("headline")
+    parts = [headline if isinstance(headline, str) else ""]
+    kp = note.get("key_points")
+    parts += [p for p in (kp if isinstance(kp, list) else []) if isinstance(p, str)]
+    sections = note.get("sections")
+    parts += [v for v in (sections.values() if isinstance(sections, dict) else []) if isinstance(v, str)]
     return "\n".join(p for p in parts if p)
 
 
@@ -178,6 +204,28 @@ def _blank(v) -> bool:
     return not isinstance(v, str) or not v.strip()
 
 
+def _type_problems(note) -> list[str]:
+    """Wrong types anywhere in Claude's output; checked first so malformed
+    output yields reasons instead of an exception in the text checks."""
+    if not isinstance(note, dict):
+        return ["note is not an object"]
+    problems = []
+    for key in ("lean", "headline"):
+        if not isinstance(note.get(key), str):
+            problems.append(f"{key} must be a string")
+    kp = note.get("key_points")
+    if not isinstance(kp, list) or not all(isinstance(p, str) for p in kp):
+        problems.append("key_points must be a list of strings")
+    sections = note.get("sections")
+    if not isinstance(sections, dict):
+        problems.append("sections must be an object")
+    else:
+        for key, v in sections.items():
+            if v is not None and not isinstance(v, str):
+                problems.append(f"section {key} must be a string or null")
+    return problems
+
+
 def _schema_problems(note: dict, has_previous: bool) -> list[str]:
     problems = []
     if _blank(note.get("headline")):
@@ -202,7 +250,9 @@ def _schema_problems(note: dict, has_previous: bool) -> list[str]:
 
 def check_note(note: dict, transcript: str, estimates: dict, previous_note: dict | None) -> list[str]:
     """Failure reasons for a note; an empty list means it may publish."""
-    reasons = []
+    reasons = _type_problems(note)
+    if reasons:
+        return reasons
     if note.get("lean") not in LEANS:
         reasons.append(f"lean must be one of {', '.join(LEANS)}, got {note.get('lean')!r}")
     reasons += _schema_problems(note, previous_note is not None)
@@ -211,7 +261,7 @@ def check_note(note: dict, transcript: str, estimates: dict, previous_note: dict
     if not MIN_WORDS <= words <= MAX_WORDS:
         reasons.append(f"word count {words} outside {MIN_WORDS}-{MAX_WORDS} words")
     for phrase in BLOCKLIST:
-        if re.search(rf"\b{re.escape(phrase)}\b", text, re.IGNORECASE):
+        if re.search(rf"\b{re.escape(phrase)}s?\b", text, re.IGNORECASE):
             reasons.append(f"blocklisted phrase: {phrase}")
     sourced = sourced_values(transcript, estimates, previous_note)
     bad = []
