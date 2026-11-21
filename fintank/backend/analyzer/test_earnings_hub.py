@@ -1,12 +1,16 @@
 import io
 import json
+from datetime import date, timedelta
 from unittest import mock
 
 from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
 from rest_framework.test import APIClient
 
+from analyzer import views
 from analyzer.analyzer_utils import earnings_hub as eh
+
+TODAY = date(2026, 11, 21)   # the Toronto date every test runs on
 
 LOCMEM_CACHE = {
     'default': {
@@ -68,6 +72,9 @@ class EarningsHubBase(SimpleTestCase):
         cache.clear()
         self.client = APIClient()
         self.addCleanup(cache.clear)
+        today = mock.patch.object(views, "_toronto_today", return_value=TODAY)
+        today.start()
+        self.addCleanup(today.stop)
 
     def patch(self, s3, rows=None, side_effect=None):
         p1 = mock.patch.object(eh, "data_getter", s3)
@@ -104,6 +111,23 @@ class CalendarTests(EarningsHubBase):
         self.assertEqual(self.client.get(CAL, {"week": "nope"}).status_code, 400)
         self.assertEqual(self.client.get(CAL, {"week": "2026-13-40"}).status_code, 400)
         self.fmp.assert_not_called()
+
+    def test_calendar_week_more_than_a_year_away_is_400(self):
+        self.patch(FakeS3())
+        for week in ("0001-01-01", "9999-12-31", (TODAY - timedelta(days=366)).isoformat(),
+                     (TODAY + timedelta(days=366)).isoformat()):
+            self.assertEqual(self.client.get(CAL, {"week": week}).status_code, 400, week)
+        self.fmp.assert_not_called()
+
+    def test_calendar_week_within_a_year_is_200(self):
+        self.patch(FakeS3())
+        for week in ((TODAY - timedelta(days=364)).isoformat(),
+                     (TODAY + timedelta(days=364)).isoformat()):
+            self.assertEqual(self.client.get(CAL, {"week": week}).status_code, 200, week)
+
+    def test_calendar_default_week_is_the_toronto_today(self):
+        self.patch(FakeS3())
+        self.assertEqual(self.client.get(CAL).json()["week_start"], "2026-11-16")
 
     def test_calendar_drops_weekends_and_sorts_by_date_then_symbol(self):
         self.patch(FakeS3(), [_fmp("RY.TO", "2026-11-19"), _fmp("AAPL", "2026-11-21"),

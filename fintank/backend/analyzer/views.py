@@ -388,6 +388,15 @@ def get_analyst_quarterly(request, symbol):
         return server_error_response(logger, "get_analyst_quarterly", e)
 
 
+CALENDAR_WEEK_MAX_DAYS = 365
+
+
+def _toronto_today():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    return datetime.now(ZoneInfo("America/Toronto")).date()
+
+
 def _earnings_response(request, getter_name, *args):
     from .analyzer_utils import earnings_hub
     try:
@@ -404,16 +413,21 @@ def _earnings_response(request, getter_name, *args):
 
 @api_view(['GET'])
 def get_earnings_calendar(request):
-    from datetime import date, datetime
-    from zoneinfo import ZoneInfo
+    from datetime import date
+    today = _toronto_today()
     raw = request.query_params.get("week")
     if raw:
         try:
             week = date.fromisoformat(raw)
         except ValueError:
             return Response({"detail": "week must be YYYY-MM-DD"}, status=status.HTTP_400_BAD_REQUEST)
+        # Bounded: far dates are never useful, each one is an FMP call and a
+        # cache entry, and the year ends would overflow the Monday-Friday maths.
+        if abs((week - today).days) > CALENDAR_WEEK_MAX_DAYS:
+            return Response({"detail": "week must be within a year of today"},
+                            status=status.HTTP_400_BAD_REQUEST)
     else:
-        week = datetime.now(ZoneInfo("America/Toronto")).date()
+        week = today
     return _earnings_response(request, "get_earnings_calendar", week)
 
 
