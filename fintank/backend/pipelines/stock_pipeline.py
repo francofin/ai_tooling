@@ -100,13 +100,12 @@ from pipelines import pipeline_config as cfg  # noqa: E402
 from pipelines.attribution import compute_attribution  # noqa: E402
 from pipelines.factor_windows import WINDOWS, window_return_and_std  # noqa: E402
 from pipelines.fmp_stable_shapes import (HISTORY_ROW_CAP, etf_list_rows, holdings_rows,  # noqa: E402
-                                         index_payload, price_payload, statement_rows,
-                                         ttm_rows)
+                                         index_payload, price_payload, sector_snapshot_rows,
+                                         statement_rows, ttm_rows)
 from pipelines.results import StageResult, redact  # noqa: E402
 
 warnings.filterwarnings("ignore")
 
-V3_BASE = "https://financialmodelingprep.com/api/v3"
 STABLE_BASE = "https://financialmodelingprep.com/stable"
 FRED_BASE = "https://api.stlouisfed.org/fred/series/observations"
 START_DATE = "1999-01-01"
@@ -313,18 +312,15 @@ class StockDataPipeline:
     # Plumbing: URLs, HTTP, JSON/parquet writes.
     #
     # Endpoint generation was verified live against our key on 2026-07-31.
-    #   [v3-only]  stable gates this behind a higher plan (403 "Premium Query
-    #              Parameter" / "Restricted Endpoint") or drops fields we
-    #              depend on — do NOT migrate without re-verifying.
+    # Every endpoint is now on FMP stable (migrated off the retired v3 API,
+    # verified 2026-11-21). Responses are reshaped to the old v3 row shapes by
+    # fmp_stable_shapes so the stored files and Django mappings are unchanged.
     #   [stable]   verified working on our plan.
     # ─────────────────────────────────────────────────────────────────────
     def _url(self, base, path, **params):
         params["apikey"] = self.fmp_api
         query = "&".join(f"{k}={v}" for k, v in params.items() if v is not None)
         return f"{base}/{path}?{query}"
-
-    def _v3(self, path, **params):
-        return self._url(V3_BASE, path, **params)
 
     def _stable(self, path, **params):
         return self._url(STABLE_BASE, path, **params)
@@ -1451,19 +1447,24 @@ class StockDataPipeline:
             print(f"{len(failed)} series failed: {failed}")
         return result
 
-    def get_sector_snapshot(self):
-        """Today's sector performance snapshot (v3 sector-performance) plus a
-        market-breadth headline. Returns (rows, message); rows keep FMP's shape
-        {'sector': ..., 'changesPercentage': '0.63%'}.
+    def get_sector_snapshot(self, today: datetime.date | None = None):
+        """Latest-weekday sector performance snapshot (stable
+        sector-performance-snapshot, NYSE and NASDAQ averaged per sector) plus
+        a market-breadth headline. Returns (rows, message); rows keep the old
+        shape {'sector': ..., 'changesPercentage': '0.63%'}.
 
-        Stays on v3: its changesPercentage comes as "0.63%" strings, and this
-        parser and the endpoint must migrate together (stable's
-        sector-performance-snapshot returns floats per exchange).
+        Uses today when it is a weekday, else the previous Friday; if both
+        exchanges return nothing (holiday), retries once on the previous
+        weekday.
 
         The original hardcoded ==11 for "all sectors up" and crashed on any
         unparsable percentage; this counts against the rows actually parsed.
         """
-        data = self._get(self._v3("sector-performance"))
+        day = self._latest_weekday(today or datetime.date.today())
+        data = self._sector_rows_for(day)
+        if not data:
+            data = self._sector_rows_for(self._latest_weekday(
+                day - datetime.timedelta(days=1)))
 
         changes = []
         for row in data:
@@ -1485,11 +1486,23 @@ class StockDataPipeline:
 
         return data, message
 
+    @staticmethod
+    def _latest_weekday(d):
+        while d.weekday() >= 5:
+            d -= datetime.timedelta(days=1)
+        return d
+
+    def _sector_rows_for(self, day):
+        by_exchange = [self._stable_rows("sector-performance-snapshot",
+                                         date=day.isoformat(), exchange=ex)
+                       for ex in ("NYSE", "NASDAQ")]
+        return sector_snapshot_rows(by_exchange)
+
     def get_index_sector_exposure(self, const_key):
         """Sector weights of the index's proxy ETF. The one piece with no
-        local source — 1 live v3 etf-sector-weightings call."""
+        local source — 1 live stable etf/sector-weightings call."""
         etf = cfg.CONSTITUENT_PROXY_ETFS[const_key]
-        data = self._get(self._v3(f"etf-sector-weightings/{etf}"))
+        data = self._stable_rows("etf/sector-weightings", symbol=etf)
         rows = [{"sector": r["sector"],
                  "weight": float(str(r["weightPercentage"]).rstrip("%"))}
                 for r in data]

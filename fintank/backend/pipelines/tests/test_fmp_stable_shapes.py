@@ -239,3 +239,28 @@ def test_ttm_same_name_other_endpoint_fallback():
     del m["currentRatioTTM"]
     _, metrics = ttm_rows(r, m)
     assert metrics["currentRatioTTM"] == r["currentRatioTTM"]
+
+
+def test_sector_snapshot_averages_exchanges():
+    from pipelines.fmp_stable_shapes import sector_snapshot_rows
+    nyse = load_fixture("sector_snapshot_nyse")
+    nasdaq = load_fixture("sector_snapshot_nasdaq")
+    rows = sector_snapshot_rows([nyse, nasdaq])
+    assert len(rows) == 11
+    assert all(set(r) == {"sector", "changesPercentage"} for r in rows)
+    assert all(r["changesPercentage"].endswith("%") for r in rows)
+    sector = nyse[0]["sector"]
+    other = next(r for r in nasdaq if r["sector"] == sector)
+    mean = (nyse[0]["averageChange"] + other["averageChange"]) / 2
+    got = next(r for r in rows if r["sector"] == sector)
+    assert got["changesPercentage"] == f"{mean:.2f}%"
+    assert [r["sector"] for r in rows][0] == sector
+
+
+def test_sector_snapshot_single_exchange_sector_kept():
+    from pipelines.fmp_stable_shapes import sector_snapshot_rows
+    nyse = load_fixture("sector_snapshot_nyse")
+    rows = sector_snapshot_rows([nyse, []])
+    assert len(rows) == 11
+    assert rows[0]["changesPercentage"] == f"{nyse[0]['averageChange']:.2f}%"
+    assert sector_snapshot_rows([[], []]) == []

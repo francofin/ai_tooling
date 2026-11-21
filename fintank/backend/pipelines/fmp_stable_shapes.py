@@ -271,3 +271,15 @@ def ttm_rows(ratios: dict, metrics: dict) -> tuple:
                      ratios, metrics, both),
             _ttm_row(cfg.FIELD_MAPPINGS["company_metrics_ttm"], METRICS_TTM_SOURCES,
                      metrics, ratios, both))
+
+
+def sector_snapshot_rows(rows_by_exchange: list) -> list:
+    """Stable sector-performance-snapshot rows (one list per exchange) ->
+    [{"sector", "changesPercentage": "x.xx%"}]: the mean averageChange per
+    sector across the exchanges that report it, in first-seen sector order."""
+    totals: dict = {}
+    for rows in rows_by_exchange:
+        for r in rows:
+            totals.setdefault(r["sector"], []).append(float(r["averageChange"]))
+    return [{"sector": s, "changesPercentage": f"{sum(v) / len(v):.2f}%"}
+            for s, v in totals.items()]
