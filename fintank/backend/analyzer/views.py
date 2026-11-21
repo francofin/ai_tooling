@@ -358,6 +358,34 @@ def get_stock_quote(request, symbol):
 
 
 @api_view(['GET'])
+def get_analyst_view(request, symbol):
+    from .analyzer_utils.analyst_view import get_analyst_view as _getter, AnalystUnavailable
+    try:
+        payload = _getter(symbol)
+        return Response(payload, status=status.HTTP_200_OK)
+    except KeyError:
+        return Response({"detail": f"No analyst data for '{symbol}'"}, status=status.HTTP_404_NOT_FOUND)
+    except AnalystUnavailable as e:
+        return Response({"detail": client_safe_message(e)}, status=status.HTTP_502_BAD_GATEWAY)
+    except Exception as e:
+        return server_error_response(logger, "get_analyst_view", e)
+
+
+@api_view(['GET'])
+def get_analyst_quarterly(request, symbol):
+    from .analyzer_utils.analyst_view import get_quarterly_estimates as _getter, AnalystUnavailable
+    try:
+        payload = _getter(symbol)
+        return Response(payload, status=status.HTTP_200_OK)
+    except KeyError:
+        return Response({"detail": f"No analyst data for '{symbol}'"}, status=status.HTTP_404_NOT_FOUND)
+    except AnalystUnavailable as e:
+        return Response({"detail": client_safe_message(e)}, status=status.HTTP_502_BAD_GATEWAY)
+    except Exception as e:
+        return server_error_response(logger, "get_analyst_quarterly", e)
+
+
+@api_view(['GET'])
 def get_stock_price_data_monthly(request, symbol):
     from .analyzer_utils.CorePerformanceTools import get_stock_price_data_monthly as _getter
     try:

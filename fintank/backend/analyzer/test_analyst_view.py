@@ -253,3 +253,64 @@ class CachedGetterTests(SimpleTestCase):
         self.m["analyst_estimates"].return_value = []
         with self.assertRaises(KeyError):
             av.get_quarterly_estimates("RY.TO")
+
+
+ROUTE = "/api/analyst-view/{}/"
+QROUTE = "/api/analyst-view/{}/quarterly/"
+
+
+class AnalystViewEndpointTests(SimpleTestCase):
+    def test_view_200(self):
+        payload = {"symbol": "RY.TO", "estimates": {"annual": []}}
+        with mock.patch("analyzer.analyzer_utils.analyst_view.get_analyst_view",
+                        return_value=payload) as m:
+            r = self.client.get(ROUTE.format("RY.TO"))
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json(), payload)
+        m.assert_called_once_with("RY.TO")
+
+    def test_view_404_on_keyerror(self):
+        with mock.patch("analyzer.analyzer_utils.analyst_view.get_analyst_view",
+                        side_effect=KeyError("ZZZ")):
+            r = self.client.get(ROUTE.format("ZZZ"))
+        self.assertEqual(r.status_code, 404)
+        self.assertEqual(r.json(), {"detail": "No analyst data for 'ZZZ'"})
+
+    def test_view_502_on_unavailable(self):
+        boom = "https://financialmodelingprep.com/stable/grades-consensus?symbol=RY&apikey=SECRET123"
+        with mock.patch("analyzer.analyzer_utils.analyst_view.get_analyst_view",
+                        side_effect=av.AnalystUnavailable(boom)):
+            r = self.client.get(ROUTE.format("RY"))
+        self.assertEqual(r.status_code, 502)
+        self.assertIn("detail", r.json())
+        body = r.content.decode()
+        self.assertNotIn("financialmodelingprep", body)
+        self.assertNotIn("apikey", body)
+        self.assertNotIn("SECRET123", body)
+
+    def test_view_500_hides_unexpected_error(self):
+        with mock.patch("analyzer.analyzer_utils.analyst_view.get_analyst_view",
+                        side_effect=RuntimeError("apikey=SECRET123")):
+            r = self.client.get(ROUTE.format("RY"))
+        self.assertEqual(r.status_code, 500)
+        self.assertNotIn("SECRET123", r.content.decode())
+
+    def test_quarterly_route_200(self):
+        payload = {"symbol": "RY.TO", "estimates": {"quarter": []}}
+        with mock.patch("analyzer.analyzer_utils.analyst_view.get_quarterly_estimates",
+                        return_value=payload) as m:
+            r = self.client.get(QROUTE.format("RY.TO"))
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json(), payload)
+        m.assert_called_once_with("RY.TO")
+
+    def test_quarterly_404_and_502(self):
+        with mock.patch("analyzer.analyzer_utils.analyst_view.get_quarterly_estimates",
+                        side_effect=KeyError("ZZZ")):
+            r = self.client.get(QROUTE.format("ZZZ"))
+        self.assertEqual(r.status_code, 404)
+        self.assertEqual(r.json(), {"detail": "No analyst data for 'ZZZ'"})
+        with mock.patch("analyzer.analyzer_utils.analyst_view.get_quarterly_estimates",
+                        side_effect=av.AnalystUnavailable("RY")):
+            r = self.client.get(QROUTE.format("RY"))
+        self.assertEqual(r.status_code, 502)
