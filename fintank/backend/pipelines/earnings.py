@@ -60,10 +60,18 @@ def _set_latest(live, symbol, quarters) -> None:
     live.put_json(LATEST_KEY, latest)
 
 
+def _note_quarter(note) -> str:
+    return f"{note['fiscal_year']}-Q{note['fiscal_quarter']}"
+
+
 def publish_note(live, note: dict) -> None:
-    symbol = note["symbol"]
-    quarter = f"{note['fiscal_year']}-Q{note['fiscal_quarter']}"
-    live.put_json(note_key(symbol, quarter), note)
+    live.put_json(note_key(note["symbol"], _note_quarter(note)), note)
+    _index_note(live, note)
+
+
+def _index_note(live, note: dict) -> None:
+    """Upsert the note's quarter into its company index, then latest.json."""
+    symbol, quarter = note["symbol"], _note_quarter(note)
     index = live.get_json(company_index_key(symbol)) or {"symbol": symbol, "quarters": []}
     entry = {"quarter": quarter, "fiscal_year": note["fiscal_year"],
              "fiscal_quarter": note["fiscal_quarter"], "report_date": note["report_date"],
@@ -75,7 +83,30 @@ def publish_note(live, note: dict) -> None:
     _set_latest(live, symbol, quarters)
 
 
-def pull_note(live, symbol, quarter) -> None:
+def ensure_indexed(live, symbol, quarter) -> bool:
+    """Repair a publish that died between the note write and the index write: a
+    live note object with no index entry gets indexed (no Claude call). A
+    withdrawn entry counts as present, so this never un-withdraws a note."""
+    index = live.get_json(company_index_key(symbol)) or {}
+    if any(q.get("quarter") == quarter for q in index.get("quarters", [])):
+        return False
+    note = live.get_json(note_key(symbol, quarter))
+    if not note:
+        return False
+    _index_note(live, note)
+    return True
+
+
+def pull_note(live, symbol, quarter, *, lock_store=None, now=None, log=print) -> None:
+    """Withdraw one note. With lock_store (the state store), holds the run lock."""
+    if lock_store is None:
+        return _pull(live, symbol, quarter)
+    now = now or dt.datetime.now(dt.timezone.utc)
+    with _locked(lock_store, f"pull-note-{now:%Y%m%d-%H%M%S}", now, log):
+        _pull(live, symbol, quarter)
+
+
+def _pull(live, symbol, quarter) -> None:
     index = live.get_json(company_index_key(symbol)) or {}
     quarters = index.get("quarters", [])
     entry = next((q for q in quarters if q.get("quarter") == quarter), None)
@@ -200,7 +231,9 @@ def _collect(batch, client, store, live, state, run_id, summary, now, log) -> No
         state["attempts"][tag] = state["attempts"].get(tag, 0) + 1
         reasons = _judge(job, result)
         if not reasons:
-            if not is_written(state, live, job.symbol, job.quarter):
+            if is_written(state, live, job.symbol, job.quarter):
+                ensure_indexed(live, job.symbol, job.quarter)
+            else:
                 publish_note(live, to_stored_note(job, result.output, generated_at))
                 state["written"].append(tag)
                 summary["published"].append({"symbol": job.symbol, "quarter": job.quarter,
@@ -222,8 +255,13 @@ def _unwait(state, job) -> None:
         del state["waiting"][job.symbol]
 
 
+def pending_tags(state) -> set:
+    """Notes in a batch that is submitted (or may have been) but not collected."""
+    return {t for b in state["pending_batches"] for t in b.get("tags", [])}
+
+
 def _daily_jobs(fmp_key, live, state, covered, get, log) -> list:
-    pending = {t for b in state["pending_batches"] for t in b.get("tags", [])}
+    pending = pending_tags(state)
     jobs = []
     for symbol in sorted(state["waiting"], key=lambda s: (state["waiting"][s]["first_seen"], s)):
         if len(jobs) >= DAILY_CAP:
@@ -239,6 +277,7 @@ def _daily_jobs(fmp_key, live, state, covered, get, log) -> list:
             if tag in pending:
                 continue
             if is_written(state, live, symbol, quarter):
+                ensure_indexed(live, symbol, quarter)
                 mark_handled(state, symbol, wait["report_date"], "published")
                 del state["waiting"][symbol]
                 continue
@@ -307,8 +346,13 @@ def run_daily(run_id, fmp_key, anthropic_key, store, live, *, batch_client=None,
         client = _claude(anthropic_key, batch_client, no_claude)
         if client is None and not no_claude:
             summary["no_key"] = True
+        unrecorded = [b for b in state["pending_batches"] if not b.get("batch_id")]
+        if unrecorded:
+            summary["unrecorded_submits"] = sorted({t for b in unrecorded for t in b["tags"]})
         if client is not None:
             for batch in list(state["pending_batches"]):
+                if not batch.get("batch_id"):
+                    continue                          # reported, never resubmitted
                 if client.status(batch["batch_id"]) == "ended":
                     _collect(batch, client, store, live, state, run_id, summary, now, log)
             save_state(store, state)
@@ -328,11 +372,12 @@ def run_daily(run_id, fmp_key, anthropic_key, store, live, *, batch_client=None,
             summary["requests"] = len(jobs)
         elif jobs:
             jobs_key = _save_jobs(store, run_id, jobs)
-            batch_id = client.submit(_requests(jobs))
-            batch = {"batch_id": batch_id, "run_id": run_id, "jobs_key": jobs_key,
+            batch = {"batch_id": None, "run_id": run_id, "jobs_key": jobs_key,
                      "submitted_at": now.isoformat(),
                      "tags": [_tag(j.symbol, j.quarter) for _, j in jobs]}
             state["pending_batches"].append(batch)
+            save_state(store, state)                  # marker first: a crash in submit
+            batch_id = batch["batch_id"] = client.submit(_requests(jobs))   # never repays
             save_state(store, state)                  # before polling: never resubmit
             waited, status = 0, client.status(batch_id)
             while status != "ended" and waited < DAILY_MAX_WAIT_SECONDS:
@@ -345,176 +390,9 @@ def run_daily(run_id, fmp_key, anthropic_key, store, live, *, batch_client=None,
                 log(f"batch {batch_id} still {status}; the next run collects it")
         save_state(store, state)
         summary["waiting"] = sorted(state["waiting"])
-        summary["pending_batches"] = [b["batch_id"] for b in state["pending_batches"]]
-        verdict = WARN if summary["failed"] else PASS
+        summary["pending_batches"] = [b["batch_id"] for b in state["pending_batches"]
+                                      if b.get("batch_id")]
+        verdict = WARN if summary["failed"] or summary.get("unrecorded_submits") else PASS
         return _finish(report, summary, store, notifier, state_bucket, run_id, verdict)
     finally:
         release_lock(store, run_id)
-
-
-# --- backfill steps -------------------------------------------------------------
-
-def _status_key(run_id) -> str:
-    return run_key(run_id, "backfill-status.json")
-
-
-def _backfill_jobs(fmp_key, live, state, covered, get, log) -> list:
-    jobs = []
-    for symbol in sorted(covered):
-        if len(jobs) >= BACKFILL_CAP:
-            break
-        try:
-            newest = _newest_transcript(fmp_key, symbol, get)
-            if newest is None:
-                continue
-            fy, q, call = newest
-            if is_written(state, live, symbol, f"{fy}-Q{q}"):
-                continue
-            content, call_date = fetch_transcript(fmp_key, symbol, fy, q, get=get)
-        except Exception as e:  # noqa: BLE001
-            log(f"{symbol}: skipped ({redact(str(e))})")
-            continue
-        info = covered[symbol]
-        call_date = call_date or call
-        jobs.append(NoteJob(symbol=symbol, company_name=info["name"], region=info["region"],
-                            fiscal_year=fy, fiscal_quarter=q, report_date=str(call_date)[:10],
-                            call_date=call_date, transcript=content,
-                            estimates={"eps_estimate": None, "eps_actual": None,
-                                       "revenue_estimate": None, "revenue_actual": None},
-                            previous_note=None))
-    return jobs
-
-
-def backfill_submit(run_id, fmp_key, anthropic_key, store, live, *, batch_client,
-                    no_claude=False, get=http_get_json, log=print, now=None) -> dict:
-    now = now or dt.datetime.now(dt.timezone.utc)
-    with _locked(store, run_id, now, log):
-        state = load_state(store)
-        pending = state.get("backfill_pending")
-        if pending == run_id:
-            saved = store.get_json(_status_key(run_id)) or {}
-            if saved.get("status") == "submitted":
-                return saved                          # a retried task: never resubmit
-            raise RuntimeError(f"backfill {run_id} may already have submitted a batch "
-                               f"(status {saved.get('status')!r}); check the Anthropic "
-                               "console before doing anything else")
-        if pending:
-            raise RuntimeError(f"backfill {pending} is still waiting for approve/discard")
-        jobs = _numbered(_backfill_jobs(fmp_key, live, state, covered_symbols(live.get_json),
-                                        get, log))
-        client = _claude(anthropic_key, batch_client, no_claude)
-        if not jobs:
-            status = {"status": "nothing_to_do", "batch_id": None, "targets": 0}
-        elif client is None:
-            tokens = _write_requests(store, run_id, jobs)
-            status = {"status": "no_claude", "batch_id": None, "targets": len(jobs),
-                      "estimated_input_tokens": tokens,
-                      "estimated_input_usd": round(cost_usd({"input_tokens": tokens}), 2),
-                      "no_key": not no_claude}
-        else:
-            _save_jobs(store, run_id, jobs)
-            store.put_json(_status_key(run_id), {"status": "submitting", "batch_id": None})
-            state["backfill_pending"] = run_id
-            save_state(store, state)                  # blocks the daily run and a resubmit
-            batch_id = client.submit(_requests(jobs))
-            status = {"status": "submitted", "batch_id": batch_id, "targets": len(jobs)}
-            store.put_json(_status_key(run_id), status)
-            for _, job in jobs:                       # the paid attempt counts now
-                tag = _tag(job.symbol, job.quarter)
-                state["attempts"][tag] = state["attempts"].get(tag, 0) + 1
-            save_state(store, state)
-            return status
-        store.put_json(_status_key(run_id), status)
-        return status
-
-
-def backfill_check(run_id, store, *, batch_client, now=None, log=print) -> dict:
-    now = now or dt.datetime.now(dt.timezone.utc)
-    with _locked(store, run_id, now, log):
-        saved = store.get_json(_status_key(run_id)) or {}
-        if not saved.get("batch_id"):
-            raise RuntimeError(f"backfill {run_id} has no submitted batch")
-        raw = batch_client.status(saved["batch_id"])
-        status = dict(saved, status="ended" if raw == "ended" else "in_progress")
-        store.put_json(_status_key(run_id), status)
-        return status
-
-
-def backfill_stage(run_id, store, *, batch_client=None, from_results: str | None = None,
-                   now=None, log=print) -> dict:
-    now = now or dt.datetime.now(dt.timezone.utc)
-    with _locked(store, run_id, now, log):
-        state = load_state(store)
-        pending = state.get("backfill_pending")
-        if pending and pending != run_id:
-            raise RuntimeError(f"backfill {pending} is still waiting for approve/discard")
-        source = from_results or run_id
-        jobs = _load_jobs(store, run_key(source, "jobs.json"))
-        if from_results:                              # re-check saved results: no Claude
-            results = [BatchResult(**r) for r in
-                       store.get_json(run_key(from_results, "results.json")) or []]
-        else:
-            if batch_client is None:
-                raise ValueError("backfill_stage needs a batch client or from_results")
-            batch_id = (store.get_json(_status_key(run_id)) or {}).get("batch_id")
-            if not batch_id:
-                raise RuntimeError(f"backfill {run_id} has no submitted batch")
-            results = list(batch_client.results(batch_id))
-            store.put_json(run_key(run_id, "results.json"), [asdict(r) for r in results])
-        report = RunReport(run_id, "earnings", "backfill", now_iso())
-        summary = _empty_summary()
-        staged, generated_at = [], now.isoformat(timespec="seconds")
-        for result in results:
-            job = jobs.get(result.custom_id)
-            if job is None:
-                log(f"unknown custom_id {result.custom_id}")
-                continue
-            _add_usage(summary["usage"], result.usage)
-            reasons = _judge(job, result)
-            if reasons:
-                summary["failed"].append(_write_failure(store, run_id, job, result, reasons))
-                continue
-            key = run_key(run_id, f"notes/{job.symbol}_{job.quarter}.json")
-            store.put_json(key, to_stored_note(job, result.output, generated_at))
-            staged.append(key)
-            summary["published"].append({"symbol": job.symbol, "quarter": job.quarter,
-                                         "lean": result.output["lean"]})
-        store.put_json(run_key(run_id, "staged.json"), staged)
-        state["backfill_pending"] = run_id
-        save_state(store, state)
-        verdict = {"run_id": run_id, "verdict": WARN if summary["failed"] else PASS,
-                   "hold": True, "passed": len(staged), "failed": len(summary["failed"])}
-        summary["staged_not_live"] = True
-        _finish(report, summary, store, None, None, run_id, verdict["verdict"])
-        store.put_json(run_key(run_id, "verdict.json"), verdict)
-        return verdict
-
-
-def backfill_publish(run_id, store, live, *, now=None, log=print) -> int:
-    now = now or dt.datetime.now(dt.timezone.utc)
-    with _locked(store, run_id, now, log):
-        state = load_state(store)
-        count = 0
-        for key in store.get_json(run_key(run_id, "staged.json")) or []:
-            note = store.get_json(key)
-            quarter = f"{note['fiscal_year']}-Q{note['fiscal_quarter']}"
-            if is_written(state, live, note["symbol"], quarter):
-                continue                              # never overwrite a live note
-            publish_note(live, note)
-            state["written"].append(_tag(note["symbol"], quarter))
-            count += 1
-            save_state(store, state)
-        if state.get("backfill_pending") == run_id:
-            state["backfill_pending"] = None
-        save_state(store, state)
-        return count
-
-
-def backfill_discarded(run_id, store, *, now=None, log=print) -> None:
-    """Nothing goes live; runs/<id>/results.json stays for --from-results."""
-    now = now or dt.datetime.now(dt.timezone.utc)
-    with _locked(store, run_id, now, log):
-        state = load_state(store)
-        if state.get("backfill_pending") == run_id:
-            state["backfill_pending"] = None
-            save_state(store, state)

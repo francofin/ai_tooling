@@ -284,7 +284,7 @@ def test_earnings_requires_fmp_key(earnings_env, monkeypatch):
 
 
 def test_backfill_steps_dispatch(earnings_env, wired, monkeypatch):
-    from pipelines import earnings
+    from pipelines import earnings_backfill as earnings
     calls = []
     monkeypatch.setattr(earnings, "backfill_submit",
                         lambda run_id, fmp, key, store, live, **kw:
@@ -311,19 +311,52 @@ def test_backfill_check_without_key_builds_no_client(earnings_env, wired):
         cli.main(["earnings-backfill", "check", "--run-id", "b-1"])
 
 
+def test_backfill_steps_after_submit_do_not_need_fmp(earnings_env, wired, monkeypatch):
+    from pipelines import earnings_backfill
+    monkeypatch.delenv("FMP_API")
+    (earnings_env / ".env").write_text("")
+    calls = []
+    monkeypatch.setattr(earnings_backfill, "backfill_stage",
+                        lambda run_id, store, **kw: calls.append("stage") or {})
+    monkeypatch.setattr(earnings_backfill, "backfill_publish",
+                        lambda run_id, store, live: calls.append("publish") or 0)
+    monkeypatch.setattr(earnings_backfill, "backfill_discarded",
+                        lambda run_id, store: calls.append("discarded"))
+    cli.main(["earnings-backfill", "stage", "--run-id", "b-2", "--from-results", "b-1"])
+    cli.main(["earnings-backfill", "publish", "--run-id", "b-2"])
+    cli.main(["earnings-backfill", "discarded", "--run-id", "b-2"])
+    assert calls == ["stage", "publish", "discarded"]
+    with pytest.raises(SystemExit, match="ANTHROPIC_API_KEY"):    # not FMP_API
+        cli.main(["earnings-backfill", "check", "--run-id", "b-2"])
+    with pytest.raises(SystemExit, match="FMP_API"):
+        cli.main(["earnings-backfill", "submit", "--run-id", "b-3", "--no-claude"])
+
+
 def test_pull_note(wired, monkeypatch):
     from pipelines import earnings
     calls = []
     monkeypatch.setattr(earnings, "pull_note",
-                        lambda live, sym, q: calls.append((live.bucket, sym, q)))
+                        lambda live, sym, q, lock_store: calls.append(
+                            (live.bucket, sym, q, lock_store.bucket)))
     assert cli.main(["pull-note", "BBD-B.TO", "2026-Q3"]) == 0
-    assert calls == [("thetradingfloor", "BBD-B.TO", "2026-Q3")]
+    assert calls == [("thetradingfloor", "BBD-B.TO", "2026-Q3", "state")]
+
+
+def test_pull_note_lock_held_exits(wired, monkeypatch):
+    from pipelines import earnings
+
+    def held(live, sym, q, lock_store):
+        raise RuntimeError(earnings.LOCK_HELD)
+
+    monkeypatch.setattr(earnings, "pull_note", held)
+    with pytest.raises(SystemExit, match="another earnings run holds the lock"):
+        cli.main(["pull-note", "RY.TO", "2026-Q3"])
 
 
 def test_pull_note_unknown_quarter_exits(wired, monkeypatch):
     from pipelines import earnings
 
-    def missing(live, sym, q):
+    def missing(live, sym, q, lock_store):
         raise KeyError(q)
 
     monkeypatch.setattr(earnings, "pull_note", missing)

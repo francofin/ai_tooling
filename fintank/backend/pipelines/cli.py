@@ -179,6 +179,11 @@ def cmd_news(args) -> int:
     return 0
 
 
+def _claude_key() -> str:
+    # Spend safety: the environment only, never a .env file.
+    return os.environ.get("ANTHROPIC_API_KEY") or "unset"
+
+
 def _earnings_keys() -> tuple[str, str]:
     from pipelines.stock_pipeline import BACKEND_DIR, env_values
 
@@ -186,8 +191,7 @@ def _earnings_keys() -> tuple[str, str]:
     fmp_key = env("FMP_API")
     if not fmp_key:
         raise SystemExit("FMP_API must be set")
-    # Spend safety: the environment only, never a .env file.
-    return fmp_key, os.environ.get("ANTHROPIC_API_KEY") or "unset"
+    return fmp_key, _claude_key()
 
 
 def _earnings_stores(dry_run):
@@ -224,26 +228,24 @@ def _claude_client(claude_key):
 
 
 def cmd_earnings_backfill(args) -> int:
-    from pipelines import earnings
+    from pipelines import earnings_backfill as backfill
 
-    store, live, _, _ = _earnings_stores(False)
     run_id = args.run_id
+    fmp_key, claude_key = _earnings_keys() if args.step == "submit" else (None, _claude_key())
+    store, live, _, _ = _earnings_stores(False)
     if args.step == "submit":
-        fmp_key, claude_key = _earnings_keys()
-        result = earnings.backfill_submit(run_id, fmp_key, claude_key, store, live,
+        result = backfill.backfill_submit(run_id, fmp_key, claude_key, store, live,
                                           batch_client=None, no_claude=args.no_claude)
     elif args.step == "check":
-        result = earnings.backfill_check(run_id, store,
-                                         batch_client=_claude_client(_earnings_keys()[1]))
+        result = backfill.backfill_check(run_id, store, batch_client=_claude_client(claude_key))
     elif args.step == "stage":
-        client = (None if args.from_results
-                  else _claude_client(_earnings_keys()[1]))
-        result = earnings.backfill_stage(run_id, store, batch_client=client,
+        client = None if args.from_results else _claude_client(claude_key)
+        result = backfill.backfill_stage(run_id, store, batch_client=client,
                                          from_results=args.from_results)
     elif args.step == "publish":
-        result = {"published": earnings.backfill_publish(run_id, store, live)}
+        result = {"published": backfill.backfill_publish(run_id, store, live)}
     else:
-        earnings.backfill_discarded(run_id, store)
+        backfill.backfill_discarded(run_id, store)
         result = {"discarded": run_id}
     print(json.dumps(result))
     return 0
@@ -252,11 +254,14 @@ def cmd_earnings_backfill(args) -> int:
 def cmd_pull_note(args) -> int:
     from pipelines import earnings
 
-    live = S3Store(live_bucket(), aws_client("s3"))
+    s3 = aws_client("s3")
+    live, state = S3Store(live_bucket(), s3), S3Store(default_state_bucket(), s3)
     try:
-        earnings.pull_note(live, args.symbol, args.quarter)
+        earnings.pull_note(live, args.symbol, args.quarter, lock_store=state)
     except KeyError:
         raise SystemExit(f"{args.symbol} has no {args.quarter} note") from None
+    except RuntimeError as e:
+        raise SystemExit(f"pull-note refused: {e}; try again when the run ends") from None
     print(f"withdrew {args.symbol} {args.quarter}; the site drops it within the hour "
           "(the notes cache lasts 3600 s)")
     return 0

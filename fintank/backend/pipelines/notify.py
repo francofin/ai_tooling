@@ -90,6 +90,11 @@ def earnings_message(report, summary: dict, state_bucket) -> tuple[str, str]:
                   "(ANTHROPIC_API_KEY is unset).", ""]
     elif summary.get("no_claude"):
         lines += ["Test mode (--no-claude): nothing was sent to Claude.", ""]
+    if summary.get("unrecorded_submits"):
+        lines += ["WARNING: a submit may have happened without a recorded batch id; check "
+                  "the Anthropic console. These notes are skipped (never resubmitted) until "
+                  "the entry with batch_id null is removed from earnings/state.json "
+                  "pending_batches: " + ", ".join(summary["unrecorded_submits"]), ""]
     if summary.get("staged_not_live"):
         lines += ["Backfill notes are staged, not live: approve or discard the run.", ""]
     lines.append(f"Published: {len(published)}")

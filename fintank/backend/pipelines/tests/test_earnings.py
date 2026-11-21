@@ -7,6 +7,7 @@ import re
 import pytest
 
 from pipelines import earnings as e
+from pipelines import earnings_backfill as bf
 from pipelines import earnings_state as st
 from pipelines.earnings_claude import BatchResult
 from pipelines.notify import earnings_message
@@ -366,7 +367,7 @@ def backfill_world(world):
 
 
 def submit(world, run_id, client, no_claude=False, key=FAKE_KEY):
-    return e.backfill_submit(run_id, "fmp-test", key, world.store, world.live,
+    return bf.backfill_submit(run_id, "fmp-test", key, world.store, world.live,
                              batch_client=client, no_claude=no_claude, get=world.fmp,
                              log=lambda *a: None, now=NOW)
 
@@ -382,16 +383,16 @@ def test_backfill_submit_check_stage_publish(world):
                in r["params"]["messages"][0]["content"] for r in client.submits[0])
     assert world.state()["backfill_pending"] == "backfill-1"
     assert world.store.get_json(run_key("backfill-1", "backfill-status.json")) == status
-    assert e.backfill_check("backfill-1", world.store, batch_client=client)["status"] == "in_progress"
-    assert e.backfill_check("backfill-1", world.store, batch_client=client)["status"] == "ended"
-    verdict = e.backfill_stage("backfill-1", world.store, batch_client=client)
+    assert bf.backfill_check("backfill-1", world.store, batch_client=client)["status"] == "in_progress"
+    assert bf.backfill_check("backfill-1", world.store, batch_client=client)["status"] == "ended"
+    verdict = bf.backfill_stage("backfill-1", world.store, batch_client=client)
     assert verdict["hold"] is True and (verdict["passed"], verdict["failed"]) == (3, 0)
     assert world.store.get_json(run_key("backfill-1", "verdict.json")) == verdict
     assert world.store.exists(run_key("backfill-1", "report.json"))
     assert world.store.exists(run_key("backfill-1", "notes/BBD-B.TO_2026-Q3.json"))
     assert not world.live.exists(st.note_key("RY.TO", "2026-Q4"))         # nothing live yet
     assert not world.live.exists(st.LATEST_KEY)
-    assert e.backfill_publish("backfill-1", world.store, world.live) == 3
+    assert bf.backfill_publish("backfill-1", world.store, world.live) == 3
     for sym, q in (("RY.TO", "2026-Q4"), ("BBD-B.TO", "2026-Q3"), ("AAPL", "2026-Q1")):
         assert world.live.exists(st.note_key(sym, q))
     assert world.live.get_json(st.LATEST_KEY) == {"RY.TO": "2026-Q4", "BBD-B.TO": "2026-Q3",
@@ -400,7 +401,8 @@ def test_backfill_submit_check_stage_publish(world):
     assert state["backfill_pending"] is None
     assert "BBD-B.TO|2026-Q3" in state["written"]
     assert not world.store.exists(st.LOCK_KEY)
-    assert e.backfill_publish("backfill-1", world.store, world.live) == 0   # re-run is a no-op
+    with pytest.raises(RuntimeError, match="not the staged backfill"):
+        bf.backfill_publish("backfill-1", world.store, world.live)       # already settled
 
 
 def test_backfill_submit_retry_never_resubmits(world):
@@ -445,15 +447,15 @@ def test_backfill_from_results_makes_no_claude_call(world):
     backfill_world(world)
     client = FakeBatch(bad={"AAPL"})
     submit(world, "backfill-1", client)
-    first = e.backfill_stage("backfill-1", world.store, batch_client=client)
+    first = bf.backfill_stage("backfill-1", world.store, batch_client=client)
     assert (first["passed"], first["failed"]) == (3, 1)
-    e.backfill_discarded("backfill-1", world.store)
-    verdict = e.backfill_stage("backfill-2", world.store, batch_client=ForbiddenClient(),
+    bf.backfill_discarded("backfill-1", world.store)
+    verdict = bf.backfill_stage("backfill-2", world.store, batch_client=ForbiddenClient(),
                                from_results="backfill-1")
     assert verdict["hold"] is True and (verdict["passed"], verdict["failed"]) == (3, 1)
     assert world.store.exists(run_key("backfill-2", "notes/RY.TO_2026-Q4.json"))
     assert world.state()["backfill_pending"] == "backfill-2"
-    assert e.backfill_publish("backfill-2", world.store, world.live) == 3
+    assert bf.backfill_publish("backfill-2", world.store, world.live) == 3
     assert len(client.submits) == 1
 
 
@@ -461,8 +463,8 @@ def test_discarded_backfill_keeps_results_and_unblocks_daily(world):
     backfill_world(world)
     client = FakeBatch()
     submit(world, "backfill-1", client)
-    e.backfill_stage("backfill-1", world.store, batch_client=client)
-    e.backfill_discarded("backfill-1", world.store)
+    bf.backfill_stage("backfill-1", world.store, batch_client=client)
+    bf.backfill_discarded("backfill-1", world.store)
     assert world.store.exists(run_key("backfill-1", "results.json"))
     state = world.state()
     assert state["backfill_pending"] is None
@@ -555,3 +557,140 @@ def test_earnings_message_subject_and_cost():
     subject, body = earnings_message(report, no_key, None)
     assert subject.endswith("0 published, 0 failed")
     assert "no Claude key, nothing was generated" in body and "5,000" in body
+
+
+# --- fix round 1 (R12) -----------------------------------------------------------
+
+def pending_daily(world, tags, batch_id="batch-9"):
+    state = st.load_state(world.store)
+    state["pending_batches"].append({"batch_id": batch_id, "run_id": "old",
+                                     "jobs_key": run_key("old", "jobs.json"), "tags": tags})
+    st.save_state(world.store, state)
+
+
+def sent_symbols(client, i=0):
+    return {re.search(r"\((\S+)\)</company>", r["params"]["messages"][0]["content"]).group(1)
+            for r in client.submits[i]}
+
+
+def test_backfill_skips_quarters_in_a_pending_daily_batch(world):
+    backfill_world(world)
+    world.fmp.dates["RY.TO"] = [{"fiscalYear": 2026, "quarter": 3, "date": "2026-11-01"}]
+    pending_daily(world, ["RY.TO|2026-Q3"])
+    client = FakeBatch()
+    assert submit(world, "backfill-1", client)["targets"] == 3
+    assert "RY.TO" not in sent_symbols(client)
+
+
+def test_backfill_skips_exhausted_quarters(world):
+    backfill_world(world)
+    state = st.load_state(world.store)
+    state["attempts"]["AAPL|2026-Q1"] = e.MAX_ATTEMPTS
+    state["attempts"]["MSFT|2026-Q1"] = e.MAX_ATTEMPTS - 1
+    st.save_state(world.store, state)
+    client = FakeBatch()
+    submit(world, "backfill-1", client)
+    assert sent_symbols(client) == {"RY.TO", "BBD-B.TO", "MSFT"}
+    assert world.state()["attempts"]["MSFT|2026-Q1"] == e.MAX_ATTEMPTS     # counted at submit
+    bf.backfill_discarded("backfill-1", world.store)
+    submit(world, "backfill-2", client)                  # second and last paid try
+    assert sent_symbols(client, 1) == {"RY.TO", "BBD-B.TO"}
+    bf.backfill_discarded("backfill-2", world.store)
+    assert submit(world, "backfill-3", client)["status"] == "nothing_to_do"
+    assert len(client.submits) == 2
+
+
+class DiesInSubmit(FakeBatch):
+    """The API accepted the batch, then the container died before the id came back."""
+
+    def submit(self, requests):
+        super().submit(requests)
+        raise RuntimeError("container killed mid-submit")
+
+
+def test_killed_in_submit_never_resubmits_and_says_so(world):
+    world.fmp.report("RY.TO", "2026-11-20", 2026, 4)
+    client = DiesInSubmit()
+    with pytest.raises(RuntimeError, match="mid-submit"):
+        world.run("earnings-1", client)
+    marker = world.state()["pending_batches"]
+    assert marker[0]["batch_id"] is None and marker[0]["tags"] == ["RY.TO|2026-Q4"]
+    good = FakeBatch()
+    report = world.run("earnings-2", good)
+    assert len(client.submits) == 1 and good.submits == [] and good.status_calls == 0
+    assert report.verdict == "warn"
+    assert world.summary("earnings-2")["unrecorded_submits"] == ["RY.TO|2026-Q4"]
+    body = world.sent[-1][1]
+    assert "without a recorded batch id" in body and "Anthropic console" in body
+    # the backfill skips it too
+    world.fmp.dates = {"RY.TO": [{"fiscalYear": 2026, "quarter": 4, "date": "2026-11-20"}]}
+    assert submit(world, "backfill-1", good)["status"] == "nothing_to_do"
+
+
+def test_crash_between_note_and_index_is_repaired_without_claude(world, monkeypatch):
+    world.fmp.report("RY.TO", "2026-11-20", 2026, 4)
+    client = FakeBatch()
+    real = e._index_note
+    monkeypatch.setattr(e, "_index_note", lambda live, note: (_ for _ in ()).throw(
+        RuntimeError("S3 hiccup")))
+    with pytest.raises(RuntimeError, match="S3 hiccup"):
+        world.run("earnings-1", client)
+    assert world.live.exists(st.note_key("RY.TO", "2026-Q4"))
+    assert not world.live.exists(st.company_index_key("RY.TO"))
+    monkeypatch.setattr(e, "_index_note", real)
+    world.run("earnings-2", client)
+    assert len(client.submits) == 1
+    assert world.live.get_json(st.company_index_key("RY.TO"))["quarters"][0]["quarter"] == "2026-Q4"
+    assert world.live.get_json(st.LATEST_KEY) == {"RY.TO": "2026-Q4"}
+
+
+def test_ensure_indexed_leaves_withdrawn_alone(world):
+    e.publish_note(world.live, stored("RY.TO", 2026, 3))
+    e.pull_note(world.live, "RY.TO", "2026-Q3")
+    assert e.ensure_indexed(world.live, "RY.TO", "2026-Q3") is False
+    assert world.live.get_json(st.company_index_key("RY.TO"))["quarters"][0]["withdrawn"] is True
+    assert e.ensure_indexed(world.live, "NOPE", "2026-Q1") is False
+
+
+def test_pull_note_takes_the_lock(world):
+    e.publish_note(world.live, stored("RY.TO", 2026, 3))
+    st.acquire_lock(world.store, "earnings-1", NOW)
+    with pytest.raises(RuntimeError, match="another earnings run holds the lock"):
+        e.pull_note(world.live, "RY.TO", "2026-Q3", lock_store=world.store, now=NOW)
+    assert world.live.get_json(st.LATEST_KEY) == {"RY.TO": "2026-Q3"}
+    st.release_lock(world.store, "earnings-1")
+    e.pull_note(world.live, "RY.TO", "2026-Q3", lock_store=world.store, now=NOW)
+    assert world.live.get_json(st.LATEST_KEY) == {}
+    assert not world.store.exists(st.LOCK_KEY)
+
+
+def test_publishing_a_discarded_backfill_is_refused(world):
+    backfill_world(world)
+    client = FakeBatch()
+    submit(world, "backfill-1", client)
+    bf.backfill_stage("backfill-1", world.store, batch_client=client)
+    bf.backfill_discarded("backfill-1", world.store)
+    with pytest.raises(RuntimeError, match="not the staged backfill"):
+        bf.backfill_publish("backfill-1", world.store, world.live)
+    assert not world.live.exists(st.LATEST_KEY)
+
+
+def test_missing_staged_note_is_a_clear_error(world):
+    backfill_world(world)
+    client = FakeBatch()
+    submit(world, "backfill-1", client)
+    bf.backfill_stage("backfill-1", world.store, batch_client=client)
+    world.store.delete(run_key("backfill-1", "notes/BBD-B.TO_2026-Q3.json"))
+    with pytest.raises(RuntimeError, match="staged note .*BBD-B.TO_2026-Q3.json is missing"):
+        bf.backfill_publish("backfill-1", world.store, world.live)
+    assert world.state()["backfill_pending"] == "backfill-1"        # still settle-able
+
+
+def test_stage_refuses_a_batch_that_has_not_ended(world):
+    backfill_world(world)
+    client = FakeBatch(statuses=["in_progress"])
+    submit(world, "backfill-1", client)
+    with pytest.raises(RuntimeError, match="not ended"):
+        bf.backfill_stage("backfill-1", world.store, batch_client=client)
+    assert not world.store.exists(run_key("backfill-1", "results.json"))
+    assert not world.store.exists(run_key("backfill-1", "verdict.json"))
