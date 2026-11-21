@@ -52,3 +52,28 @@ def test_default_state_bucket(monkeypatch):
 def test_live_bucket(monkeypatch):
     monkeypatch.delenv("LIVE_BUCKET", raising=False)
     assert store.live_bucket() == "thetradingfloor"
+
+
+def test_put_json_if_absent_local_and_s3(any_store):
+    assert any_store.put_json_if_absent("earnings/lock.json", {"a": 1}) is True
+    assert any_store.put_json_if_absent("earnings/lock.json", {"a": 2}) is False
+    assert any_store.get_json("earnings/lock.json") == {"a": 1}
+
+
+def test_s3_put_json_if_absent_maps_412_to_false():
+    from botocore.exceptions import ClientError
+
+    class Stub:
+        def put_object(self, **kw):
+            assert kw["IfNoneMatch"] == "*"
+            raise ClientError({"Error": {"Code": "PreconditionFailed"},
+                               "ResponseMetadata": {"HTTPStatusCode": 412}}, "PutObject")
+
+    assert store.S3Store("b", client=Stub()).put_json_if_absent("k", {}) is False
+
+    class Boom:
+        def put_object(self, **kw):
+            raise ClientError({"Error": {"Code": "AccessDenied"}}, "PutObject")
+
+    with pytest.raises(ClientError):
+        store.S3Store("b", client=Boom()).put_json_if_absent("k", {})
