@@ -146,7 +146,7 @@ def statement_rows(kind: str, rows: list) -> list:
     Stable keys are kept; renamed ones move to the v3 spelling (the stable
     spelling is dropped so a row never carries both). calendarYear stays a
     str as in v3. Income ratios are derived (part / revenue, None when revenue
-    is 0 or None); link/finalLink are None."""
+    is None; 0.0 when revenue and the part are both 0); link/finalLink are None."""
     renames = STATEMENT_RENAMES[kind]
     # totalLiabilitiesAndTotalEquity is itself a mapped v3 column (v3 carried
     # it alongside totalLiabilitiesAndStockholdersEquity), so it stays.
@@ -162,8 +162,14 @@ def statement_rows(kind: str, rows: list) -> list:
             revenue = r.get("revenue")
             for ratio, part in _INCOME_RATIOS.items():
                 num = r.get(part)
-                row[ratio] = (num / revenue if revenue and num is not None
-                              else None)
+                if num is None or revenue is None:
+                    row[ratio] = None
+                elif revenue == 0:
+                    # v3 wrote 0.0 for an all-zero row (66 live rows, Task 8); a
+                    # non-zero part over zero revenue is undefined, so None.
+                    row[ratio] = 0.0 if num == 0 else None
+                else:
+                    row[ratio] = num / revenue
         out.append(row)
     return out
 
@@ -184,7 +190,9 @@ RATIOS_TTM_SOURCES = {
     "debtRatioTTM": ("R", "debtToAssetsRatioTTM", 1),
     "dividendYielPercentageTTM": ("R", "dividendYieldTTM", 100),
     "dividendYielTTM": ("R", "dividendYieldTTM", 1),
-    "ebitPerRevenueTTM": ("R", "ebitMarginTTM", 1),
+    # Task 8: v3 ebitPerRevenue is the operating margin (95% of 40 symbols within
+    # 1%; ebitMarginTTM matched 8 of 40).
+    "ebitPerRevenueTTM": ("R", "operatingProfitMarginTTM", 1),
     "interestCoverageTTM": ("R", "interestCoverageRatioTTM", 1),
     "longTermDebtToCapitalizationTTM": ("R", "longTermDebtToCapitalRatioTTM", 1),
     "operatingCycleTTM": ("M", "operatingCycleTTM", 1),
@@ -255,7 +263,10 @@ def _ttm_row(mapping, sources, own, other, both):
             row[key] = own[key]
         else:
             row[key] = other.get(key)
-    return row
+    # v3 TTM values are floats; stable sends a whole 0 as an int, which pandas
+    # would store as int64 where the live column is float64.
+    return {k: float(v) if isinstance(v, int) and not isinstance(v, bool) else v
+            for k, v in row.items()}
 
 
 def ttm_rows(ratios: dict, metrics: dict) -> tuple:

@@ -155,13 +155,25 @@ def test_income_ratios_derived():
     assert row["link"] is None and row["finalLink"] is None
 
 
+_RATIO_KEYS = ("grossProfitRatio", "ebitdaratio", "operatingIncomeRatio",
+               "incomeBeforeTaxRatio", "netIncomeRatio")
+
+
 @pytest.mark.parametrize("revenue", [0, None])
 def test_income_ratios_none_when_revenue_zero(revenue):
     raw = [dict(load_fixture("income_q_aapl")[0], revenue=revenue)]
     row = statement_rows("income", raw)[0]
-    for k in ("grossProfitRatio", "ebitdaratio", "operatingIncomeRatio",
-              "incomeBeforeTaxRatio", "netIncomeRatio"):
+    for k in _RATIO_KEYS:
         assert row[k] is None
+
+
+def test_income_ratios_zero_when_revenue_and_parts_zero():
+    # v3 wrote 0.0 here (live rows, e.g. a pre-revenue miner).
+    zero = dict(revenue=0, grossProfit=0, ebitda=0, operatingIncome=0,
+                incomeBeforeTax=0, netIncome=0)
+    row = statement_rows("income", [dict(load_fixture("income_q_aapl")[0], **zero)])[0]
+    for k in _RATIO_KEYS:
+        assert row[k] == 0.0 and isinstance(row[k], float)
 
 
 @pytest.mark.parametrize("kind,fixture,mapping", _STATEMENTS)
@@ -223,6 +235,19 @@ def test_ttm_scale_100_keeps_none():
     ratios, metrics = ttm_rows(r, load_fixture("key_metrics_ttm_aapl")[0])
     assert ratios["dividendYielPercentageTTM"] is None
     assert metrics["dividendYieldPercentageTTM"] is None
+
+
+def test_ttm_ebit_per_revenue_is_operating_margin():
+    ratios, _ = _ttm()
+    assert ratios["ebitPerRevenueTTM"] == load_fixture("ratios_ttm_aapl")[0]["operatingProfitMarginTTM"]
+
+
+def test_ttm_whole_numbers_become_floats():
+    r = load_fixture("ratios_ttm_aapl")[0]
+    r["priceToEarningsRatioTTM"] = 0
+    ratios, metrics = ttm_rows(r, load_fixture("key_metrics_ttm_aapl")[0])
+    assert ratios["peRatioTTM"] == 0.0 and isinstance(ratios["peRatioTTM"], float)
+    assert isinstance(metrics["peRatioTTM"], float)
 
 
 def test_ttm_cross_endpoint():
