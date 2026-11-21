@@ -52,7 +52,12 @@ const EarningsNotePanel = ({ symbol }) => {
         tabIndex={0}
         style={{ cursor: 'pointer' }}
         onClick={() => show(entry.quarter)}
-        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && show(entry.quarter)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault() // Space would otherwise scroll the page
+            show(entry.quarter)
+          }
+        }}
       >
         <div className="d-flex flex-wrap align-items-center gap-2 mb-2">
           <strong>{quarterLabel(entry.quarter)}</strong>

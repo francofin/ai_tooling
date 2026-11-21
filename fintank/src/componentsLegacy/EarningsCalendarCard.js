@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import Link from 'next/link'
 import { Card, Nav, Table, Button } from 'react-bootstrap'
 import { useEarningsCalendar } from '@hooks/useEarningsCalendar'
-import { EMPTY, addDays, fmtEps, mondayOf, weekDays } from '@utils/earningsFormat.mjs'
+import { EMPTY, addDays, defaultDay, fmtEps, isoDay, mondayOf, noteLinkLabel, weekDays } from '@utils/earningsFormat.mjs'
 
 const REGIONS = [
   ['ca', 'Canada'],
@@ -15,14 +15,14 @@ const dayLabel = (iso) =>
 const EarningsCalendarCard = () => {
   const [week, setWeek] = useState(() => mondayOf(new Date()))
   const [region, setRegion] = useState('ca')
-  const [day, setDay] = useState(null) // null = the week's first day
+  const [day, setDay] = useState(null) // null = today if in this week, else Monday
   const { data, error, isLoading } = useEarningsCalendar(week)
 
   // Provider or API failure hides the card.
   if (error) return null
 
   const days = weekDays(week)
-  const activeDay = day && days.includes(day) ? day : days[0]
+  const activeDay = day && days.includes(day) ? day : defaultDay(days, isoDay(new Date()))
   const rows = (data?.rows || []).filter((r) => r.region === region && r.date === activeDay)
 
   const shift = (delta) => {
@@ -84,7 +84,7 @@ const EarningsCalendarCard = () => {
               </thead>
               <tbody>
                 {rows.map((r) => (
-                  <tr key={r.symbol}>
+                  <tr key={`${r.symbol}-${r.date}`}>
                     <td>
                       <Link href={`/stock-data/${encodeURIComponent(r.symbol)}`}>{r.symbol}</Link>
                     </td>
@@ -95,7 +95,7 @@ const EarningsCalendarCard = () => {
                     <td className="text-end text-nowrap">
                       {r.note_quarter && (
                         <Link href={`/stock-data/${encodeURIComponent(r.symbol)}?note=${encodeURIComponent(r.note_quarter)}`}>
-                          Read note →
+                          {noteLinkLabel(r.note_quarter)} →
                         </Link>
                       )}
                     </td>

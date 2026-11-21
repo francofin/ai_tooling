@@ -63,3 +63,16 @@ export const addDays = (iso, days) => {
 }
 
 export const fmtEps = (v) => (typeof v === 'number' && Number.isFinite(v) ? v.toFixed(2) : EMPTY)
+
+/** Calendar link text: "2026-Q2" -> "Read Q2 note" ("Read note" if not a quarter key). */
+export const noteLinkLabel = (quarter) => {
+  const m = QUARTER_RE.exec(quarter || '')
+  return m ? `Read Q${m[2]} note` : 'Read note'
+}
+
+/** ISO date of `date`, read in UTC (the same reading as mondayOf). */
+export const isoDay = (date) =>
+  new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())).toISOString().slice(0, 10)
+
+/** The day tab to open: today when it is one of the week's days, else the Monday. */
+export const defaultDay = (days, todayISO) => (days.includes(todayISO) ? todayISO : days[0])

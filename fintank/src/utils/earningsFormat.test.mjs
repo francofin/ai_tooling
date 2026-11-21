@@ -11,6 +11,9 @@ import {
   MODAL_DISCLAIMER,
   NOTE_SECTIONS,
   visibleSections,
+  noteLinkLabel,
+  isoDay,
+  defaultDay,
 } from './earningsFormat.mjs'
 
 describe('quarterLabel', () => {
@@ -75,5 +78,30 @@ describe('visibleSections', () => {
     const keys = visibleSections({ what_changed: null }).map(([k]) => k)
     assert.ok(!keys.includes('what_changed'))
     assert.equal(keys.length, 8)
+  })
+})
+
+describe('noteLinkLabel', () => {
+  it('names the quarter', () => {
+    assert.equal(noteLinkLabel('2026-Q2'), 'Read Q2 note')
+    assert.equal(noteLinkLabel('2025-Q4'), 'Read Q4 note')
+  })
+  it('falls back without a quarter key', () => {
+    assert.equal(noteLinkLabel(null), 'Read note')
+    assert.equal(noteLinkLabel('2026-Q7'), 'Read note')
+  })
+})
+
+describe('defaultDay', () => {
+  const days = weekDays('2026-11-16')
+  it('opens today when it is in the displayed week', () => {
+    assert.equal(defaultDay(days, '2026-11-19'), '2026-11-19')
+  })
+  it('opens the Monday for another week or a weekend', () => {
+    assert.equal(defaultDay(days, '2026-11-26'), '2026-11-16')
+    assert.equal(defaultDay(days, '2026-11-21'), '2026-11-16')
+  })
+  it('reads today in UTC, like mondayOf', () => {
+    assert.equal(isoDay(new Date(Date.UTC(2026, 10, 19, 23, 30))), '2026-11-19')
   })
 })
