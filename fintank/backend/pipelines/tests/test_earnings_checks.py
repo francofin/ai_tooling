@@ -1,0 +1,162 @@
+import pytest
+
+from pipelines import earnings_checks as e
+
+SECTION_KEYS = [
+    "results_vs_consensus", "guidance", "management_tone", "qa_themes",
+    "what_changed", "risks", "bull_case", "bear_case", "watch_next",
+]
+
+
+def make_note(extra="", words=1500, what_changed="Changes since last quarter."):
+    """A valid note whose total word count is exactly `words`."""
+    note = {
+        "lean": "neutral",
+        "headline": "Solid quarter",
+        "key_points": ["Point one.", "Point two.", "Point three."],
+        "sections": {k: f"Section {k} text." for k in SECTION_KEYS},
+    }
+    note["sections"]["what_changed"] = what_changed
+    if extra:
+        note["sections"]["guidance"] = extra
+    have = len(e.note_text(note).split())
+    note["sections"]["watch_next"] += " " + " ".join(["filler"] * (words - have))
+    assert len(e.note_text(note).split()) == words
+    return note
+
+
+def check(note, transcript="", estimates=None, previous=None):
+    return e.check_note(note, transcript, estimates or {}, previous)
+
+
+def unmatched(reasons):
+    return [r for r in reasons if "figure" in r]
+
+
+def test_clean_note_passes():
+    assert check(make_note(), previous={"headline": "h", "key_points": [], "sections": {}}) == []
+
+
+def test_equivalent_money_forms_match():
+    note = make_note("Revenue was $3.2 billion, or 3.2B, or 3,200 million, or C$3.2 billion.")
+    assert unmatched(check(note, "revenue of $3,214 million")) == []
+
+
+def test_invented_figure_fails():
+    note = make_note("Revenue reached $4.1 billion.")
+    reasons = check(note, "revenue of $3,214 million")
+    assert any("$4.1 billion" in r for r in reasons)
+
+
+def test_negative_and_parentheses_equal():
+    note = make_note("EPS was ($0.05) and a loss of -$0.05 per share.")
+    assert unmatched(check(note, "we lost -$0.05 per share")) == []
+    note = make_note("EPS was ($0.05).")
+    assert unmatched(check(note, "a loss of $(0.05) per share")) == []
+
+
+def test_bp_and_percent_forms():
+    note = make_note("Margin up 120 bp, 120 basis points, 120 bps; sales up 12%, 12 per cent, 12 percent.")
+    assert unmatched(check(note, "margin expanded 120 basis points and sales grew 12 percent")) == []
+
+
+def test_kinds_do_not_cross_match():
+    note = make_note("Sales up 12%.")
+    assert unmatched(check(note, "we spent $12 on lunch"))
+    note = make_note("Costs of $12.")
+    assert unmatched(check(note, "sales up 12%"))
+
+
+def test_beat_vs_consensus_is_allowed():
+    est = {"eps_estimate": 3.21, "eps_actual": 3.34, "revenue_estimate": None, "revenue_actual": None}
+    note = make_note("EPS of $3.34 versus $3.21 expected: a beat by $0.13 (4.0%).")
+    assert unmatched(check(note, "", est)) == []
+
+
+def test_revenue_estimates_scale():
+    est = {"revenue_estimate": 3.1e9, "revenue_actual": 3.2e9}
+    note = make_note("Revenue was $3.2 billion against $3,100 million expected, a 3.2% beat.")
+    assert unmatched(check(note, "", est)) == []
+
+
+def test_previous_note_figures_count_as_sourced():
+    prev = {"headline": "Revenue hit $2.9 billion", "key_points": ["Margin 45%"], "sections": {"guidance": "ok"}}
+    note = make_note("Last quarter revenue was $2.9 billion and margin was 45%.")
+    assert unmatched(check(note, "", None, prev)) == []
+    assert unmatched(check(note, "", None, None))
+
+
+def test_years_and_quarters_ignored():
+    note = make_note("In fiscal 2026 Q3 there are 3 key risks and 2,500 employees.")
+    assert e.extract_figures(e.note_text(note)) == []
+    assert unmatched(check(note)) == []
+
+
+def test_range_inherits_unit():
+    note = make_note("Guidance of $3.2 to $3.4 billion, then $3.2-3.4 billion.")
+    assert unmatched(check(note, "we expect $3.2 billion to $3.4 billion")) == []
+
+
+def test_extract_figures_values():
+    got = {raw: (v, k) for v, k, raw in e.extract_figures("$3.2 billion, 3,200 million, 5K, 12%, 120 bp, ($0.05), US$2 trillion")}
+    assert got["$3.2 billion"] == (3.2e9, "money")
+    assert got["3,200 million"] == (3.2e9, "money")
+    assert got["5K"] == (5000.0, "money")
+    assert got["12%"] == (12.0, "percent")
+    assert got["120 bp"] == (120.0, "bp")
+    assert got["($0.05)"] == (-0.05, "money")
+    assert got["US$2 trillion"] == (2e12, "money")
+
+
+def test_rounding_in_note_scale():
+    assert e.matches(3.2e9, "$3.2 billion", [3_214_000_000.0])
+    assert not e.matches(3.2e9, "$3.2 billion", [3_260_000_000.0])
+    assert not e.matches(3.2e9, "$3.2 billion", [3_250_000_000.0])  # half rounds up to 3.3
+    assert e.matches(3.3e9, "$3.3 billion", [3_250_000_000.0])
+    assert not e.matches(4.1e9, "$4.1 billion", [3.2e9])
+
+
+@pytest.mark.parametrize("words,ok", [(1199, False), (1200, True), (3000, True), (3001, False)])
+def test_word_count_bounds(words, ok):
+    reasons = check(make_note(words=words))
+    assert (reasons == []) is ok
+    if not ok:
+        assert any("words" in r for r in reasons)
+
+
+def test_what_changed_required_only_with_previous():
+    prev = {"headline": "h", "key_points": [], "sections": {}}
+    assert check(make_note(what_changed=None)) == []
+    assert check(make_note(what_changed=""), previous=prev)
+    assert check(make_note(what_changed=None), previous=prev)
+    assert check(make_note(what_changed="Something changed."), previous=prev) == []
+
+
+def test_bad_lean_and_wrong_key_point_count_fail():
+    note = make_note()
+    note["lean"] = "very bullish"
+    assert any("lean" in r for r in check(note))
+    note = make_note()
+    note["key_points"] = ["one", "two"]
+    assert any("key_points" in r for r in check(note))
+
+
+def test_missing_keys_and_empty_sections_fail():
+    note = make_note()
+    del note["headline"]
+    assert check(note)
+    note = make_note()
+    note["sections"]["risks"] = "  "
+    assert any("risks" in r for r in check(note))
+    note = make_note()
+    del note["sections"]["bull_case"]
+    assert any("bull_case" in r for r in check(note))
+    assert check({"lean": "neutral"})
+
+
+def test_blocklist_phrase_fails():
+    note = make_note("We recommend investors buy the stock.")
+    assert any("we recommend" in r.lower() for r in check(note))
+    note = make_note("A Price Target discussion.")
+    assert any("price target" in r.lower() for r in check(note))
+    assert not any("blocklist" in r for r in check(make_note("They recommended nothing.")))
