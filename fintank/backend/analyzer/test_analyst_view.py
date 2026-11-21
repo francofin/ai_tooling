@@ -1,10 +1,20 @@
 from datetime import date
+from unittest import mock
 
-from django.test import SimpleTestCase
+import requests
+from django.core.cache import cache
+from django.test import SimpleTestCase, override_settings
 
 from analyzer.analyzer_utils import analyst_view as av
 
 TODAY = date(2026, 11, 21)
+
+LOCMEM_CACHE = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'index-tools-tests',
+    }
+}
 
 
 def _row(d, **kw):
@@ -58,6 +68,12 @@ class ShapeEstimatesTests(SimpleTestCase):
         self.assertIsNone(out[0]["eps"]["avg"])
 
 
+class ShapeEstimatesTodayTests(SimpleTestCase):
+    def test_shape_estimates_includes_row_dated_today(self):
+        out = av.shape_estimates([_row("2026-11-21"), _row("2020-01-01")], "annual", TODAY)
+        self.assertEqual([r["date"] for r in out], ["2026-11-21"])
+
+
 class ShapeRatingsTests(SimpleTestCase):
     def test_ratings(self):
         r = av.shape_ratings({"strongBuy": 1, "buy": 2, "hold": 3, "sell": 0, "strongSell": 0, "consensus": "Buy"})
@@ -95,6 +111,10 @@ class ShapeTargetTests(SimpleTestCase):
         self.assertIsNone(t["cad"])
         self.assertEqual(t["currency"], "USD")
 
+    def test_target_hidden_when_last_year_count_null(self):
+        self.assertIsNone(av.shape_target(self.CONS, {"lastYearCount": None},
+                                          from_us=True, usdcad=1.4))
+
     def test_target_own_listing(self):
         t = av.shape_target(self.CONS, {"lastYearCount": 3}, from_us=False, usdcad=1.4)
         self.assertIsNone(t["currency"])
@@ -115,3 +135,119 @@ class BuildPayloadTests(SimpleTestCase):
         self.assertEqual(p["estimates"], {"annual": est})
         self.assertEqual(p["reporting_currency"], "CAD")
         self.assertEqual(p["symbol"], "ABC.TO")
+
+
+P = "analyzer.analyzer_utils.analyst_view."
+VARIANTS = [{"symbol": "RY", "exchange": "New York Stock Exchange"},
+            {"symbol": "RY.TO", "exchange": "Toronto Stock Exchange"}]
+CONS = {"targetConsensus": 100.0, "targetMedian": 99.0, "targetLow": 80.0, "targetHigh": 120.0}
+RATING = {"strongBuy": 5, "buy": 3, "hold": 1, "sell": 0, "strongSell": 0, "consensus": "Buy"}
+
+
+@override_settings(CACHES=LOCMEM_CACHE)
+class CachedGetterTests(SimpleTestCase):
+    def setUp(self):
+        cache.clear()
+        names = {
+            "analyst_estimates": [_row("2027-10-31")],
+            "grades_consensus": RATING,
+            "price_target_consensus": CONS,
+            "price_target_summary": {"lastYearCount": 6},
+            "exchange_variants": VARIANTS,
+            "reported_currency": "CAD",
+            "fx_rate": 1.4,
+        }
+        self.m = {}
+        for n, rv in names.items():
+            patcher = mock.patch(P + n, return_value=rv)
+            self.m[n] = patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_second_call_served_from_cache(self):
+        av.get_analyst_view("RY.TO")
+        av.get_analyst_view("RY.TO")
+        for n in ("analyst_estimates", "grades_consensus", "exchange_variants", "fx_rate"):
+            self.assertEqual(self.m[n].call_count, 1, n)
+
+    def test_symbol_is_normalized(self):
+        a = av.get_analyst_view(" ry.to ")
+        av.get_analyst_view("RY.TO")
+        self.assertEqual(a["symbol"], "RY.TO")
+        self.assertEqual(self.m["analyst_estimates"].call_count, 1)
+
+    def test_interlisted_uses_us_symbol_for_grades_and_targets(self):
+        p = av.get_analyst_view("RY.TO")
+        self.m["grades_consensus"].assert_called_once_with("RY")
+        self.m["price_target_consensus"].assert_called_once_with("RY")
+        self.assertEqual(self.m["analyst_estimates"].call_args.args[0], "RY.TO")
+        self.assertEqual(p["source"], {"symbol": "RY", "exchange": "NYSE"})
+        self.assertEqual(p["target"]["cad"]["consensus"], 140.0)
+
+    def test_non_to_symbol_skips_variants_but_checks_currency(self):
+        av.get_analyst_view("AAPL")
+        self.m["exchange_variants"].assert_not_called()
+        self.m["reported_currency"].assert_called_once_with("AAPL")
+        self.m["fx_rate"].assert_not_called()
+        self.m["grades_consensus"].assert_called_once_with("AAPL")
+
+    def test_listing_lookup_cached_30_days(self):
+        with mock.patch(P + "cache", wraps=cache) as c:
+            av.get_analyst_view("RY.TO")
+        calls = {call.args[0]: call for call in c.set.call_args_list}
+        key = "stock:analyst:listing:RY.TO:v1"
+        self.assertEqual(calls[key].kwargs["timeout"], av.LISTING_TTL)
+        self.assertEqual(cache.get(key), {"source": {"symbol": "RY", "exchange": "NYSE"},
+                                          "reporting_currency": "CAD"})
+        self.assertEqual(calls["stock:analyst:RY.TO:v1"].kwargs["timeout"], av.PAYLOAD_TTL)
+        self.assertEqual(calls["fx:usdcad:v1"].kwargs["timeout"], av.FX_TTL)
+
+    def test_fmp_error_raises_unavailable_and_caches_nothing(self):
+        self.m["grades_consensus"].side_effect = requests.ConnectionError("boom")
+        with self.assertRaises(av.AnalystUnavailable):
+            av.get_analyst_view("RY.TO")
+        self.assertIsNone(cache.get("stock:analyst:RY.TO:v1"))
+        self.assertIsNone(cache.get("stock:analyst:missing:RY.TO:v1"))
+
+    def test_value_error_raises_unavailable(self):
+        self.m["analyst_estimates"].side_effect = ValueError("bad json")
+        with self.assertRaises(av.AnalystUnavailable):
+            av.get_analyst_view("RY.TO")
+
+    def test_fx_failure_still_returns_usd_target(self):
+        for exc in (requests.ConnectionError("x"), ValueError("x"), TypeError("x")):
+            cache.clear()
+            self.m["fx_rate"].side_effect = exc
+            p = av.get_analyst_view("RY.TO")
+            self.assertEqual(p["target"]["currency"], "USD")
+            self.assertIsNone(p["target"]["cad"])
+            self.assertIsNone(cache.get("fx:usdcad:v1"))
+
+    def test_no_coverage_raises_keyerror_and_caches_missing(self):
+        self.m["analyst_estimates"].return_value = []
+        self.m["grades_consensus"].return_value = None
+        self.m["price_target_consensus"].return_value = None
+        self.m["price_target_summary"].return_value = None
+        with self.assertRaises(KeyError):
+            av.get_analyst_view("ZZZ")
+        n = self.m["analyst_estimates"].call_count
+        with self.assertRaises(KeyError):
+            av.get_analyst_view("ZZZ")
+        self.assertEqual(self.m["analyst_estimates"].call_count, n)
+        self.assertTrue(cache.get("stock:analyst:missing:ZZZ:v1"))
+
+    def test_quarterly_fetched_separately(self):
+        av.get_analyst_view("RY.TO")
+        periods = [c.args[1] if len(c.args) > 1 else c.kwargs.get("period")
+                   for c in self.m["analyst_estimates"].call_args_list]
+        self.assertNotIn("quarter", periods)
+        out = av.get_quarterly_estimates(" ry.to ")
+        self.assertEqual(out["symbol"], "RY.TO")
+        self.assertEqual(len(out["estimates"]["quarter"]), 1)
+        self.m["exchange_variants"].assert_called_once()
+        av.get_quarterly_estimates("RY.TO")
+        self.assertEqual(self.m["analyst_estimates"].call_count, 2)
+
+    def test_quarterly_empty_raises_keyerror(self):
+        self.m["analyst_estimates"].return_value = []
+        with self.assertRaises(KeyError):
+            av.get_quarterly_estimates("RY.TO")
