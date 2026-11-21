@@ -41,7 +41,7 @@ class AnthropicBatchClient:
         if not has_key(api_key):
             raise ValueError("ANTHROPIC_API_KEY is not set")
         import anthropic  # lazy: only reached with a key
-        self._client = anthropic.Anthropic(api_key=api_key)
+        self._client = anthropic.Anthropic(api_key=api_key.strip())
 
     def submit(self, requests: list[dict]) -> str:
         return self._client.messages.batches.create(requests=requests).id
@@ -60,9 +60,11 @@ class AnthropicBatchClient:
             return _from_message(cid, res.message)
         if res.type == "errored":
             err = getattr(res, "error", None)
-            etype = getattr(err, "type", None) or getattr(
-                getattr(err, "error", None), "type", None) or "unknown"
-            return BatchResult(cid, "errored", error=str(etype))
+            inner = getattr(err, "error", None)  # ErrorResponse(type="error").error is the cause
+            src = inner if inner is not None else err
+            etype = getattr(src, "type", None) or "unknown"
+            msg = getattr(src, "message", None)
+            return BatchResult(cid, "errored", error=f"{etype}: {msg}" if msg else str(etype))
         return BatchResult(cid, res.type)  # canceled | expired
 
 

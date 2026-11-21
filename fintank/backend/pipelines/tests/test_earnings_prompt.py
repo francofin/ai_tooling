@@ -106,6 +106,7 @@ def test_unset_key_refuses_without_import(monkeypatch):
     from pipelines import earnings_claude as ec
     monkeypatch.setitem(sys.modules, "anthropic", None)
     assert ec.has_key("unset") is False
+    assert ec.has_key(" unset ") is False
     assert ec.has_key("") is False and ec.has_key(None) is False
     assert ec.has_key("sk-ant-x") is True
     with pytest.raises(ValueError):
@@ -126,7 +127,7 @@ def _item(cid, rtype, stop="end_turn", text=None, error_type=None):
                  usage=NS(input_tokens=10, output_tokens=5))
         return NS(custom_id=cid, result=NS(type="succeeded", message=msg))
     if rtype == "errored":
-        return NS(custom_id=cid, result=NS(type="errored", error=NS(type=error_type)))
+        return NS(custom_id=cid, result=NS(type="errored", error=NS(type="error", error=NS(type=error_type, message="busy"))))
     return NS(custom_id=cid, result=NS(type=rtype))
 
 
@@ -139,6 +140,6 @@ def test_result_conversion():
     assert C._convert(_item("a", "succeeded", stop="max_tokens", text="{")).kind == "errored"
     assert C._convert(_item("a", "succeeded", text="not json")).kind == "errored"
     err = C._convert(_item("a", "errored", error_type="overloaded_error"))
-    assert (err.kind, err.error) == ("errored", "overloaded_error")
+    assert err.kind == "errored" and "overloaded_error" in err.error and "busy" in err.error
     assert C._convert(_item("a", "expired")).kind == "expired"
     assert C._convert(_item("a", "canceled")).kind == "canceled"
