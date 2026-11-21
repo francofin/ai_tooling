@@ -6,8 +6,15 @@ from django.test import SimpleTestCase
 from utils.fmp_stable import (
     STABLE_BASE,
     adjusted_history,
+    analyst_estimates,
     batch_quotes,
+    exchange_variants,
+    fx_rate,
+    grades_consensus,
     index_history,
+    price_target_consensus,
+    price_target_summary,
+    reported_currency,
     split_symbols,
 )
 
@@ -88,3 +95,75 @@ class FmpStableTests(SimpleTestCase):
         with patch("utils.fmp_stable.requests.get", return_value=resp):
             with self.assertRaises(ValueError):
                 batch_quotes(["A"])
+
+    def test_analyst_estimates_sends_period_and_limit(self):
+        with patch("utils.fmp_stable.requests.get", return_value=fake_response([])) as get:
+            analyst_estimates("ATD.TO", "quarter", limit=12)
+        args, kwargs = get.call_args
+        self.assertEqual(args[0], STABLE_BASE + "analyst-estimates")
+        self.assertEqual(kwargs["params"]["symbol"], "ATD.TO")
+        self.assertEqual(kwargs["params"]["period"], "quarter")
+        self.assertEqual(kwargs["params"]["limit"], 12)
+
+    def test_analyst_estimates_returns_rows(self):
+        rows = [{"date": "2027-04-30", "epsAvg": 3.1}, {"date": "2026-04-30", "epsAvg": 2.9}]
+        with patch("utils.fmp_stable.requests.get", return_value=fake_response(rows)):
+            out = analyst_estimates("ATD.TO", "annual", limit=5)
+        self.assertEqual(out, rows)
+
+    def test_single_row_helpers_return_none_on_empty(self):
+        with patch("utils.fmp_stable.requests.get", return_value=fake_response([])):
+            self.assertIsNone(grades_consensus("ATD.TO"))
+            self.assertIsNone(price_target_consensus("ATD.TO"))
+            self.assertIsNone(price_target_summary("ATD.TO"))
+            self.assertIsNone(reported_currency("ATD.TO"))
+            self.assertIsNone(fx_rate())
+
+    def test_price_target_summary_returns_first_row(self):
+        rows = [{"symbol": "ATD.TO", "lastYear": 5}, {"symbol": "ATD.TO", "lastYear": 6}]
+        with patch("utils.fmp_stable.requests.get", return_value=fake_response(rows)) as get:
+            out = price_target_summary("ATD.TO")
+        self.assertEqual(out, {"symbol": "ATD.TO", "lastYear": 5})
+        self.assertEqual(get.call_args.args[0], STABLE_BASE + "price-target-summary")
+
+    def test_grades_and_consensus_use_their_endpoints(self):
+        with patch("utils.fmp_stable.requests.get", return_value=fake_response([{"strongBuy": 3}])) as get:
+            self.assertEqual(grades_consensus("ATD.TO"), {"strongBuy": 3})
+            self.assertEqual(get.call_args.args[0], STABLE_BASE + "grades-consensus")
+            self.assertEqual(price_target_consensus("ATD.TO"), {"strongBuy": 3})
+            self.assertEqual(get.call_args.args[0], STABLE_BASE + "price-target-consensus")
+
+    def test_exchange_variants_returns_all_rows(self):
+        rows = [{"symbol": "ATD.TO"}, {"symbol": "ATDRY"}]
+        with patch("utils.fmp_stable.requests.get", return_value=fake_response(rows)) as get:
+            out = exchange_variants("ATD.TO")
+        self.assertEqual(out, rows)
+        self.assertEqual(get.call_args.args[0], STABLE_BASE + "search-exchange-variants")
+        self.assertEqual(get.call_args.kwargs["params"]["symbol"], "ATD.TO")
+
+    def test_fx_rate_returns_float_price(self):
+        body = [{"symbol": "USDCAD", "price": 1.434}]
+        with patch("utils.fmp_stable.requests.get", return_value=fake_response(body)) as get:
+            out = fx_rate()
+        self.assertEqual(out, 1.434)
+        self.assertIsInstance(out, float)
+        self.assertEqual(get.call_args.args[0], STABLE_BASE + "quote")
+        self.assertEqual(get.call_args.kwargs["params"]["symbol"], "USDCAD")
+
+    def test_reported_currency_reads_income_statement(self):
+        body = [{"symbol": "ATD.TO", "reportedCurrency": "USD"}]
+        with patch("utils.fmp_stable.requests.get", return_value=fake_response(body)) as get:
+            out = reported_currency("ATD.TO")
+        self.assertEqual(out, "USD")
+        args, kwargs = get.call_args
+        self.assertTrue(args[0].endswith("income-statement"))
+        self.assertEqual(kwargs["params"]["limit"], 1)
+        self.assertEqual(kwargs["params"]["symbol"], "ATD.TO")
+
+    def test_new_helpers_propagate_http_errors(self):
+        resp = fake_response([], error=requests.HTTPError("403"))
+        with patch("utils.fmp_stable.requests.get", return_value=resp):
+            with self.assertRaises(requests.HTTPError):
+                analyst_estimates("ATD.TO", "annual", limit=1)
+            with self.assertRaises(requests.HTTPError):
+                fx_rate()
