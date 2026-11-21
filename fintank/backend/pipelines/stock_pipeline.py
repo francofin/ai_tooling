@@ -97,6 +97,7 @@ if BACKEND_DIR not in sys.path:
 from pipelines import pipeline_config as cfg  # noqa: E402
 from pipelines.attribution import compute_attribution  # noqa: E402
 from pipelines.factor_windows import WINDOWS, window_return_and_std  # noqa: E402
+from pipelines.fmp_stable_shapes import HISTORY_ROW_CAP, index_payload, price_payload  # noqa: E402
 from pipelines.results import StageResult, redact  # noqa: E402
 
 warnings.filterwarnings("ignore")
@@ -320,11 +321,6 @@ class StockDataPipeline:
     def _stable(self, path, **params):
         return self._url(STABLE_BASE, path, **params)
 
-    # [v3-only] Canadian index symbols 403 on every stable price route under
-    # the current plan; v3 serves them fine.
-    def _index_history_url(self, symbol, from_date=START_DATE):
-        return self._v3(f"historical-price-full/{symbol}", **{"from": from_date})
-
     # [v3-only] stable/etf/holdings is a Restricted Endpoint (Ultimate plan).
     # The entire constituent pipeline hangs off this.
     def _etf_holder_url(self, etf_symbol):
@@ -333,12 +329,6 @@ class StockDataPipeline:
     # [v3-only] stable/etf-list returns only {symbol, name} — no 'exchange'.
     def _etf_list_url(self):
         return self._v3("etf/list")
-
-    # [v3-only] stable historical-price-eod/full drops adjClose (the metric
-    # calculators dropna on adjClose); the dividend-adjusted variant drops raw
-    # OHLC, which would double the call count per symbol.
-    def _prices_url(self, symbol, from_date=None):
-        return self._v3(f"historical-price-full/{symbol}", **{"from": from_date})
 
     # [stable] FIELD_MAPPINGS profile dicts use the stable names.
     def _profile_url(self, symbol):
@@ -419,6 +409,42 @@ class StockDataPipeline:
             raise RuntimeError(redact(str(e))) from None
         StockDataPipeline.bytes_downloaded += len(response.content)
         return response.json()
+
+    def _stable_rows(self, path, **params):
+        """One stable GET plus one limiter tick; returns the JSON list.
+
+        Stable bodies are lists; anything else (an FMP error dict) raises
+        ValueError. Callers must not tick again."""
+        body = self._get(self._stable(path, **params))
+        self.limiter.tick()
+        if not isinstance(body, list):
+            raise ValueError(f"unexpected {path} response: {type(body).__name__}")
+        return body
+
+    def _stable_history(self, path, symbol, from_date):
+        """A symbol's daily rows from `from_date`, newest first, one per date.
+
+        Stable caps a call at HISTORY_ROW_CAP rows (newest first), so while a
+        page is full and its oldest date is still after `from_date`, the next
+        request uses to = oldest date - 1 day. With from_date None stable
+        returns its default 5-year window, which never fills a page."""
+        rows, to = {}, None
+        while True:
+            page = self._stable_rows(path, symbol=symbol,
+                                     **{"from": from_date, "to": to})
+            for r in page:
+                rows[r["date"]] = r
+            if len(page) < HISTORY_ROW_CAP:
+                break
+            oldest = min(r["date"] for r in page)
+            if from_date and oldest <= from_date:
+                break
+            next_to = (datetime.date.fromisoformat(oldest)
+                       - datetime.timedelta(days=1)).isoformat()
+            if next_to == to:
+                break
+            to = next_to
+        return sorted(rows.values(), key=lambda r: r["date"], reverse=True)
 
     @staticmethod
     def _write_parquet(data: pd.DataFrame, file_name: str):
@@ -691,11 +717,11 @@ class StockDataPipeline:
             compared first; if close or adjClose moved, that symbol's full
             history is downloaded and REPLACES the file.
 
-        The call count is unchanged (one per symbol, plus one per restated
-        symbol); the bytes drop by ~95%.
+        Two calls per symbol (raw OHLC plus dividend-adjusted close); more on
+        a full download past 5,000 rows. The bytes drop by ~95%.
 
-        from_date: start of a full download. None asks FMP for its default
-                   window, so pass START_DATE for real runs.
+        from_date: start of a full download. None means START_DATE (stable's
+                   own default window is only 5 years).
 
         constituent_keys: subset of CONSTITUENT_PROXY_ETFS; default all eight.
         limit:            per-list member cap, for smoke-testing.
@@ -755,26 +781,31 @@ class StockDataPipeline:
             last = max(r["date"] for r in saved)
             window_from = (datetime.date.fromisoformat(last)
                            - datetime.timedelta(days=PRICE_OVERLAP_DAYS)).isoformat()
-            payload = self._get(self._prices_url(symbol, window_from))
-            self.limiter.tick()
-            recent = payload.get("historical")
+            payload = self._price_payload(symbol, window_from)
+            recent = payload["historical"]
             # No recent rows (a halted symbol): fall through to a full
             # download rather than count a symbol with history as failed.
             if recent:
                 if not self._restated(saved, recent):
                     self._save_json(payload, path, update=True)
                     return "incremental"
-                payload = self._price_payload(symbol, from_date)
+                payload = self._full_price_payload(symbol, from_date)
                 self._save_json(payload, path)
                 return "restated"
-        payload = self._price_payload(symbol, from_date)
+        payload = self._full_price_payload(symbol, from_date)
         self._save_json(payload, path, update=True)
         return "full"
 
     def _price_payload(self, symbol, from_date):
-        payload = self._get(self._prices_url(symbol, from_date))
-        self.limiter.tick()
-        if not payload.get("historical"):
+        """v3-shaped payload from stable's raw and dividend-adjusted series."""
+        full = self._stable_history("historical-price-eod/full", symbol, from_date)
+        adjusted = self._stable_history("historical-price-eod/dividend-adjusted",
+                                        symbol, from_date)
+        return price_payload(symbol, full, adjusted)
+
+    def _full_price_payload(self, symbol, from_date):
+        payload = self._price_payload(symbol, from_date or START_DATE)
+        if not payload["historical"]:
             raise ValueError("empty 'historical' payload")
         return payload
 
@@ -1205,8 +1236,8 @@ class StockDataPipeline:
         do not split, so the narrow-window seam that makes self-detection
         unsafe for stock prices does not arise here.
 
-        Stays on v3 historical-price-full: most tickers are ^-symbols,
-        plan-gated on stable. 65 calls.
+        Uses stable historical-price-eod/full (one call per index on an
+        update, more on a backfill past 5,000 rows).
 
         indexes: optional list of INDEX_TICKERS keys to refresh a subset.
         Returns a StageResult (one attempt per index); failures are collected
@@ -1226,8 +1257,9 @@ class StockDataPipeline:
                 fetch_from = (last_date.strftime("%Y-%m-%d")
                               if last_date is not None else from_date)
 
-                response = self._get(self._index_history_url(ticker, fetch_from))
-                historical = response.get("historical")
+                rows = self._stable_history("historical-price-eod/full",
+                                            ticker, fetch_from)
+                historical = index_payload(ticker, rows)["historical"]
 
                 if not historical:
                     if existing_raw is None:
