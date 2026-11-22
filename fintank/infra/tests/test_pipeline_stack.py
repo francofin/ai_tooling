@@ -7,6 +7,8 @@ from aws_cdk.assertions import Template
 
 from pipeline_stack import ASL_DIR, PipelineStack, asl_placeholders
 
+ASL_FILES = ["weekly.asl.json", "news.asl.json", "earnings.asl.json",
+             "earnings-backfill.asl.json"]
 ENV = cdk.Environment(account="123456789012", region="us-east-1")
 
 
@@ -49,12 +51,17 @@ def test_state_bucket_locked_down(built):
 def test_schedules_off_by_default_and_on_by_context():
     _, template = synth()
     schedules = template.find_resources("AWS::Scheduler::Schedule").values()
-    assert sorted(s["Properties"]["State"] for s in schedules) == ["DISABLED", "DISABLED"]
+    assert sorted(s["Properties"]["State"] for s in schedules) == ["DISABLED"] * 3
     _, template = synth(weekly_schedule=True, news_schedule=True)
     schedules = template.find_resources("AWS::Scheduler::Schedule").values()
     assert {s["Properties"]["ScheduleExpression"]: s["Properties"]["State"]
             for s in schedules} == {"cron(0 10 ? * SAT *)": "ENABLED",
-                                    "cron(30 9 * * ? *)": "ENABLED"}
+                                    "cron(30 9 * * ? *)": "ENABLED",
+                                    "cron(0 11 * * ? *)": "DISABLED"}
+    _, template = synth(earnings_schedule=True)
+    schedules = template.find_resources("AWS::Scheduler::Schedule").values()
+    assert {s["Properties"]["ScheduleExpression"]: s["Properties"]["State"]
+            for s in schedules}["cron(0 11 * * ? *)"] == "ENABLED"
 
 
 def role_of(template, family):
@@ -76,12 +83,80 @@ def roles_writing_live_bucket(template):
     return writers
 
 
-def test_only_publish_and_news_can_write_the_live_bucket(built):
+def test_only_publish_news_and_earnings_can_write_the_live_bucket(built):
     template = built[1]
     writers = roles_writing_live_bucket(template)
     assert role_of(template, "fintank-run") not in writers
     assert role_of(template, "fintank-publish") in writers
     assert role_of(template, "fintank-news") in writers
+    earnings = role_of(template, "fintank-earnings")
+    assert earnings in writers
+    live_puts = set()
+    for actions, resources in statements_of(template, earnings):
+        if any(a.startswith(("s3:Put", "s3:Delete", "s3:Abort")) for a in actions):
+            live_puts |= {r for r in resources if "thetradingfloor" in r}
+    assert live_puts == {"arn:aws:s3:::thetradingfloor/earnings_notes/*"}
+
+
+def test_earnings_task_has_anthropic_secret_and_small_size(built):
+    template = built[1]
+    (td,) = [t["Properties"] for t in template.find_resources("AWS::ECS::TaskDefinition").values()
+             if t["Properties"]["Family"] == "fintank-earnings"]
+    assert (td["Cpu"], td["Memory"]) == ("512", "1024")
+    assert "EphemeralStorage" not in td
+    secrets = {s["Name"] for s in td["ContainerDefinitions"][0]["Secrets"]}
+    assert secrets == {"FMP_API", "ANTHROPIC_API_KEY"}
+    assert "/fintank/pipeline/ANTHROPIC_API_KEY" in json.dumps(template.to_json())
+
+
+def test_earnings_role_can_delete_only_the_lock(built):
+    template = built[1]
+    state = f"<{logical_id(template, 'AWS::S3::Bucket')}>"
+    deletes = []
+    for actions, resources in statements_of(template, role_of(template, "fintank-earnings")):
+        if any(a.startswith("s3:Delete") for a in actions):
+            deletes.append((actions, resources))
+    assert deletes == [(["s3:DeleteObject"], [f"{state}/earnings/lock.json"])]
+
+
+def _asl(name):
+    return json.loads((ASL_DIR / name).read_text().replace("${SubnetIds}", '["subnet-1"]'))
+
+
+def _reachable(states, start, blocked):
+    seen, todo = set(), [start]
+    while todo:
+        n = todo.pop()
+        if n in seen or n in blocked or n is None:
+            continue
+        seen.add(n)
+        s = states[n]
+        todo += [s.get("Next"), s.get("Default")] + [
+            c["Next"] for c in s.get("Choices", []) + s.get("Catch", [])]
+    return seen
+
+
+def test_backfill_machine_waits_for_approval_before_publish():
+    d = _asl("earnings-backfill.asl.json")
+    states = d["States"]
+    assert "Publish" in _reachable(states, d["StartAt"], set())
+    assert "Publish" not in _reachable(states, d["StartAt"], {"WaitForApproval"})
+    wait = states["WaitForApproval"]
+    assert wait["Resource"].endswith("putObject.waitForTaskToken")
+    assert wait["TimeoutSeconds"] == 604800
+    assert d["TimeoutSeconds"] == 777600 > wait["TimeoutSeconds"]
+    cmd = states["Publish"]["Arguments"]["Overrides"]["ContainerOverrides"][0]["Command"]
+    assert "'earnings-backfill', 'publish'" in cmd
+
+
+def test_backfill_loop_has_26h_limit():
+    d = _asl("earnings-backfill.asl.json")
+    states = d["States"]
+    assert states["WaitPoll"]["Seconds"] == 1800
+    (choice,) = states["TooLong?"]["Choices"]
+    assert "93600000" in choice["Condition"] and "$submitted_at" in choice["Condition"]
+    assert choice["Next"] == "NotifyFailed"
+    assert states["TooLong?"]["Default"] == "WaitPoll"
 
 
 def test_alerts_go_to_the_email(built):
@@ -89,13 +164,13 @@ def test_alerts_go_to_the_email(built):
         "Protocol": "email", "Endpoint": "ops@example.com"})
 
 
-@pytest.mark.parametrize("name", ["weekly.asl.json", "news.asl.json"])
+@pytest.mark.parametrize("name", ASL_FILES)
 def test_asl_placeholders_are_all_substituted(built, name):
     stack, _ = built
     assert asl_placeholders(ASL_DIR / name) == set(stack.substitutions[name])
 
 
-@pytest.mark.parametrize("name", ["weekly.asl.json", "news.asl.json"])
+@pytest.mark.parametrize("name", ASL_FILES)
 def test_asl_is_valid_jsonata_json_after_substitution(name):
     text = (ASL_DIR / name).read_text()
     for key in asl_placeholders(ASL_DIR / name):
@@ -186,6 +261,9 @@ def test_runs_expire_after_45_days(built):
 @pytest.mark.parametrize("name,states", [
     ("weekly.asl.json", ["CheckBusy", "NotifyStarted"]),
     ("news.asl.json", ["NotifyStarted"]),
+    ("earnings.asl.json", ["RunEarnings"]),
+    ("earnings-backfill.asl.json", ["Submit", "ReadStatus", "CheckTask", "Stage",
+                                    "ReadVerdict", "Publish", "DiscardedTask"]),
 ])
 def test_early_states_report_failures(name, states):
     definition = json.loads((ASL_DIR / name).read_text().replace("${SubnetIds}", "[]"))
@@ -221,3 +299,38 @@ def test_news_machine_passes_search_flag_from_input():
     assert "--search" in states["Init"]["Assign"]["search"]
     command = states["RunNews"]["Arguments"]["Overrides"]["ContainerOverrides"][0]["Command"]
     assert "$search" in command
+
+
+def test_backfill_retries_only_the_idempotent_check():
+    states = _asl("earnings-backfill.asl.json")["States"]
+    assert states["CheckTask"]["Retry"] == [{"ErrorEquals": ["States.ALL"], "MaxAttempts": 2,
+                                             "IntervalSeconds": 300, "BackoffRate": 1}]
+    for name in ("Submit", "Stage", "Publish"):
+        assert "Retry" not in states[name], name
+
+
+def test_backfill_failure_email_explains_recovery():
+    msg = _asl("earnings-backfill.asl.json")["States"]["NotifyFailed"]["Arguments"]["Message"]
+    assert "paid Claude batch may still be in flight" in msg
+    assert "stay blocked" in msg
+    assert "earnings-backfill check|stage|discarded --run-id ' & $run_id" in msg
+
+
+def test_backfill_nothing_to_do_email_reports_targets_and_tokens():
+    states = _asl("earnings-backfill.asl.json")["States"]
+    assign = states["ReadStatus"]["Assign"]
+    assert assign["status_doc"] == "{% $parse($states.result.Body) %}"
+    msg = states["NotifyNothingToDo"]["Arguments"]["Message"]
+    assert "$string($status_doc.targets)" in msg
+    assert "$string($status_doc.estimated_input_tokens)" in msg
+    assert "Nothing was generated" in msg
+
+
+def test_backfill_force_reaches_only_the_submit_task():
+    states = _asl("earnings-backfill.asl.json")["States"]
+    assert "'--force'" in states["Init"]["Assign"]["force"]
+    commands = {name: s["Arguments"]["Overrides"]["ContainerOverrides"][0]["Command"]
+                for name, s in states.items()
+                if s.get("Resource", "").endswith("ecs:runTask.sync")}
+    assert "$force" in commands.pop("Submit")
+    assert not any("$force" in c for c in commands.values())

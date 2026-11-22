@@ -59,6 +59,17 @@ class LocalStore:
         with open(path, "w") as f:
             json.dump(data, f, indent=2, default=str)
 
+    def put_json_if_absent(self, key, data) -> bool:
+        """Write only if the key is new. True if written, False if it exists."""
+        path = self._path(key)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        try:
+            with open(path, "x") as f:
+                json.dump(data, f, indent=2, default=str)
+        except FileExistsError:
+            return False
+        return True
+
     def put_file(self, key, local_path):
         path = self._path(key)
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -102,6 +113,20 @@ class S3Store:
         self.client.put_object(Bucket=self.bucket, Key=key,
                                Body=json.dumps(data, indent=2, default=str).encode(),
                                ContentType="application/json")
+
+    def put_json_if_absent(self, key, data) -> bool:
+        """Conditional create (If-None-Match: *). False if the key exists."""
+        try:
+            self.client.put_object(Bucket=self.bucket, Key=key, IfNoneMatch="*",
+                                   Body=json.dumps(data, indent=2, default=str).encode(),
+                                   ContentType="application/json")
+        except ClientError as e:
+            status = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+            code = e.response.get("Error", {}).get("Code")
+            if code in ("PreconditionFailed", "ConditionalRequestConflict") or status in (412, 409):
+                return False
+            raise
+        return True
 
     def put_file(self, key, local_path):
         self.client.upload_file(local_path, self.bucket, key)

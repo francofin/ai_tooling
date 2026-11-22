@@ -102,3 +102,12 @@ def reported_currency(symbol, *, timeout=15):
 def fx_rate(pair="USDCAD", *, timeout=15):
     row = _first_row("quote", {"symbol": pair}, timeout)
     return float(row["price"]) if row and row.get("price") is not None else None
+
+
+def earnings_calendar(start, end, *, timeout=20):
+    """Earnings reports dated from `start` to `end` inclusive (date objects)."""
+    return _get_list(
+        "earnings-calendar",
+        {"from": start.isoformat(), "to": end.isoformat()},
+        timeout,
+    )

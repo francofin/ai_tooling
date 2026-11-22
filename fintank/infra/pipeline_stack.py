@@ -31,9 +31,12 @@ ASL_DIR = HERE / "statemachines"
 LIVE_BUCKET = "thetradingfloor"
 WEEKLY_NAME = "fintank-weekly-data-run"
 NEWS_NAME = "fintank-daily-news"
+EARNINGS_NAME = "fintank-daily-earnings"
+EARNINGS_BACKFILL_NAME = "fintank-earnings-backfill"
 CONTAINER = "app"                       # the ASL container overrides use this name
 WEEKLY_CRON = "cron(0 10 ? * SAT *)"
 NEWS_CRON = "cron(30 9 * * ? *)"
+EARNINGS_CRON = "cron(0 11 * * ? *)"      # after news at 09:30 UTC
 LOG_GROUP = "/fintank/pipeline"
 
 
@@ -45,6 +48,7 @@ class PipelineStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, *, alert_email: str,
                  always_hold: bool = True, news_notify: str = "all",
                  weekly_schedule: bool = False, news_schedule: bool = False,
+                 earnings_schedule: bool = False,
                  s3_endpoint: bool = True, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
@@ -88,7 +92,7 @@ class PipelineStack(Stack):
             name: ecs.Secret.from_ssm_parameter(
                 ssm.StringParameter.from_secure_string_parameter_attributes(
                     self, f"Param{name}", parameter_name=f"/fintank/pipeline/{name}"))
-            for name in ("FMP_API", "FRED_API", "SERPAPI_KEY")
+            for name in ("FMP_API", "FRED_API", "SERPAPI_KEY", "ANTHROPIC_API_KEY")
         }
         environment = {
             "PIPELINE_DATA_ROOT": "/data",
@@ -115,6 +119,8 @@ class PipelineStack(Stack):
         run_td = task_definition("run", 4096, 16384, 150, ("FMP_API", "FRED_API"))
         publish_td = task_definition("publish", 512, 1024, None, ())
         news_td = task_definition("news", 512, 1024, None, ("FMP_API", "SERPAPI_KEY"))
+        earnings_td = task_definition("earnings", 512, 1024, None,
+                                      ("FMP_API", "ANTHROPIC_API_KEY"))
 
         # Least privilege: only publish and news can write the live bucket.
         state_bucket.grant_read_write(run_td.task_role)
@@ -142,10 +148,32 @@ class PipelineStack(Stack):
         state_bucket.grant_read_write(news_td.task_role, "runs/*")
         topic.grant_publish(news_td.task_role)
 
+        # Earnings: explicit Get/Put (no Delete) on run and earnings state, the one
+        # lock object deletable, and live-bucket access limited to its own prefix
+        # plus reading the index constituents. ListBucket makes a missing key a 404.
+        earnings_role = earnings_td.task_role
+        for statement in (
+                iam.PolicyStatement(actions=["s3:GetObject", "s3:PutObject"],
+                                    resources=[live_bucket.arn_for_objects("earnings_notes/*")]),
+                iam.PolicyStatement(actions=["s3:GetObject"],
+                                    resources=[live_bucket.arn_for_objects(
+                                        "index_data/constituents/*")]),
+                iam.PolicyStatement(actions=["s3:ListBucket"],
+                                    resources=[live_bucket.bucket_arn,
+                                               state_bucket.bucket_arn]),
+                iam.PolicyStatement(actions=["s3:GetObject", "s3:PutObject"],
+                                    resources=[state_bucket.arn_for_objects("runs/*"),
+                                               state_bucket.arn_for_objects("earnings/*")]),
+                iam.PolicyStatement(actions=["s3:DeleteObject"],
+                                    resources=[state_bucket.arn_for_objects(
+                                        "earnings/lock.json")])):
+            earnings_role.add_to_principal_policy(statement)
+        topic.grant_publish(earnings_role)
+
         # ── Step Functions.
         sm_role = iam.Role(self, "StateMachineRole",
                            assumed_by=iam.ServicePrincipal("states.amazonaws.com"))
-        for td in (run_td, publish_td, news_td):
+        for td in (run_td, publish_td, news_td, earnings_td):
             sm_role.add_to_policy(iam.PolicyStatement(
                 actions=["ecs:RunTask"], resources=[td.task_definition_arn]))
             sm_role.add_to_policy(iam.PolicyStatement(
@@ -160,7 +188,8 @@ class PipelineStack(Stack):
         sm_role.add_to_policy(iam.PolicyStatement(
             actions=["states:ListExecutions"],
             resources=[f"arn:aws:states:{self.region}:{self.account}:stateMachine:{n}"
-                       for n in (WEEKLY_NAME, NEWS_NAME)]))
+                       for n in (WEEKLY_NAME, NEWS_NAME, EARNINGS_NAME,
+                                EARNINGS_BACKFILL_NAME)]))
         topic.grant_publish(sm_role)
         state_bucket.grant_read_write(sm_role, "runs/*")
 
@@ -176,6 +205,11 @@ class PipelineStack(Stack):
                                 "PublishTaskDefinitionArn": publish_td.task_definition_arn},
             "news.asl.json": {**common, "NewsTaskDefinitionArn": news_td.task_definition_arn,
                               "NotifyStart": "true" if news_notify == "all" else "false"},
+            "earnings.asl.json": {**common,
+                                  "EarningsTaskDefinitionArn": earnings_td.task_definition_arn},
+            "earnings-backfill.asl.json": {
+                **common, "StateBucket": state_bucket.bucket_name,
+                "EarningsTaskDefinitionArn": earnings_td.task_definition_arn},
         }
         weekly = sfn.StateMachine(
             self, "Weekly", state_machine_name=WEEKLY_NAME, role=sm_role,
@@ -185,6 +219,15 @@ class PipelineStack(Stack):
             self, "News", state_machine_name=NEWS_NAME, role=sm_role,
             definition_body=sfn.DefinitionBody.from_file(str(ASL_DIR / "news.asl.json")),
             definition_substitutions=self.substitutions["news.asl.json"])
+        earnings = sfn.StateMachine(
+            self, "Earnings", state_machine_name=EARNINGS_NAME, role=sm_role,
+            definition_body=sfn.DefinitionBody.from_file(str(ASL_DIR / "earnings.asl.json")),
+            definition_substitutions=self.substitutions["earnings.asl.json"])
+        backfill = sfn.StateMachine(
+            self, "EarningsBackfill", state_machine_name=EARNINGS_BACKFILL_NAME, role=sm_role,
+            definition_body=sfn.DefinitionBody.from_file(
+                str(ASL_DIR / "earnings-backfill.asl.json")),
+            definition_substitutions=self.substitutions["earnings-backfill.asl.json"])
 
         # ── Schedules, with a dead-letter queue for runs that never start.
         dlq = sqs.Queue(self, "SchedulerDlq", queue_name="fintank-pipeline-scheduler-dlq",
@@ -193,10 +236,13 @@ class PipelineStack(Stack):
                                   assumed_by=iam.ServicePrincipal("scheduler.amazonaws.com"))
         weekly.grant_start_execution(scheduler_role)
         news.grant_start_execution(scheduler_role)
+        earnings.grant_start_execution(scheduler_role)
         dlq.grant_send_messages(scheduler_role)
         for cid, name, cron, machine, enabled in (
                 ("WeeklySchedule", WEEKLY_NAME, WEEKLY_CRON, weekly, weekly_schedule),
-                ("NewsSchedule", NEWS_NAME, NEWS_CRON, news, news_schedule)):
+                ("NewsSchedule", NEWS_NAME, NEWS_CRON, news, news_schedule),
+                ("EarningsSchedule", EARNINGS_NAME, EARNINGS_CRON, earnings,
+                 earnings_schedule)):
             scheduler.CfnSchedule(
                 self, cid, name=name, state="ENABLED" if enabled else "DISABLED",
                 schedule_expression=cron, schedule_expression_timezone="UTC",
@@ -231,7 +277,9 @@ class PipelineStack(Stack):
                 detail_type=["Step Functions Execution Status Change"],
                 detail={"status": ["TIMED_OUT", "ABORTED"],
                         "stateMachineArn": [weekly.state_machine_arn,
-                                            news.state_machine_arn]}),
+                                            news.state_machine_arn,
+                                            earnings.state_machine_arn,
+                                            backfill.state_machine_arn]}),
             targets=[targets.SnsTopic(topic, message=events.RuleTargetInput.from_text(
                 f"Fintank pipeline execution {events.EventField.from_path('$.detail.name')} "
                 f"ended {events.EventField.from_path('$.detail.status')}: "
@@ -240,3 +288,5 @@ class PipelineStack(Stack):
         CfnOutput(self, "StateBucketName", value=state_bucket.bucket_name)
         CfnOutput(self, "WeeklyStateMachine", value=weekly.state_machine_arn)
         CfnOutput(self, "NewsStateMachine", value=news.state_machine_arn)
+        CfnOutput(self, "EarningsStateMachine", value=earnings.state_machine_arn)
+        CfnOutput(self, "EarningsBackfillStateMachine", value=backfill.state_machine_arn)

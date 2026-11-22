@@ -1,0 +1,49 @@
+{
+  "Comment": "Fintank daily earnings-note run. See docs/superpowers/specs/2026-11-21-earnings-hub-design.md",
+  "QueryLanguage": "JSONata",
+  "TimeoutSeconds": 14400,
+  "StartAt": "Init",
+  "States": {
+    "Init": {
+      "Type": "Pass",
+      "Assign": {
+        "run_id": "{% $exists($states.input.run_id) ? $states.input.run_id : 'earnings-' & $fromMillis($toMillis($states.context.Execution.StartTime), '[Y0001][M01][D01]-[H01][m01]') %}",
+        "no_claude": "{% $exists($states.input.no_claude) and $states.input.no_claude = true ? ['--no-claude'] : [] %}",
+        "error": null
+      },
+      "Next": "RunEarnings"
+    },
+    "RunEarnings": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::ecs:runTask.sync",
+      "Arguments": {
+        "Cluster": "${ClusterArn}",
+        "TaskDefinition": "${EarningsTaskDefinitionArn}",
+        "LaunchType": "FARGATE",
+        "NetworkConfiguration": {
+          "AwsvpcConfiguration": {
+            "Subnets": ${SubnetIds},
+            "SecurityGroups": ["${SecurityGroupId}"],
+            "AssignPublicIp": "ENABLED"
+          }
+        },
+        "Overrides": {"ContainerOverrides": [{"Name": "app", "Command": "{% $append(['earnings', '--run-id', $run_id], $no_claude) %}"}]}
+      },
+      "TimeoutSeconds": 12600,
+      "Catch": [{"ErrorEquals": ["States.ALL"], "Assign": {"error": "{% $states.errorOutput %}"}, "Next": "NotifyFailed"}],
+      "Next": "Done"
+    },
+    "Done": {"Type": "Succeed"},
+    "NotifyFailed": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Arguments": {
+        "TopicArn": "${TopicArn}",
+        "Subject": "{% '[Fintank] Earnings ' & $run_id & ' FAILED' %}",
+        "Message": "{% 'Earnings run ' & $run_id & ' failed; notes already published stay live.\\n\\nError: ' & $string($error) & '\\n\\nLogs: https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#logsV2:log-groups/log-group/$252Ffintank$252Fpipeline' %}"
+      },
+      "Next": "Failed"
+    },
+    "Failed": {"Type": "Fail", "Error": "EarningsRunFailed"}
+  }
+}

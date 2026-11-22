@@ -23,6 +23,7 @@ import { useEtfPerformance } from "@hooks/useEtf";
 import { useCryptoPerformance } from "@hooks/useCryptoPerformance";
 // Shared with the index heat map's tooltip so the two renderings of a quote agree.
 import { fmtPrice, fmtMarketCap, fmtTimestamp } from "@utils/quoteFormat";
+import EarningsCalendarCard from "@componentsLegacy/EarningsCalendarCard";
 
 
 const UNIVERSE_DATA_OPTIONS = [
@@ -172,6 +173,7 @@ const KnowledgeBase = (props) => {
               </Col>
             ))}
           </Row>
+          <EarningsCalendarCard />
         </Container>
       </section>
     </React.Fragment>

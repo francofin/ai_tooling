@@ -6,6 +6,7 @@ Context flags (all optional except alert_email):
   news_notify=all|warnings_only email for every news run, or only problems
   weekly_schedule=on|off        enable the Saturday schedule
   news_schedule=on|off          enable the daily news schedule
+  earnings_schedule=on|off      enable the daily earnings schedule (default off)
   s3_endpoint=on|off            off if the default VPC already has an S3 endpoint
 """
 import os
@@ -32,6 +33,7 @@ def stack_options(ctx) -> dict:
         news_notify=news_notify,
         weekly_schedule=ctx("weekly_schedule") == "on",
         news_schedule=ctx("news_schedule") == "on",
+        earnings_schedule=ctx("earnings_schedule") == "on",
         s3_endpoint=ctx("s3_endpoint") != "off",
     )
 
