@@ -15,14 +15,28 @@ Figure rules (extract_figures / matches)
   cross-match. "13 cents" is money 0.13.
 - Money is stored in units ("$3.2 billion" -> 3_200_000_000.0); percent and bp
   as written (12% -> 12.0). Thousands separators and decimals are read.
-- Negative: a leading "-" / minus sign, or the figure wrapped in parentheses
-  ("($0.05)", "$(0.05)", "(12%)"). A parenthetical like "(4.0%)" is therefore
+- Negative: a leading "-" / minus sign glued to the figure, or the figure
+  wrapped in parentheses ("($0.05)", "$(0.05)", "(12%)"). A "-" followed by a
+  space ("- 70%", a list bullet) or right after a number, percent or word (the
+  dash in "6.5%-7%") is not a minus sign. A parenthetical like "(4.0%)" is
   read as negative; that is harmless because sign only matters for an
   explicit leading "-" in a note (see below).
 - Units may be spaced ("12 %", "3.2 bn", "3.2 B") or hyphenated
-  ("$500-million", "$3.2-billion").
+  ("$500-million", "$3.2-billion", "150-basis-points", "125- basis points").
+  Speaker approximations are read as the number: "$1.8-ish billion",
+  "$25-odd million", "150+ million", "50 plus million".
 - A range "$3.2 to $3.4 billion" or "3.2-3.4 billion": the first figure
-  inherits the unit of the second.
+  inherits the unit of the second ("1.78 to $1.82": the currency). A first
+  figure with its own currency only inherits a money scale ("$0.92 to 11%"
+  stays $0.92), and one written with thousands separators inherits nothing.
+- Sources only (speakers state a unit once or not at all), all additive:
+  - "and", "or" and "," also join a pair, and the first figure counts under
+    both readings ("$0.12 or $187 million" sources $0.12 and $0.12 million).
+  - A decimal number with no unit ("around 10.5", "about 5.2 in Q3") sources
+    any kind at any scale; "N points" sources bp and pp. Whole numbers with no
+    unit source nothing: they are too common in a transcript to prove a figure.
+  - A figure within 40 characters after a decline word ("down", "fell",
+    "lower", "loss"...) also sources its negative, so "down 4%" sources "-4%".
 - A note figure matches a source value when the source value, expressed in the
   note figure's unit scale and rounded (half up) to the note figure's number
   of decimals, equals the note value: "$3.2 billion" matches 3,214,000,000.
@@ -41,7 +55,7 @@ import math
 import re
 from decimal import ROUND_HALF_UP, Decimal
 
-MIN_WORDS = 1200
+MIN_WORDS = 1000
 MAX_WORDS = 3000
 LEANS = ("bullish", "neutral", "bearish")
 BLOCKLIST = (
@@ -64,10 +78,11 @@ _NUMBER = r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?"
 _CURRENCY = r"(?:US\$|CA\$|C\$|\$|CAD\s?|USD\s?)"
 # Words (and bp) may follow a space; letters must be glued to the number and must not
 # start a longer word ("5M" yes, "5 men" no).
+_APPROX = r"(?:\+|[\s-]?(?:ish|odd|plus|some-odd)\b)?"
 _UNIT = (
-    r"(?:[\s-]?(?P<word>trillion|billion|million|thousand|percentage\s+points?|per\s?cent|percent"
-    r"|basis\s+points?|bps?|cents?|pp|pts?)\b"
-    r"|(?P<sym>\s?%|(?:bn|mn|[kmbt])(?![A-Za-z])|\s(?:bn|mn|(?-i:[KMBT]))(?![A-Za-z])))"
+    r"(?:(?:\s?-\s?|\s)?(?P<word>trillion|billion|million|thousand|percentage[\s-]+points?|per\s?cent|percent"
+    r"|basis[\s-]+points?|bps?|cents?|pp|pts?)\b"
+    r"|(?P<sym>\s?%|(?:bn|mn|[kmbt])(?![A-Za-z&])|\s(?:bn|mn|(?-i:[KMBT]))(?![A-Za-z&])))"
 )
 _FIGURE = re.compile(
     r"(?<![\w$.,])"                      # not glued to a preceding word or number
@@ -75,14 +90,34 @@ _FIGURE = re.compile(
     rf"(?P<cur>{_CURRENCY})?\s?"
     r"(?P<paren>\()?"                     # "$(0.05)"
     rf"(?P<num>{_NUMBER})"
+    rf"{_APPROX}"
     rf"(?:{_UNIT})?"
     r"(?P<close>\))?",
     re.IGNORECASE,
 )
-# What may follow the first figure of a range: " to $3.4 billion", "-3.4 billion".
-_RANGE_TAIL = re.compile(
-    rf"\s*(?:-|–|to)\s*{_CURRENCY}?\s?(?:{_NUMBER}){_UNIT}", re.IGNORECASE
-)
+# What may follow the first figure of a range or pair: " to $3.4 billion",
+# "-3.4 billion", " and 70 basis points". The unit is stated once, on the second.
+# A note joins a range with "-" or "to". A speaker also pairs figures with
+# "and", "or" or a comma ("60 and 70 basis points", "$59 and $65 million",
+# "87, 88%"), so on the source side the first figure is read both ways.
+_NOTE_JOIN = r"\s*(?:-|–|to)\s*"
+_SOURCE_JOIN = r"\s*-?\s*(?:-|–|to|and|or|,)\s*"
+
+
+def _tails(join):
+    return (re.compile(rf"{join}{_CURRENCY}?\s?(?:{_NUMBER}){_APPROX}{_UNIT}", re.IGNORECASE),
+            # "1.78 to $1.82": only the second carries the currency.
+            re.compile(rf"{join}{_CURRENCY}\s?(?:{_NUMBER})", re.IGNORECASE))
+
+
+_NOTE_TAILS = _tails(_NOTE_JOIN)
+_UNIT_AFTER = re.compile(rf"{_APPROX}{_UNIT}", re.IGNORECASE)
+_SOURCE_TAILS = _tails(_SOURCE_JOIN)
+# Source-side only (see sourced_values).
+_BARE_DECIMAL = re.compile(r"(?<![\w$.,])(\d+\.\d+)(?![\d%])")
+_POINTS = re.compile(r"(?<!basis )(?<!percentage )\b(\d+(?:\.\d+)?)[\s-]+points?\b", re.IGNORECASE)
+_DECLINE = re.compile(r"\b(?:down|declin\w*|decreas\w*|fell|fall\w*|lower|loss\w*|negative|"
+                      r"minus|drop\w*|contract\w*|reduc\w*|shrank|shrink\w*|minus)\b", re.IGNORECASE)
 
 
 def _unit_of(m: re.Match) -> tuple[str, int] | None:
@@ -105,33 +140,56 @@ def _looks_like_year(num: str) -> bool:
     return num.isdigit() and len(num) == 4 and 1900 <= int(num) <= 2100
 
 
-def extract_figures(text: str) -> list[tuple[float, str, str]]:
-    """Every unit-bearing figure in text as (value, kind, raw). Money is in
-    units; percent and bp as written; parenthesised or minus-led are negative."""
-    figures = []
+def _is_minus(text: str, m: re.Match) -> bool:
+    """A leading "-" is a minus sign only when glued to the figure and not
+    right after a number, percent or word: "- 70%" is a list bullet and the
+    "-" in "6.5%-7%" separates a range."""
+    if m.group("neg") not in ("-", "\u2212"):
+        return False
+    at = m.start("neg")
+    glued = not text[at + 1:at + 2].isspace()
+    before = text[at - 1:at] if at else ""
+    return glued and not (before.isalnum() or before in "%)")
+
+
+def _extract(text: str, source: bool = False):
+    """(value, kind, raw, start) for every unit-bearing figure in text. With
+    source=True a first figure joined to a unit-bearing second one is yielded
+    under both readings ("$0.12 or $187 million": $0.12 and $0.12 million)."""
+    range_tail, currency_tail = _SOURCE_TAILS if source else _NOTE_TAILS
     for m in _FIGURE.finditer(text):
         num = m.group("num")
-        unit = _unit_of(m)
-        if unit is None and not _looks_like_year(num):
-            tail = _RANGE_TAIL.match(text, m.end())
-            if tail:
-                unit = _unit_of(tail)
-        if unit is None and m.group("cur"):
-            unit = ("money", 0)
-        if unit is None:
-            continue
-        kind, power = unit
-        value = Decimal(num.replace(",", "")) * Decimal(10) ** power
+        own = _unit_of(m)
+        if own is None and m.group("cur"):
+            own = ("money", 0)
+        units = []
+        # "750,000 to 1 million" is already a whole number: no scale to inherit.
+        if (own is None or own == ("money", 0)) and not _looks_like_year(num) and "," not in num:
+            tail = range_tail.match(text, m.end())
+            if tail and _unit_of(tail) and (own is None or _unit_of(tail)[0] == "money"):
+                units.append(_unit_of(tail))      # "$0.92 to 11%" keeps its "$"
+            elif currency_tail.match(text, m.end()):
+                units.append(("money", 0))
+        if own is not None and (source or not units):
+            units.append(own)
+        minus = _is_minus(text, m)
         closed = bool(m.group("close"))
-        if (m.group("neg") == "(" or m.group("paren")) and closed:
-            value = -value
-        elif m.group("neg") in ("-", "−"):
-            value = -value
         raw = m.group(0).strip()
         if not closed:
             raw = raw.lstrip("(").lstrip()
-        figures.append((float(value), kind, raw))
-    return figures
+        if not minus:
+            raw = raw.lstrip("-\u2212").lstrip()
+        for kind, power in dict.fromkeys(units):
+            value = Decimal(num.replace(",", "")) * Decimal(10) ** power
+            if ((m.group("neg") == "(" or m.group("paren")) and closed) or minus:
+                value = -value
+            yield float(value), kind, raw, m.start()
+
+
+def extract_figures(text: str) -> list[tuple[float, str, str]]:
+    """Every unit-bearing figure in text as (value, kind, raw). Money is in
+    units; percent and bp as written; parenthesised or minus-led are negative."""
+    return [(v, k, raw) for v, k, raw, _ in _extract(text)]
 
 
 def matches(value: float, raw: str, candidates: list[float]) -> bool:
@@ -195,9 +253,30 @@ def sourced_values(transcript: str, estimates: dict, previous_note: dict | None)
         sources.append(note_text(previous_note))
     out = _derived(estimates or {})
     for text in sources:
-        for value, kind, _ in extract_figures(text):
+        for value, kind, _, start in _extract(text, source=True):
             out[kind].append(value)
+            if value > 0 and _DECLINE.search(text, max(0, start - 40), start):
+                out[kind].append(-value)          # "down 4%" sources a note's "-4%"
+        _add_unitless(text, out)
     return out
+
+
+def _add_unitless(text: str, out: dict) -> None:
+    """Speakers often state a unit once or not at all: "around 10.5", "about
+    5.2 in Q3", "310 points of margin". A decimal number counts as a source for
+    any kind at any scale, and "N points" for bp and pp. Bare whole numbers
+    stay unsourced: they are too common in a transcript to prove anything."""
+    for m in _BARE_DECIMAL.finditer(text):
+        if _UNIT_AFTER.match(text, m.end()):
+            continue                              # "1.5 percentage points" keeps its kind
+        v = float(m.group(1))
+        for kind in ("percent", "bp", "pp"):
+            out[kind].append(v)
+        out["money"] += [v * 10 ** p for p in (0, 3, 6, 9, 12)] + [v / 100]
+    for m in _POINTS.finditer(text):
+        v = float(m.group(1))
+        out["bp"].append(v)
+        out["pp"].append(v)
 
 
 def _blank(v) -> bool:

@@ -116,7 +116,7 @@ def test_rounding_in_note_scale():
     assert not e.matches(4.1e9, "$4.1 billion", [3.2e9])
 
 
-@pytest.mark.parametrize("words,ok", [(1199, False), (1200, True), (3000, True), (3001, False)])
+@pytest.mark.parametrize("words,ok", [(999, False), (1000, True), (3000, True), (3001, False)])
 def test_word_count_bounds(words, ok):
     reasons = check(make_note(words=words))
     assert (reasons == []) is ok
@@ -219,7 +219,8 @@ def test_spaced_and_hyphenated_units():
 def test_explicit_minus_requires_negative_source():
     assert unmatched(check(make_note("EPS of -$0.05."), "EPS was $0.05"))
     assert unmatched(check(make_note("EPS of -$0.05."), "EPS was ($0.05)")) == []
-    assert unmatched(check(make_note("Sales fell -5%."), "sales fell 5%"))
+    assert unmatched(check(make_note("Sales fell -5%."), "sales grew 5%"))
+    assert unmatched(check(make_note("Sales fell -5%."), "sales fell 5%")) == []  # "fell" signs it
     assert unmatched(check(make_note("Sales fell 5%."), "sales were (5%)")) == []
     assert unmatched(check(make_note("Sales fell 5%."), "sales fell 5%")) == []
 
@@ -227,3 +228,58 @@ def test_explicit_minus_requires_negative_source():
 def test_blocklist_plurals():
     assert any("price target" in r for r in check(make_note("Analysts raised price targets.")))
     assert any("buy rating" in r for r in check(make_note("Several buy ratings.")))
+
+
+def test_bullets_and_range_dashes_are_not_minus_signs():
+    assert unmatched(check(make_note("Highlights:\n- 70% of Pillsbury is renovated."), "70% of it")) == []
+    assert unmatched(check(make_note("Growth guidance of 6.5%-7%."), "6.5% to 7%")) == []
+    assert e.extract_figures("- $500 million")[0][0] == 5e8
+
+
+def test_hyphenated_and_spaced_unit_forms_in_sources():
+    assert unmatched(check(make_note("Gross margin expanded 150 basis points."),
+                           "We expanded gross margin 150-basis-points to 40.5%.")) == []
+    assert unmatched(check(make_note("Margins up 75 to 125 basis points."),
+                           "margins to improve 75- to 125- basis points")) == []
+
+
+def test_source_pairs_share_the_unit_stated_once():
+    assert unmatched(check(make_note("Core spread of 60 to 70 basis points."),
+                           "60 and 70 basis points of real GDP")) == []
+    assert unmatched(check(make_note("Interest expense of $59 to $65 million."),
+                           "an expense between $59 and $65 million")) == []
+    assert unmatched(check(make_note("2027 guidance of $1.78 to $1.82."),
+                           "2027 core EPS guidance of 1.78 to $1.82")) == []
+    # either reading of "$0.12 or $187 million" counts as sourced
+    assert unmatched(check(make_note("A $0.12, or $187 million, charge."),
+                           "a $0.12 or $187 million noncash charge")) == []
+
+
+def test_note_pairs_keep_their_own_currency():
+    # "$1.87 and 16.3%" is $1.87, not 1.87%; "$0.92 to 11%" is $0.92
+    assert unmatched(check(make_note("EPS of $1.87 and 16.3% ROTCE."), "EPS of $1.87, ROTCE 16.3%")) == []
+    assert unmatched(check(make_note("AFFO up $0.92 to 11% growth."), "AFFO per share of $0.92 to 11%")) == []
+
+
+def test_speaker_approximations():
+    src = "call it $1.8-ish billion, $25-odd million, a 150+ million expansion, 50 plus million dollars"
+    note = make_note("About $1.8 billion, about $25 million, 150 million, more than $50 million.")
+    assert unmatched(check(note, src)) == []
+
+
+def test_unitless_decimals_and_points_in_sources():
+    assert unmatched(check(make_note("Growth around 10.5%."), "It's around 10.5, and we expect")) == []
+    assert unmatched(check(make_note("About $5.2 million in Q3."), "about 5.2 in Q3")) == []
+    assert unmatched(check(make_note("310 basis points of lift."), "another 310 points of margin lift")) == []
+    # a decimal that carries its own unit keeps its kind
+    assert unmatched(check(make_note("Margin up 1.5%."), "margin rose 1.5 percentage points"))
+
+
+def test_unitless_whole_numbers_stay_unsourced():
+    assert unmatched(check(make_note("Inflation cost about 160 basis points."), "inflation of about 160 in the quarter"))
+
+
+def test_not_figures():
+    assert e.extract_figures("2027 M&A pipeline") == []
+    assert e.extract_figures("750,000 to 1 million tons")[-1][0] == 1e6
+    assert len(e.extract_figures("750,000 to 1 million tons")) == 1
