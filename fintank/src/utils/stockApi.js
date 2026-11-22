@@ -46,6 +46,15 @@ export const fetchPrices = (symbol) =>
 export const fetchQuote = (symbol) =>
   request(`/stock-quote/${encodeURIComponent(symbol)}/`, 'quote');
 
+// Analyst estimates, ratings and price target. 404 no coverage, 502 provider
+// down. Quarterly estimates are a separate call so the page only pays for them
+// when the user asks.
+export const fetchAnalystView = (symbol) =>
+  request(`/analyst-view/${encodeURIComponent(symbol)}/`, 'analyst view');
+
+export const fetchAnalystQuarterly = (symbol) =>
+  request(`/analyst-view/${encodeURIComponent(symbol)}/quarterly/`, 'analyst quarterly');
+
 // Funds live on their own route: /stock-data/ reads the equity-only
 // long_profiles parquet and 404s for every ETF. stock-data/[ticker].js catches
 // that and redirects, so this is purely an optimisation -- callers holding a

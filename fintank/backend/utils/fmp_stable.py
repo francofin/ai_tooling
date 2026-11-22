@@ -62,3 +62,43 @@ def adjusted_history(symbol, *, from_date="1990-01-01", timeout=20):
         timeout,
     )
     return _oldest_first(rows)
+
+
+def _first_row(path, params, timeout):
+    rows = _get_list(path, params, timeout)
+    return rows[0] if rows else None
+
+
+def analyst_estimates(symbol, period, *, limit, timeout=15):
+    # period: "annual" or "quarter"
+    return _get_list(
+        "analyst-estimates",
+        {"symbol": symbol, "period": period, "limit": limit},
+        timeout,
+    )
+
+
+def grades_consensus(symbol, *, timeout=15):
+    return _first_row("grades-consensus", {"symbol": symbol}, timeout)
+
+
+def price_target_consensus(symbol, *, timeout=15):
+    return _first_row("price-target-consensus", {"symbol": symbol}, timeout)
+
+
+def price_target_summary(symbol, *, timeout=15):
+    return _first_row("price-target-summary", {"symbol": symbol}, timeout)
+
+
+def exchange_variants(symbol, *, timeout=15):
+    return _get_list("search-exchange-variants", {"symbol": symbol}, timeout)
+
+
+def reported_currency(symbol, *, timeout=15):
+    row = _first_row("income-statement", {"symbol": symbol, "limit": 1}, timeout)
+    return row.get("reportedCurrency") if row else None
+
+
+def fx_rate(pair="USDCAD", *, timeout=15):
+    row = _first_row("quote", {"symbol": pair}, timeout)
+    return float(row["price"]) if row and row.get("price") is not None else None
