@@ -71,3 +71,29 @@ def fetch_transcript(api_key, symbol, fiscal_year, quarter, get=http_get_json):
     if not content:
         raise LookupError(f"no transcript for {symbol} FY{fiscal_year} Q{quarter}")
     return content, row.get("date") or ""
+
+
+def fetch_estimates(api_key, symbol, call_date, get=http_get_json, slack_days=2):
+    """(report_date, estimates) for the report a call discussed, from FMP's
+    per-symbol earnings history: the latest report dated on or up to
+    `slack_days` before the call. None when no report falls in that window."""
+    rows = get(f"{FMP_STABLE}/earnings",
+               params={"symbol": symbol, "limit": 12, "apikey": api_key})
+    if not isinstance(rows, list):
+        raise ValueError(f"unexpected FMP earnings payload: {str(rows)[:200]}")
+    call = dt.date.fromisoformat(str(call_date)[:10])
+    best = None
+    for row in rows:
+        try:
+            date = dt.date.fromisoformat(str(row.get("date"))[:10])
+        except ValueError:
+            continue
+        if 0 <= (call - date).days <= slack_days and (best is None or date > best[0]):
+            best = (date, row)
+    if best is None:
+        return None
+    date, row = best
+    return date.isoformat(), {"eps_estimate": row.get("epsEstimated"),
+                              "eps_actual": row.get("epsActual"),
+                              "revenue_estimate": row.get("revenueEstimated"),
+                              "revenue_actual": row.get("revenueActual")}

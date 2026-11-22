@@ -25,7 +25,8 @@ from pipelines.earnings import (_add_usage, _claude, _empty_summary, _finish, _j
                                 _write_requests, ensure_indexed, pending_tags,
                                 publish_note)
 from pipelines.earnings_claude import BatchResult, cost_usd
-from pipelines.earnings_fmp import covered_symbols, fetch_transcript, http_get_json
+from pipelines.earnings_fmp import (covered_symbols, fetch_estimates, fetch_transcript,
+                                    http_get_json)
 from pipelines.earnings_prompt import NoteJob, to_stored_note
 from pipelines.earnings_state import is_written, load_state, save_state
 from pipelines.notify import backfill_held_message, backfill_refused_message
@@ -41,6 +42,23 @@ def earlier_results(store, state, run_id=None) -> list:
     """Backfill runs whose saved results.json can still be re-checked for free."""
     return [r for r in state.get("backfill_runs") or []
             if r != run_id and store.exists(run_key(r, "results.json"))]
+
+
+_NO_ESTIMATES = {"eps_estimate": None, "eps_actual": None,
+                 "revenue_estimate": None, "revenue_actual": None}
+
+
+def _consensus(fmp_key, symbol, call_date, get, log) -> tuple[str, dict]:
+    """(report_date, estimates) from FMP's earnings history, so a backfill note
+    can say beat or miss. Without a match the call date stands in as the report
+    date and the estimates stay blank; a lookup failure never drops the company."""
+    try:
+        found = fetch_estimates(fmp_key, symbol, call_date, get=get,
+                                slack_days=core.CALL_DATE_SLACK_DAYS)
+    except Exception as e:  # noqa: BLE001
+        log(f"{symbol}: no consensus ({redact(str(e))})")
+        found = None
+    return found or (str(call_date)[:10], dict(_NO_ESTIMATES))
 
 
 def _backfill_jobs(fmp_key, live, state, covered, get, log) -> list:
@@ -63,13 +81,11 @@ def _backfill_jobs(fmp_key, live, state, covered, get, log) -> list:
             continue
         info = covered[symbol]
         call_date = call_date or call
-        # No calendar row for an old quarter: the call date stands in as report_date.
+        report_date, estimates = _consensus(fmp_key, symbol, call_date, get, log)
         jobs.append(NoteJob(symbol=symbol, company_name=info["name"], region=info["region"],
-                            fiscal_year=fy, fiscal_quarter=q, report_date=str(call_date)[:10],
+                            fiscal_year=fy, fiscal_quarter=q, report_date=report_date,
                             call_date=call_date, transcript=content,
-                            estimates={"eps_estimate": None, "eps_actual": None,
-                                       "revenue_estimate": None, "revenue_actual": None},
-                            previous_note=None))
+                            estimates=estimates, previous_note=None))
     return jobs
 
 
