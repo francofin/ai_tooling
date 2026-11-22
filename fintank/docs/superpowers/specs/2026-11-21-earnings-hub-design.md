@@ -35,7 +35,7 @@ The hub has two parts:
 - **Universe:** the **TSX Composite (XIC.TO holdings) plus the S&P 500 (SPY holdings)**, about 720 companies. Both lists are already in S3 at `index_data/constituents/{key}_constituents.json` (`tsx`, `sp500`).
 - **Publishing:**
   - **Daily notes:** a note that passes the checks publishes automatically, like the news job. Franc gets one summary email per run and has a command to pull any single note.
-  - **Backfill:** one quarter for each company (the latest reported). The backfill **waits for approve/discard** before anything goes live, using the existing `python -m pipelines approve|discard <run-id>`.
+  - **Backfill:** one quarter for each company (the latest reported). Consensus estimates come from FMP's per-symbol earnings history (stable `/earnings`, the report dated on or up to 2 days before the call); the first backfill shipped without them (added 2026-11-22). The backfill **waits for approve/discard** before anything goes live, using the existing `python -m pipelines approve|discard <run-id>`.
 - **"Daily" means:** once a day, find covered companies that have reported since the last run. Check whether each one's transcript is out yet, since it can lag the call by hours or days. Write notes only for new transcripts. A company stays on a waiting list and is checked again each day for **7 days**, then dropped with a line in the email.
 - **Where it runs:** a new AWS job built like the daily news job, with a Fargate task, a Step Functions state machine and an EventBridge schedule, behind an `earnings_schedule=on|off` CDK switch that is **off**.
 - **Reading:** a stock-page panel showing the quarter, report date, lean, headline, three key points and the short disclaimer. Clicking it opens a modal with the full note and a dropdown for past quarters. Opening the modal sets `?note=<fiscal-year>-Q<n>` (for example `?note=2026-Q3`) in the URL, so links can be shared and loading such a URL opens the modal.
@@ -119,7 +119,7 @@ These are layered, so any one of them stops spending:
 
 ### Checks (a note must pass all of them to publish)
 - It is valid against the note schema and every required section is non-empty. "What changed" is required only when a previous note was supplied.
-- Word count is within 1,200–3,000. That's a margin around the 1,500–2,500 target.
+- Word count is within 1,000–3,000 around the 1,500–2,500 target. (Was 1,200; the first backfill showed Claude writes 1,100–1,200 words, so 90 good notes failed on length alone. Lowered 2026-11-22.)
 - `lean` is one of `bullish`, `neutral`, `bearish`.
 - **Figures (Franc chose option A, strict, 2026-11-21):**
   - The **prompt** tells Claude to use only figures stated in the transcript or the supplied data, and not to compute its own growth rates, margins or differences.
@@ -128,6 +128,7 @@ These are layered, so any one of them stops spending:
   - **The one derived exception:** beat or miss vs consensus (absolute and %). The checker recalculates it from the supplied estimate and actual.
   - Figures in the previous note also count as sourced (Claude's call), because "what changed" cites last quarter and that note already passed the same check.
   - **Any other unmatched figure fails the note.** The backfill's approve gate is where the false-fail rate gets measured. The matcher is tuned there and re-checked for free with `--from-results`.
+  - **Tuned 2026-11-22 on the first backfill** (`earnings-backfill-20261122-0540`, 694 answers; 485 passed). Most figure failures were false alarms: list bullets and range dashes read as minus signs, a unit stated once for a pair ("60 and 70 basis points", "1.78 to $1.82"), hyphenated units, speaker approximations ("$1.8-ish billion"). Sources now read those; a unitless decimal in a source counts, a unitless whole number does not; "down 4%" sources "-4%". Replaying the same answers: 637 pass. Every newly accepted figure was checked against its transcript. The remaining 55 figure failures are mostly real (re-expressed or computed figures) or a speaker leaving the unit off a whole number.
 - It contains no "buy", "sell" or "price target" recommendation language. A small blocklist is fine.
 - Batch errors and refusals count as failures and are reported. They are **not** retried in the same run. The next run may retry a failed company **once**, so a quarter is attempted at most twice.
 

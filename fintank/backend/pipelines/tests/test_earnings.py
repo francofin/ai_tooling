@@ -83,6 +83,7 @@ class FakeFmp:
     def __init__(self):
         self.calendar = []
         self.dates = {}         # symbol -> [{"fiscalYear", "quarter", "date"}]
+        self.history = {}       # symbol -> earnings rows (stable /earnings)
         self.calls = []
 
     def report(self, symbol, date, fy, q, call_date=None):
@@ -99,6 +100,11 @@ class FakeFmp:
             return list(self.calendar)
         if url.endswith("/earning-call-transcript-dates"):
             return list(self.dates.get(params["symbol"], []))
+        if url.endswith("/earnings"):
+            history = self.history.get(params["symbol"], [])
+            if isinstance(history, Exception):
+                raise history
+            return list(history)
         if url.endswith("/earning-call-transcript"):
             return [{"symbol": params["symbol"], "year": params["year"],
                      "date": "2026-11-20", "content": "The call went well. " * 50}]
@@ -403,6 +409,24 @@ def test_backfill_submit_check_stage_publish(world):
     assert not world.store.exists(st.LOCK_KEY)
     with pytest.raises(RuntimeError, match="not the staged backfill"):
         bf.backfill_publish("backfill-1", world.store, world.live)       # already settled
+
+
+def test_backfill_sends_consensus_from_earnings_history(world):
+    backfill_world(world)
+    # FakeFmp's transcript is dated 2026-11-20: RY.TO reported the day before
+    world.fmp.history["RY.TO"] = [{"date": "2026-11-19", "epsEstimated": 4.03, "epsActual": 4.24,
+                                   "revenueEstimated": 1.82e10, "revenueActual": 1.84e10}]
+    world.fmp.history["AAPL"] = RuntimeError("FMP down")        # lookup failure: still a job
+    client = FakeBatch()
+    submit(world, "backfill-c", client)
+    texts = {re.search(r"\((\S+)\)</company>", t).group(1): t for t in
+             (r["params"]["messages"][0]["content"] for r in client.submits[0])}
+    assert set(texts) == {"RY.TO", "BBD-B.TO", "AAPL", "MSFT"}
+    assert "<report_date>2026-11-19</report_date>" in texts["RY.TO"]
+    assert '"eps_estimate": 4.03' in texts["RY.TO"] and '"eps_actual": 4.24' in texts["RY.TO"]
+    for sym in ("AAPL", "BBD-B.TO"):
+        assert "<report_date>2026-11-20</report_date>" in texts[sym]
+        assert '"eps_estimate": null' in texts[sym]
 
 
 def test_backfill_submit_retry_never_resubmits(world):

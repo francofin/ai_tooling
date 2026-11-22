@@ -135,6 +135,32 @@ def test_fetch_transcript_ok_and_empty_raises():
             fmp.fetch_transcript("K", "RY.TO", 2026, 4, lambda *a, **k: payload)
 
 
+def test_fetch_estimates_picks_the_report_the_call_discussed():
+    rows = [
+        {"date": "2026-12-03", "epsEstimated": 4.14, "epsActual": None},          # next, future
+        {"date": "2026-08-27", "epsEstimated": 4.03, "epsActual": 4.24,
+         "revenueEstimated": 18201520000, "revenueActual": 18365910000},
+        {"date": "2026-05-28", "epsEstimated": 3.8, "epsActual": 3.9},
+    ]
+    seen = {}
+
+    def get(url, params=None, **kw):
+        seen.update(url=url, params=params)
+        return rows
+
+    assert fmp.fetch_estimates("K", "RY.TO", "2026-08-28 08:00:00", get) == (
+        "2026-08-27", {"eps_estimate": 4.03, "eps_actual": 4.24,
+                       "revenue_estimate": 18201520000, "revenue_actual": 18365910000})
+    assert seen["url"].endswith("/stable/earnings")
+    assert seen["params"] == {"symbol": "RY.TO", "limit": 12, "apikey": "K"}
+    assert fmp.fetch_estimates("K", "RY.TO", "2026-08-27", get)[0] == "2026-08-27"
+    # call 3 days after the report, or before it: no match
+    assert fmp.fetch_estimates("K", "RY.TO", "2026-08-30", get) is None
+    assert fmp.fetch_estimates("K", "RY.TO", "2026-08-26", get) is None
+    with pytest.raises(ValueError):
+        fmp.fetch_estimates("K", "RY.TO", "2026-08-27", lambda *a, **k: {"Error": "x"})
+
+
 def test_http_get_never_leaks_the_api_key(monkeypatch):
     import requests
 

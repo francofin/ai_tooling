@@ -155,3 +155,10 @@ def test_stored_note_drops_what_changed_without_a_previous_note():
     assert out["sections"]["what_changed"] == "The model compared against nothing."  # input untouched
     with_prev = ep.to_stored_note(job(previous={"headline": "old"}), out, "2026-11-21T00:00:00Z")
     assert with_prev["sections"]["what_changed"] == "The model compared against nothing."
+
+
+def test_prompt_guards_against_management_spin_and_input_talk():
+    s = ep.SYSTEM_PROMPT
+    assert "framed favourably" in s and "not the tone of the call" in s
+    assert "consensus figures were not available" in s
+    assert 'Never describe your inputs as "supplied"' in s
