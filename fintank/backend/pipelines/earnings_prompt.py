@@ -66,7 +66,9 @@ Write one analyst note of 1,500 to 2,500 words in total across the fields, from 
 - key_points: exactly 3 short strings, the three things a reader must know.
 - sections: results_vs_consensus, guidance, management_tone, qa_themes, what_changed, risks, bull_case, bear_case, watch_next. Each is prose, with no markdown headings.
 
-Stance. Give a balanced, neutral account first: what happened, what management said, what analysts pushed on. Then give a bullish, neutral or bearish lean for the stock's near-term outlook and the reasons for it. Present the bull case and the bear case fairly, whichever lean you choose.
+Stance. Give a balanced, neutral account first: what happened, what management said, what analysts pushed on. Then give a bullish, neutral or bearish lean for the stock's near-term outlook and the reasons for it. Present the bull case and the bear case fairly, whichever lean you choose. A transcript is management's own account and is framed favourably: weigh what management says against the reported numbers and the analysts' questions, and choose bullish only when the evidence, not the tone of the call, supports it.
+
+Consensus. When estimates are given, say whether revenue and EPS beat or missed them. When they are blank, compare the results with the company's own guidance and prior periods, and say once, plainly, that consensus figures were not available. Never describe your inputs as "supplied" or "provided": write as an analyst who listened to the call.
 
 Do not give recommendations, ratings or price targets. Do not tell the reader to buy, sell or hold. Do not use phrases such as "buy rating", "sell rating", "we recommend" or "price target". This is one opinion, not investment advice.
 
