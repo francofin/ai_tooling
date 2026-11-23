@@ -1120,3 +1120,192 @@ class UniverseProfilesColumnsTests(SimpleTestCase):
         self._run('etfs', [{'symbol': 'SPY'}])
 
         self.assertIsNotNone(cache.get('home:universe_profiles:etfs:v3'))
+
+
+@override_settings(CACHES=LOCMEM_CACHE)
+class FundFinderTests(SimpleTestCase):
+    RY, TD, SHOP, TSMC = 'CA7800871021', 'CA8911605092', 'CA82509L1076', 'TW0002330008'
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.funds = []
+        self.exposure = []
+        self.isin = pd.DataFrame([
+            ('RY.TO', self.RY, 'Royal Bank', 'TSX', False),
+            ('RY', self.RY, 'Royal Bank', 'NYSE', False),
+            ('TD.TO', self.TD, 'TD Bank', 'TSX', False),
+            ('SHOP.TO', self.SHOP, 'Shopify', 'TSX', False),
+            ('TSM', self.TSMC, 'TSMC', 'NYSE', True),
+            ('2330.TW', self.TSMC, 'TSMC', 'TAI', False),
+        ], columns=['symbol', 'company_id', 'name', 'exchange', 'is_adr'])
+        self.reads = []
+
+    def fund(self, symbol, region='ca', aum=1000.0, issuer=None, series=(), fetched='2026-11-20'):
+        self.funds.append({
+            'symbol': symbol, 'name': symbol + ' fund', 'exchange': 'TSX' if region == 'ca' else 'NYSE',
+            'region': region, 'currency': 'CAD' if region == 'ca' else 'USD', 'aum': aum, 'mer': 0.5,
+            'issuer': issuer, 'asset_class': 'Equity', 'fetched': fetched, 'series': list(series),
+            'rows': 10, 'coverage_pct': 90.0,
+        })
+
+    def hold(self, fund, company, weight, via=''):
+        self.exposure.append({'company_id': company, 'fund': fund, 'weight': weight, 'via': via})
+
+    def reader(self, key):
+        from analyzer.analyzer_utils import fund_finder
+        self.reads.append(key)
+        if key == 'fund_data/funds.parquet':
+            return pd.DataFrame(self.funds)
+        if key == 'fund_data/isin_map.parquet':
+            return self.isin
+        b = int(key.split('/')[-1].split('.')[0])
+        frame = pd.DataFrame(self.exposure, columns=['company_id', 'fund', 'weight', 'via'])
+        frame['bucket'] = [fund_finder.bucket_of(c) for c in frame['company_id']]
+        return frame[frame['bucket'] == b].reset_index(drop=True)
+
+    def get(self, query, path='/api/fund-finder/'):
+        from django.test import Client
+        from analyzer.analyzer_utils import fund_finder
+        with patch.object(fund_finder, '_read_parquet', side_effect=self.reader):
+            return Client().get(path + query)
+
+    def symbols(self, response):
+        return [f['symbol'] for f in response.json()['funds']]
+
+    def test_bucket_of_is_pinned(self):
+        from analyzer.analyzer_utils.fund_finder import bucket_of
+        self.assertEqual(bucket_of('CA7800871021'), 40)
+
+    def test_ranking_is_pure_combined_weight(self):
+        self.fund('A'), self.fund('B')
+        self.hold('A', self.RY, 8.0)
+        for c in (self.RY, self.TD, self.SHOP):
+            self.hold('B', c, 2.0)
+        r = self.get('?include=RY.TO,TD.TO,SHOP.TO&listed=ca')
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(self.symbols(r), ['A', 'B'])
+        self.assertEqual([f['combined'] for f in r.json()['funds']], [8.0, 6.0])
+        a = r.json()['funds'][0]
+        self.assertEqual(a['weights']['TD.TO'], {'weight': 0.0, 'via': []})
+        self.assertEqual(r.json()['fetched'], '2026-11-20')
+
+    def test_pick_us_listing_finds_tsx_holders(self):
+        self.fund('A'), self.fund('TW1')
+        self.hold('A', self.RY, 5.0)
+        self.hold('TW1', self.TSMC, 9.0)
+        self.assertEqual(self.symbols(self.get('?include=RY&listed=both')), ['A'])
+        self.assertEqual(self.symbols(self.get('?include=TSM&listed=both')), ['TW1'])
+
+    def test_exclude_via_underlying(self):
+        self.fund('A'), self.fund('B')
+        self.hold('A', self.RY, 5.0)
+        self.hold('B', self.RY, 4.0)
+        self.hold('B', self.SHOP, 1.0, via='XIC.TO')
+        self.assertEqual(self.symbols(self.get('?include=RY.TO&exclude=SHOP.TO&listed=ca')), ['A'])
+
+    def test_via_is_reported_and_summed(self):
+        self.fund('A')
+        self.hold('A', self.RY, 3.0)
+        self.hold('A', self.RY, 2.0, via='XIC.TO')
+        f = self.get('?include=RY.TO&listed=ca').json()['funds'][0]
+        self.assertEqual(f['combined'], 5.0)
+        self.assertEqual(f['weights']['RY.TO'], {'weight': 5.0, 'via': ['XIC.TO']})
+
+    def test_listed_filter(self):
+        self.fund('CAF', 'ca'), self.fund('USF', 'us')
+        self.hold('CAF', self.RY, 5.0), self.hold('USF', self.RY, 4.0)
+        self.assertEqual(self.symbols(self.get('?include=RY&listed=ca')), ['CAF'])
+        self.assertEqual(self.symbols(self.get('?include=RY&listed=us')), ['USF'])
+        self.assertEqual(sorted(self.symbols(self.get('?include=RY&listed=both'))), ['CAF', 'USF'])
+
+    def test_collapse_same_market_only(self):
+        self.fund('ZWC.TO', aum=100, issuer='BMO'), self.fund('ZWC2.TO', aum=500, issuer='BMO')
+        self.fund('XUS.TO', 'ca', aum=300, issuer='iShares'), self.fund('IVV', 'us', aum=900, issuer='iShares')
+        self.fund('N1', aum=50), self.fund('N2', aum=60)
+        for f, w in (('ZWC.TO', 5.0), ('ZWC2.TO', 5.005), ('XUS.TO', 3.0), ('IVV', 3.0), ('N1', 1.0), ('N2', 1.0)):
+            self.hold(f, self.RY, w)
+        r = self.get('?include=RY.TO&listed=both')
+        self.assertEqual(sorted(self.symbols(r)), ['IVV', 'N1', 'N2', 'XUS.TO', 'ZWC2.TO'])
+        zwc = [f for f in r.json()['funds'] if f['symbol'] == 'ZWC2.TO'][0]
+        self.assertEqual(zwc['also'], ['ZWC.TO'])
+
+    def test_collapse_needs_weights_within_tolerance(self):
+        self.fund('P', issuer='X'), self.fund('Q', issuer='X')
+        self.hold('P', self.RY, 5.0), self.hold('Q', self.RY, 5.5)
+        self.assertEqual(sorted(self.symbols(self.get('?include=RY.TO&listed=ca'))), ['P', 'Q'])
+
+    def test_ties_by_aum(self):
+        self.fund('LOW', aum=10), self.fund('HIGH', aum=99)
+        self.hold('LOW', self.RY, 4.0), self.hold('HIGH', self.RY, 4.0)
+        self.assertEqual(self.symbols(self.get('?include=RY.TO&listed=ca')), ['HIGH', 'LOW'])
+
+    def test_limit_100(self):
+        for i in range(105):
+            self.fund(f'F{i:03d}', aum=i)
+            self.hold(f'F{i:03d}', self.RY, 1.0 + i)
+        self.assertEqual(len(self.symbols(self.get('?include=RY.TO&listed=ca'))), 100)
+
+    def test_unknown_and_messy_symbols(self):
+        self.fund('A')
+        self.hold('A', self.RY, 5.0)
+        r = self.get('?include=%20ry.to%20,ZZZZ&listed=ca')
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertEqual(body['include'], ['RY.TO'])
+        self.assertEqual(body['unknown'], ['ZZZZ'])
+
+    def test_bad_queries(self):
+        cases = [
+            ('?include=RY.TO', 'listed is required (ca, us or both)'),
+            ('?include=RY.TO&listed=eu', 'listed is required (ca, us or both)'),
+            ('?include=' + ','.join(f'A{i}' for i in range(11)) + '&listed=ca', 'at most 10 stocks to include'),
+            ('?include=RY.TO&exclude=' + ','.join(f'A{i}' for i in range(11)) + '&listed=ca',
+             'at most 10 stocks to exclude'),
+            ('?include=RY.TO&exclude=RY.TO&listed=ca', 'RY.TO is in both include and exclude'),
+            ('?include=RY.TO&exclude=RY&listed=ca', 'RY is in both include and exclude'),
+            ('?listed=ca', 'at least one stock to include'),
+        ]
+        for query, message in cases:
+            r = self.get(query)
+            self.assertEqual(r.status_code, 400, query)
+            self.assertEqual(r.json(), {'detail': message}, query)
+
+    def test_s3_error_is_502(self):
+        from django.test import Client
+        from analyzer.analyzer_utils import fund_finder
+        with patch.object(fund_finder, '_read_parquet', side_effect=fund_finder.FundsUnavailable('x')):
+            self.assertEqual(Client().get('/api/fund-finder/?include=RY.TO&listed=ca').status_code, 502)
+
+    def test_read_parquet_wraps_s3_errors(self):
+        from analyzer.analyzer_utils import fund_finder
+        with patch.object(fund_finder.data_getter.fs, 'open', side_effect=OSError('boom')):
+            with self.assertRaises(fund_finder.FundsUnavailable):
+                fund_finder._read_parquet('fund_data/funds.parquet')
+
+    def test_cache_hit_does_not_touch_s3(self):
+        self.fund('A')
+        self.hold('A', self.RY, 5.0)
+        self.get('?include=RY.TO&listed=ca')
+        first = len(self.reads)
+        self.assertGreater(first, 0)
+        r = self.get('?include=RY.TO&listed=ca')
+        self.assertEqual(len(self.reads), first)
+        self.assertEqual(self.symbols(r), ['A'])
+
+    def test_second_query_reuses_meta_cache(self):
+        self.fund('A')
+        self.hold('A', self.RY, 5.0)
+        self.get('?include=RY.TO&listed=ca')
+        self.reads.clear()
+        self.get('?include=RY.TO&listed=both')
+        self.assertNotIn('fund_data/funds.parquet', self.reads)
+
+    def test_funds_holding_shortcut(self):
+        for i in range(12):
+            self.fund(f'F{i:02d}', aum=i)
+            self.hold(f'F{i:02d}', self.RY, 1.0 + i)
+        r = self.get('RY.TO/?listed=ca', path='/api/funds-holding/')
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(len(self.symbols(r)), 10)
+        self.assertEqual(self.get('RY.TO/', path='/api/funds-holding/').status_code, 400)

@@ -441,6 +441,35 @@ def get_earnings_note(request, symbol, quarter):
     return _earnings_response(request, "get_note", symbol, quarter)
 
 
+def _fund_response(request, symbol=None):
+    from .analyzer_utils import fund_finder
+    try:
+        params = request.query_params
+        if symbol is not None:
+            params = {"include": symbol, "listed": params.get("listed")}
+        include, exclude, listed = fund_finder.parse_query(params)
+        limit = fund_finder.HOLDING_LIMIT if symbol is not None else fund_finder.DEFAULT_LIMIT
+        payload = fund_finder.find_funds(include, exclude, listed, limit)
+        return Response(payload, status=status.HTTP_200_OK)
+    except fund_finder.BadQuery as e:
+        return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    except fund_finder.FundsUnavailable as e:
+        logger.warning("fund finder upstream failed: %s", type(e.__cause__).__name__)
+        return Response({"detail": client_safe_message(e)}, status=status.HTTP_502_BAD_GATEWAY)
+    except Exception as e:
+        return server_error_response(logger, "fund_finder", e)
+
+
+@api_view(['GET'])
+def get_fund_finder(request):
+    return _fund_response(request)
+
+
+@api_view(['GET'])
+def get_funds_holding(request, symbol):
+    return _fund_response(request, symbol)
+
+
 @api_view(['GET'])
 def get_stock_price_data_monthly(request, symbol):
     from .analyzer_utils.CorePerformanceTools import get_stock_price_data_monthly as _getter
