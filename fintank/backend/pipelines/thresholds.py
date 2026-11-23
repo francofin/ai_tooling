@@ -113,17 +113,25 @@ NEWS_FAILED_SHARE_FAIL = 0.5
 # dropped; a fund whose raw weights sum outside the range is flagged.
 FUND_MIN_HOLDING_PCT = 0.001
 FUND_WEIGHT_SUM_RANGE = (90.0, 110.0)
+# A fund whose resolved holdings come to more than this percent of its raw
+# weights is leveraged (e.g. 127% Apple, a cash borrow below zero): dropped
+# from the lookup and listed in detail["dropped_leveraged_holdings"].
+FUND_LEVERAGE_COVERAGE_PCT = 110.0
 FUND_BUCKETS = 64
 # Fund finder checks. FUND_MIN_FUNDS: 90% of the funds with stock exposure
-# rows, rounded down to 100 (local measurement 2026-11-23: 2,357 of 3,564
-# funds; the rest are bond, commodity, cash or alternative funds, or FMP has
-# no holdings for them).
-FUND_MIN_FUNDS = 2100
+# rows, rounded down to 100 (local measurement 2026-11-23, with the leveraged
+# name and holdings filters: 2,313 of 3,534 funds; the rest are bond,
+# commodity, cash or alternative funds, or FMP has no holdings for them).
+FUND_MIN_FUNDS = 2000
 # Cross-check vs etf/asset-exposure: share of FMP's in-universe funds present
 # in our lookup, and share whose weight agrees within FUND_CROSSCHECK_WEIGHT_PP.
 FUND_CROSSCHECK_PRESENT = 0.95
 FUND_CROSSCHECK_WEIGHT_PP = 0.5
 # ADR link share may fall at most this many points from the last published run.
 FUND_ADR_LINK_DROP_PP = 5.0
+# fund_finder.look_through warns only above this many funds (measured
+# 2026-11-23: 165, mostly fund -> ETF -> ETF chains and held funds FMP has no
+# holdings for).
+FUND_LOOK_THROUGH_WARN = 250
 # XEQT.TO must have more than this many holding rows with an `asset`.
 FUND_XEQT_MIN_ROWS = 1000

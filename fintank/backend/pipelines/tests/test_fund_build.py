@@ -203,3 +203,16 @@ def test_build_trims_holding_rows(pipeline, monkeypatch):
                                         "updatedAt": "2026-11-15 00:00:00",
                                         "updated": "2026-11-15"}]
     assert "updatedAt" in seen["holdings"]["XIU.TO"][0]
+
+
+def test_crosscheck_compares_direct_rows_only():
+    exposure = pd.DataFrame({
+        "company_id": [RY, RY, RY, "OTHER"],
+        "fund": ["XIU.TO", "XIU.TO", "ZWB.TO", "XIU.TO"],
+        "weight": [9.43, 3.0, 2.0, 50.0],
+        "via": ["", "ZEB.TO", "ZEB.TO", ""]})
+    rows = [{"symbol": "XIU.TO", "asset": "RY.TO", "weightPercentage": 9.43},
+            {"symbol": "ZWB.TO", "asset": "RY.TO", "weightPercentage": 2.0}]
+    cc = sp.StockDataPipeline._fund_crosscheck(rows, {"XIU.TO", "ZWB.TO"}, exposure, RY)
+    # XIU.TO agrees on its direct row; ZWB.TO holds RY only through ZEB.TO.
+    assert cc == {"in_universe": 2, "present_pct": 50.0, "weight_ok_pct": 50.0}

@@ -965,7 +965,10 @@ class StockDataPipeline:
 
     @staticmethod
     def _fund_crosscheck(rows, universe, exposure, cid):
-        """FMP's etf/asset-exposure rows for one pick vs our lookup."""
+        """FMP's etf/asset-exposure rows for one pick vs our lookup's DIRECT
+        rows (via == ""), summed over the company's lines per fund:
+        asset-exposure lists direct holdings only, so look-through weight
+        would never agree."""
         fmp = {}
         for r in rows:
             if r.get("symbol") in universe:
@@ -973,8 +976,9 @@ class StockDataPipeline:
                     fmp[r["symbol"]] = float(r.get("weightPercentage") or 0)
                 except (TypeError, ValueError):
                     fmp[r["symbol"]] = 0.0
-        ours = (exposure[exposure.company_id == cid].groupby("fund").weight.sum().to_dict()
-                if cid else {})
+        direct = exposure[(exposure.company_id == cid) & (exposure.via == "")] \
+            if cid else exposure.iloc[0:0]
+        ours = direct.groupby("fund").weight.sum().to_dict()
         n = len(fmp)
         present = sum(1 for f in fmp if f in ours)
         ok = sum(1 for f, w in fmp.items()

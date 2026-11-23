@@ -720,20 +720,24 @@ FUND_CA_EXCHANGES = ["TSX", "NEO"]
 # Canadian ETF market is far smaller; a US $100M floor would drop real funds.
 FUND_AUM_FLOOR = {"us": 100e6, "ca": 25e6}
 
-# Leveraged / inverse / daily-reset products distort exposure rankings, so they
-# are dropped by name. "Daily Income" and "Short-Term/Duration" (bond funds)
-# are deliberately spared by the negative lookaheads; "Short" followed by a
-# bond word (Treasury, Bond, Muni...) is spared too, e.g. a short T-bill fund. Ultra-short bond funds
-# ("Ultra-Short Bond", "Ultra Short-Term") are kept: only the fused UltraShort/
-# UltraPro and a bare "Ultra" not followed by "short" are leveraged.
+# Leveraged / inverse products distort exposure rankings, so they are dropped
+# by name. "Short" followed by a bond word (Treasury, Bond, Muni...) is spared,
+# e.g. a short T-bill fund. Ultra-short bond funds ("Ultra-Short Bond", "Ultra
+# Short-Term") are kept: only the fused UltraShort/UltraPro and ProShares'
+# "Ultra" line (FMP spells it "ProShares - Ultra QQQ") are leveraged ("Invesco S&P Ultra Dividend" is not). "Daily"
+# alone is not a signal (Daily PutWrite, Daily Income); daily-reset funds are
+# caught by their multiplier, Bear/Bull or Leveraged. Single-stock leveraged
+# income lines: "HighShares", "Enhanced High Income Shares". Funds whose
+# holdings sum over FUND_LEVERAGE_COVERAGE_PCT are dropped in the build too.
 FUND_LEVERAGED_PATTERN = (
-    r"\b-?\d(\.\d)?x\b"
+    r"\b-?\d+(\.\d+)?x\b"
     r"|\bultra(pro|short)\b"
-    r"|\bultra\b(?![- ]short)"
+    r"|\bproshares\W+ultra\b"
     r"|leveraged"
     r"|inverse"
     r"|\bbear\b"
     r"|\bbull\b"
-    r"|\bdaily\b(?! income)"
+    r"|highshares"
+    r"|enhanced high income shares"
     r"|(?<!ultra-)(?<!ultra )\bshort\b(?![- ](term|duration|maturity|dated|treasury|bond|income|government|corporate|municipal|muni))"
 )

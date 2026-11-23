@@ -1,6 +1,7 @@
 import React from 'react'
 import Link from 'next/link'
 import { Table } from 'react-bootstrap'
+import { formatMer } from '@utils/fundFinder/query.mjs'
 
 export const EMPTY_TEXT = 'No ETF in this market holds these stocks without the excluded ones.'
 
@@ -60,7 +61,7 @@ const FundResultsTable = ({ funds, picks, fetched }) => {
                 </td>
               )
             })}
-            <td className="text-end">{pct(fund.mer, 2)}</td>
+            <td className="text-end">{formatMer(fund.mer)}</td>
             <td className="text-end">{formatAum(fund.aum, fund.currency)}</td>
             <td>{[fund.exchange, fund.currency].filter(Boolean).join(' · ') || '—'}</td>
           </tr>

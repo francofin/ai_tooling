@@ -2,7 +2,7 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { parseQuery, toQuery, canSearch } from './query.mjs'
+import { parseQuery, toQuery, canSearch, formatMer } from './query.mjs'
 
 describe('parseQuery / toQuery', () => {
   it('round-trips a full query', () => {
@@ -61,5 +61,16 @@ describe('canSearch', () => {
   })
   it('is true with both', () => {
     assert.equal(canSearch({ listed: 'both', include: ['RY.TO'], exclude: [] }), true)
+  })
+})
+
+describe('formatMer', () => {
+  it('shows percent with two decimals, and a dash for 0, null or junk', () => {
+    assert.equal(formatMer(0.18), '0.18%')
+    assert.equal(formatMer(1.6), '1.60%')
+    assert.equal(formatMer(0), '—')
+    assert.equal(formatMer(null), '—')
+    assert.equal(formatMer(undefined), '—')
+    assert.equal(formatMer('x'), '—')
   })
 })

@@ -284,7 +284,7 @@ def test_check_fund_finder_clean():
 def test_check_fund_finder_warns_not_fails():
     detail = _fund_detail(
         funds=10, funds_with_rows=10, weight_sum_outside=["BAD.TO"],
-        unexpanded=["MIX.TO"], xeqt_asset_rows=12, adr_link_pct=70.0, adr_pairs={},
+        unexpanded=[f"MIX{i}.TO" for i in range(251)], xeqt_asset_rows=12, adr_link_pct=70.0, adr_pairs={},
         crosscheck={"RY.TO": {"in_universe": 4, "present_pct": 50.0,
                               "weight_ok_pct": 50.0}})
     out = statuses(c.check_fund_finder(detail, {"adr_link_pct": 80.0}))
@@ -330,9 +330,18 @@ def test_check_fund_finder_adr_links_baseline():
         "fund_finder.adr_links"] == c.WARN
 
 
-def test_check_fund_finder_deep_chain_warns():
-    assert statuses(c.check_fund_finder(_fund_detail(deep_chains=["TOP.TO"]), None))[
-        "fund_finder.look_through"] == c.WARN
+def test_check_fund_finder_look_through_warns_above_limit():
+    def status(unexpanded, deep):
+        return statuses(c.check_fund_finder(
+            _fund_detail(unexpanded=unexpanded, deep_chains=deep), None))[
+            "fund_finder.look_through"]
+    deep = [f"TOP{i}" for i in range(200)]
+    # 250 distinct funds (one in both lists counts once) passes; 251 warns
+    assert status([f"MIX{i}" for i in range(50)] + ["TOP0"], deep) == c.PASS
+    assert status([f"MIX{i}" for i in range(51)], deep) == c.WARN
+    r = next(x for x in c.check_fund_finder(_fund_detail(deep_chains=["TOP.TO"]), None)
+             if x.name == "fund_finder.look_through")
+    assert r.status == c.PASS and r.value == 1 and "TOP.TO" in r.detail
 
 
 def test_fund_finder_stage_failure_rates_are_capped_at_warn():
@@ -359,4 +368,5 @@ def test_fund_finder_thresholds():
     assert t.FUND_FINDER_FAILURE_STATUS == "warn"
     assert (t.FUND_CROSSCHECK_PRESENT, t.FUND_CROSSCHECK_WEIGHT_PP,
             t.FUND_ADR_LINK_DROP_PP, t.FUND_XEQT_MIN_ROWS) == (0.95, 0.5, 5.0, 1000)
-    assert t.FUND_MIN_FUNDS == 2100
+    assert t.FUND_LOOK_THROUGH_WARN == 250 and t.FUND_LEVERAGE_COVERAGE_PCT == 110.0
+    assert t.FUND_MIN_FUNDS == 2000

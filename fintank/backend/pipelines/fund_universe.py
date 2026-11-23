@@ -7,6 +7,7 @@ its interlisted or ADR lines count once; `bucket_of` shards company ids.
 import hashlib
 import math
 import re
+from collections import Counter
 
 from . import pipeline_config as cfg
 
@@ -96,18 +97,21 @@ def build_universe(bulk_rows):
 def company_ids(bulk_rows):
     """Return (symbol_to_company, isin_to_company, detail).
 
-    Company id is the home-share ISIN. An ADR links to its home line when
-    exactly one distinct ISIN belongs to a non-ADR, non-US-listed stock row
-    with the identical company name; otherwise it keeps its own ISIN.
+    Company id is the home-share ISIN. An ADR links to its home line: among
+    the non-ADR, non-US-listed stock rows with the identical company name,
+    ignoring the ADR's own ISIN (the ADR traded abroad) and US/CA ISINs
+    (depositary receipts), the ISIN with the most listings. On a tie, or with
+    no candidate, it keeps its own ISIN.
     """
     stocks = [r for r in bulk_rows
               if not _flag(r, "isEtf") and not _flag(r, "isFund")
               and (r.get("isin") or "").strip()]
-    home = {}
+    home = {}  # company name -> Counter of home-candidate ISINs
     for r in stocks:
         if (not _flag(r, "isAdr")
-                and r.get("exchange") not in cfg.FUND_US_EXCHANGES):
-            home.setdefault(r.get("companyName"), set()).add(r["isin"])
+                and r.get("exchange") not in cfg.FUND_US_EXCHANGES
+                and not r["isin"].startswith(("US", "CA"))):
+            home.setdefault(r.get("companyName"), Counter())[r["isin"]] += 1
 
     sym, isin_map = {}, {}
     adrs, linked, unlinked = 0, 0, []
@@ -116,9 +120,11 @@ def company_ids(bulk_rows):
         cid = own
         if _flag(r, "isAdr"):
             adrs += 1
-            cands = home.get(r.get("companyName"), set())
-            if len(cands) == 1:
-                cid = next(iter(cands))
+            cands = [(i, n) for i, n in
+                     home.get(r.get("companyName"), Counter()).most_common()
+                     if i != own]
+            if cands and (len(cands) == 1 or cands[0][1] > cands[1][1]):
+                cid = cands[0][0]
                 linked += 1
             else:
                 unlinked.append(r["symbol"])

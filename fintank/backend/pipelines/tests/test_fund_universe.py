@@ -79,6 +79,15 @@ def test_bucket_of_is_stable():
     ("Vanguard Short-Term Treasury ETF", False),
     ("PIMCO Enhanced Short Maturity Active ETF", False),
     ("iShares Short-Term National Muni Bond ETF", False),
+    ("ProShares - Ultra QQQ", True),            # FMP's spelling
+    ("Invesco S&P Ultra Dividend Revenue ETF", False),
+    ("Innovator Equity Premium Income – Daily PutWrite ETF", False),
+    ("Ninepoint Royal Bank HighShares ETF", True),
+    ("Harvest Apple Enhanced High Income Shares ETF", True),
+    ("GraniteShares 1.25x Long TSLA Daily ETF", True),
+    ("Direxion Daily Semiconductor Bull 3X Shares", True),
+    ("T-Rex 2X Long NVIDIA Daily Target ETF", True),
+    ("Direxion Daily S&P 500 Bear 1X Shares", True),
 ])
 def test_leveraged_pattern_names(name, dropped):
     assert bool(re.search(cfg.FUND_LEVERAGED_PATTERN, name, re.I)) is dropped
@@ -87,3 +96,36 @@ def test_leveraged_pattern_names(name, dropped):
 @pytest.mark.parametrize("v", ["nan", "inf", "-inf", "", "x"])
 def test_aum_non_finite_is_zero(v):
     assert _aum({"marketCap": v}) == 0.0
+
+
+def _line(symbol, name, isin, exchange, adr=False):
+    return {"symbol": symbol, "companyName": name, "isin": isin, "exchange": exchange,
+            "isEtf": "false", "isFund": "false", "isAdr": "true" if adr else "false"}
+
+
+def test_company_ids_adr_links_past_cdr_and_own_isin_abroad():
+    tsmc = "Taiwan Semiconductor Manufacturing Company Limited"
+    extra = [
+        _line("TSFA.F", tsmc, "US8740391003", "FSX"),     # the ADR's own ISIN abroad
+        _line("UTSD.SI", tsmc, "SGXE59874987", "SES"),    # a depositary line
+        _line("TSMWF", tsmc, "TW0002330008", "OTC"),
+        _line("ASML.TO", "ASML Holding N.V.", "CA0449281090", "TSX"),  # CDR
+        _line("NOVO.TO", "Novo Nordisk A/S", "CA67010P1018", "TSX"),   # CDR
+    ]
+    sym, isin, detail = company_ids(rows() + extra)
+    assert sym["TSM"] == "TW0002330008"
+    assert sym["ASML"] == "NL0010273215"
+    assert sym["NVO"] == "DK0062498333"
+    assert sym["DUPE"] == "US0000000001" and detail["unlinked"] == ["DUPE"]
+    assert detail["adrs_linked"] == 3
+
+
+def test_company_ids_majority_isin_wins_tie_unlinked():
+    base = [_line("X", "Xco", "US1111111111", "NYSE", adr=True),
+            _line("X.DE", "Xco", "DE0000000001", "XETRA"),
+            _line("X.F", "Xco", "DE0000000001", "FSX"),
+            _line("X2.DE", "Xco", "DE0000000002", "XETRA")]
+    sym, _, _ = company_ids(base)
+    assert sym["X"] == "DE0000000001"
+    sym, _, detail = company_ids(base[:2] + base[3:])
+    assert sym["X"] == "US1111111111" and detail["unlinked"] == ["X"]

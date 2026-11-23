@@ -8,8 +8,8 @@ from collections import Counter
 import pandas as pd
 
 from .fund_universe import bucket_of
-from .thresholds import (FUND_BUCKETS, FUND_MIN_HOLDING_PCT,
-                         FUND_WEIGHT_SUM_RANGE)
+from .thresholds import (FUND_BUCKETS, FUND_LEVERAGE_COVERAGE_PCT,
+                         FUND_MIN_HOLDING_PCT, FUND_WEIGHT_SUM_RANGE)
 
 EXPOSURE_COLS = ["company_id", "fund", "weight", "via", "bucket"]
 FUND_COLS = ["symbol", "name", "exchange", "region", "currency", "aum", "mer",
@@ -84,8 +84,14 @@ def build_lookup(holdings, funds, symbol_to_company, isin_to_company,
         stats[sym] = {"fetched": _fetched(rows),
                       "coverage": round(resolved / raw * 100, 2) if raw > 0 and resolved > 0 else 0}
 
+    # Holdings worth more than the fund (a leveraged line the name filter
+    # missed) would top every ranking: drop the fund from the lookup.
+    levered = sorted(s for s, st in stats.items()
+                     if st["coverage"] > FUND_LEVERAGE_COVERAGE_PCT)
+    drop = set(levered)
     recs = [(c, fd, w, via, bucket_of(c, FUND_BUCKETS))
-            for (c, fd, via), w in agg.items() if w >= FUND_MIN_HOLDING_PCT]
+            for (c, fd, via), w in agg.items()
+            if w >= FUND_MIN_HOLDING_PCT and fd not in drop]
     exposure = pd.DataFrame(recs, columns=EXPOSURE_COLS).astype(
         {"company_id": "object", "fund": "object", "weight": "float64",
          "via": "object", "bucket": "int64"})
@@ -93,6 +99,8 @@ def build_lookup(holdings, funds, symbol_to_company, isin_to_company,
 
     frecs = []
     for f in funds:
+        if f["symbol"] in drop:
+            continue
         i = fund_info.get(f["symbol"]) or {}
         frecs.append({
             "symbol": f["symbol"], "name": f["name"], "exchange": f["exchange"],
@@ -121,5 +129,6 @@ def build_lookup(holdings, funds, symbol_to_company, isin_to_company,
               "funds_with_rows": int((funds_df.rows > 0).sum()),
               "rows": len(exposure), "weight_sum_outside": sorted(outside),
               "unexpanded": sorted(set(unexpanded)),
-              "deep_chains": sorted(deep), "xeqt_asset_rows": xeqt}
+              "deep_chains": sorted(deep), "xeqt_asset_rows": xeqt,
+              "dropped_leveraged_holdings": levered}
     return exposure, funds_df, isin_map, detail

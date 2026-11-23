@@ -35,3 +35,10 @@ export const toQuery = (state) => {
 }
 
 export const canSearch = (state) => Boolean(state.listed) && state.include.length > 0
+
+// MER in percent (FMP etf/info expenseRatio: 0.18 means 0.18%). FMP sends 0
+// when it has no value, so 0 shows as missing, like null.
+export const formatMer = (mer) => {
+  const n = Number(mer)
+  return mer == null || Number.isNaN(n) || n === 0 ? '—' : `${n.toFixed(2)}%`
+}

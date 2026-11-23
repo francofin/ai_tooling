@@ -324,8 +324,9 @@ def check_fund_finder(detail: dict, previous: dict | None) -> list[CheckResult]:
             f"{pct:.1f}% of ADRs linked (last published {base:.1f}%)"))
 
     left = sorted(set(detail.get("unexpanded", [])) | set(detail.get("deep_chains", [])))
-    out.append(CheckResult("fund_finder.look_through", bad if left else PASS,
-                           len(left), 0,
+    out.append(CheckResult("fund_finder.look_through",
+                           bad if len(left) > t.FUND_LOOK_THROUGH_WARN else PASS,
+                           len(left), t.FUND_LOOK_THROUGH_WARN,
                            f"{len(left)} funds still hold a fund not looked through"
                            + (": " + ", ".join(left[:20]) if left else "")))
 

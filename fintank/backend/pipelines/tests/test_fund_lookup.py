@@ -123,3 +123,15 @@ def test_dtypes_fetched_and_info():
     f = funds_df[funds_df.symbol == "XIU.TO"].iloc[0]
     assert f.fetched == "2026-11-22" and f.mer == 0.18 and f.issuer == "iShares"
     assert isinstance(f.series, list)
+
+
+def test_holdings_over_coverage_limit_drop_the_fund():
+    apple = "US0378331005"
+    lev = [row("AAPL", 127.5, isin=apple), row("", -27.5)]      # cash borrow
+    edge = [row("AAPL", 110.0, isin=apple), row("", -10.0)]     # at the limit: kept
+    exp, funds_df, _, detail = run({"LEV.TO": lev, "EDGE.TO": edge, "XIU.TO": fx("xiu")},
+                                   {"LEV.TO", "EDGE.TO", "XIU.TO"})
+    assert detail["dropped_leveraged_holdings"] == ["LEV.TO"]
+    assert "LEV.TO" not in set(exp.fund) and "LEV.TO" not in set(funds_df.symbol)
+    assert {"EDGE.TO", "XIU.TO"} <= set(exp.fund) and "EDGE.TO" in set(funds_df.symbol)
+    assert detail["funds_with_rows"] == 2
