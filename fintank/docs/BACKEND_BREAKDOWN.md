@@ -409,10 +409,10 @@ DRF is configured with JWT-only authentication and a custom exception handler at
 | `StockCalculations.py` | 4 | **Live** — `GetData`, the S3 access layer. Fourth importer is `backtester/engine/prices.py` |
 | `IndexFileMappers.py` | 2 | Imported, but the resulting `index_mappers` is unused at both sites |
 | `custom_exception_handler.py` | 1 | Live, wired via `REST_FRAMEWORK` |
-| `DailyFunctions.py` | 2 | Only imported by other dead modules |
 | `Rankings.py`, `Technicals.py`, `uploadImages.py`, `error_views.py` | 0 | **Dead** |
 | `GetPrices.py`, `UniverseCalculations.py`, `RunCovar.py`, `PeerCalculations.py` | — | **Deleted 2026-11-22** (FMP stable migration, branch 3): dead v3 helpers. `UniverseCalculations.CapitalMarketsDataPackage` (the v1 ancestor of `/economic-data/`) is in git history before that date |
-| `legacy_code/GetPrices.py`, `legacy_code/IndexMaps.py`, `legacy_code/IndexYaml.py` | 0 | **Dead**, quarantined |
+| `legacy_code/GetPrices.py`, `legacy_code/IndexMaps.py` | 0 | **Dead**, quarantined (untracked) |
+| `DailyFunctions.py`, `IndexMaps.py`, `legacy_code/IndexYaml.py`, `SP500PeerList.py`, `TSXPeerList.py`, `NasdaqPeerList.py`, `EuroPeerList.py` | — | **Deleted 2026-11-22** with the v3 helpers: their only importers were those helpers |
 
 ---
 
