@@ -37,12 +37,13 @@ BUILD_STAGES = [
     "build_econ_parquets", "build_relative_performance",
 ]
 LEAN_STAGES = [
-    "refresh_constituents", "fetch_stock_prices", "fetch_etf_prices",
+    "refresh_constituents", "fetch_fund_holdings", "fetch_stock_prices", "fetch_etf_prices",
     "fetch_ttm_ratios", "fetch_sector_history", "fetch_index_prices",
     "fetch_fred_series", *BUILD_STAGES,
 ]
 FULL_STAGES = [
-    "refresh_constituents", "fetch_stock_prices", "fetch_etf_prices",
+    "refresh_constituents", "fetch_fund_holdings", "fetch_fund_info",
+    "fetch_stock_prices", "fetch_etf_prices",
     "fetch_profiles", "fetch_etf_profiles", "fetch_financial_statements",
     "fetch_ratios", "fetch_ttm_ratios", "fetch_revenue_segments",
     "fetch_sector_history", "fetch_index_prices", "fetch_fred_series", *BUILD_STAGES,
@@ -57,7 +58,7 @@ LIMITABLE = frozenset({
     "fetch_stock_prices", "fetch_etf_prices", "fetch_profiles", "fetch_etf_profiles",
     "fetch_financial_statements", "fetch_ratios", "fetch_ttm_ratios",
     "fetch_revenue_segments", "build_price_parquets", "build_fundamentals_parquets",
-    "build_factor_metrics",
+    "build_factor_metrics", "fetch_fund_holdings", "fetch_fund_info",
 })
 
 

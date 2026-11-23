@@ -99,6 +99,7 @@ if BACKEND_DIR not in sys.path:
 from pipelines import pipeline_config as cfg  # noqa: E402
 from pipelines.attribution import compute_attribution  # noqa: E402
 from pipelines.factor_windows import WINDOWS, window_return_and_std  # noqa: E402
+from pipelines.fund_universe import build_universe  # noqa: E402
 from pipelines.fmp_stable_shapes import (HISTORY_ROW_CAP, etf_list_rows, holdings_rows,  # noqa: E402
                                          index_payload, price_payload, sector_snapshot_rows,
                                          statement_rows, ttm_rows)
@@ -235,6 +236,7 @@ class StockDataPipeline:
 
         self.limiter = RateLimiter(max_calls=max_calls, pause=pause)
         self._s3 = None
+        self._profile_bulk_rows = None
 
     def __repr__(self):
         creds = " ".join(
@@ -306,6 +308,16 @@ class StockDataPipeline:
         call upload_folder() with no prefix override.
         """
         return os.path.join(self.parquet_root, "revenue_segments")
+
+    @property
+    def fund_holdings_dir(self):
+        """Raw etf/holdings per fund, plus _universe.json, _profile_slim.json
+        and _crosscheck/. A state unit via state.SPLIT_ROOTS."""
+        return os.path.join(self.json_root, "fund_holdings")
+
+    @property
+    def fund_info_dir(self):
+        return os.path.join(self.json_root, "fund_info")
 
     @property
     def econ_json_dir(self):
@@ -473,6 +485,13 @@ class StockDataPipeline:
         return _retry_once(lambda: self._stable_rows("etf-list"))
 
     def _profile_bulk(self):
+        """profile-bulk rows, fetched once per pipeline instance (the weekly
+        run needs them in refresh_constituents and the fund fetch)."""
+        if self._profile_bulk_rows is None:
+            self._profile_bulk_rows = self._fetch_profile_bulk()
+        return self._profile_bulk_rows
+
+    def _fetch_profile_bulk(self):
         """All stable profile-bulk rows (CSV parts 0, 1, 2 ...) as dicts.
 
         Stops at the first part with no data rows, or at a 400 on a part after
@@ -751,6 +770,98 @@ class StockDataPipeline:
                 return requested
             refresh("etf_data", etf_list)
 
+        return result
+
+    # ═════════════════════════════════════════════════════════════════════
+    # Fund finder fetches (weekly): ETF holdings, and ETF info on full runs.
+    # ═════════════════════════════════════════════════════════════════════
+    _CROSSCHECK_SYMBOLS = ("RY.TO", "TD.TO", "SHOP.TO", "AAPL", "MSFT")
+    _SLIM_KEYS = ("symbol", "isin", "exchange", "companyName", "isEtf", "isFund", "isAdr")
+
+    @staticmethod
+    def _fund_file(folder, symbol):
+        return os.path.join(folder, f"{symbol.replace('/', '_')}.json")
+
+    def _fetch_fund_file(self, result, endpoint, symbol, folder, empty_ok=False):
+        """One stable call for a fund, saved as the raw rows. Empty or 402 is
+        no data; any other error a failure. Either way the previous file stays.
+        Returns the rows saved, else None."""
+        try:
+            rows = _retry_once(lambda: self._stable_rows(endpoint, symbol=symbol))
+        except Exception as e:
+            if getattr(e, "status", None) == 402:
+                result.record_no_data()
+            else:
+                result.record(False, symbol)
+                print(f"{endpoint} {symbol} FAILED (previous file kept): {redact(str(e))}")
+            return None
+        if not rows:
+            result.record_no_data()
+            return None
+        self._save_json(rows, self._fund_file(folder, symbol))
+        result.record(True)
+        return rows
+
+    def fetch_fund_holdings(self, limit=None):
+        """Holdings of every fund in the universe -> fund_holdings/{SYMBOL}.json.
+
+        Universe = build_universe(profile-bulk), the `limit` largest by AUM.
+        ETFs held by those funds (isEtf in profile-bulk) and not yet fetched
+        are fetched too (look-through). Also writes _universe.json,
+        _profile_slim.json and five etf/asset-exposure cross-check files.
+        """
+        result = StageResult("fetch_fund_holdings")
+        bulk = self._profile_bulk()
+        funds, detail = build_universe(bulk)
+        funds = sorted(funds, key=lambda f: -f["aum"])
+        if limit is not None:
+            funds = funds[:limit]
+        result.detail.update(detail)
+        folder = self.fund_holdings_dir
+        self._save_json(funds, os.path.join(folder, "_universe.json"))
+        self._save_json([{k: r.get(k) for k in self._SLIM_KEYS} for r in bulk],
+                        os.path.join(folder, "_profile_slim.json"))
+
+        fetched = set()
+        held_assets = set()
+        for f in funds:
+            fetched.add(f["symbol"])
+            rows = self._fetch_fund_file(result, "etf/holdings", f["symbol"], folder)
+            held_assets.update(r.get("asset") for r in rows or [])
+        etfs = {r["symbol"] for r in bulk
+                if str(r.get("isEtf", "")).strip().lower() == "true"}
+        extra = sorted(s for s in held_assets if s and s in etfs and s not in fetched)
+        for s in extra:
+            self._fetch_fund_file(result, "etf/holdings", s, folder)
+        result.detail["look_through_fetched"] = len(extra)
+
+        checked = []
+        for s in self._CROSSCHECK_SYMBOLS:
+            try:
+                rows = _retry_once(lambda: self._stable_rows("etf/asset-exposure", symbol=s))
+            except Exception as e:
+                print(f"asset-exposure {s} skipped: {redact(str(e))}")
+                continue
+            if rows:
+                self._save_json(rows, self._fund_file(os.path.join(folder, "_crosscheck"), s))
+                checked.append(s)
+        result.detail["crosscheck"] = checked
+        return result
+
+    def fetch_fund_info(self, limit=None):
+        """etf/info for each fund in _universe.json -> fund_info/{SYMBOL}.json."""
+        result = StageResult("fetch_fund_info")
+        path = os.path.join(self.fund_holdings_dir, "_universe.json")
+        try:
+            with open(path) as f:
+                funds = json.load(f)
+        except (OSError, ValueError):
+            result.record(False, "_universe.json")
+            return result
+        if limit is not None:
+            funds = funds[:limit]
+        for f in funds:
+            self._fetch_fund_file(result, "etf/info", f["symbol"], self.fund_info_dir)
         return result
 
     def _save_holdings_snapshot(self, key, rows):

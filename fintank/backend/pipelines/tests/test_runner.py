@@ -67,7 +67,7 @@ def test_make_run_id():
 def test_full_adds_the_quarterly_fetches():
     assert set(runner.FULL_STAGES) - set(runner.LEAN_STAGES) == {
         "fetch_profiles", "fetch_etf_profiles", "fetch_financial_statements",
-        "fetch_ratios", "fetch_revenue_segments"}
+        "fetch_ratios", "fetch_revenue_segments", "fetch_fund_info"}
     assert runner.LEAN_STAGES[0] == "refresh_constituents"
     assert runner.LEAN_STAGES[-len(runner.BUILD_STAGES):] == runner.BUILD_STAGES
 
