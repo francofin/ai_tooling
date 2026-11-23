@@ -106,7 +106,8 @@ from pipelines.fmp_stable_shapes import (HISTORY_ROW_CAP, etf_list_rows, holding
                                          index_payload, price_payload, sector_snapshot_rows,
                                          statement_rows, ttm_rows)
 from pipelines.results import StageResult, redact  # noqa: E402
-from pipelines.thresholds import FUND_BUCKETS, FUND_CROSSCHECK_WEIGHT_PP  # noqa: E402
+from pipelines.thresholds import (FUND_BUCKETS, FUND_CROSSCHECK_WEIGHT_PP,  # noqa: E402
+                                  PAYLOAD_SHRINK_REFUSE)
 
 warnings.filterwarnings("ignore")
 
@@ -737,7 +738,7 @@ class StockDataPipeline:
             previous = previous_count(path)
             try:
                 rows = fetch_rows()
-                if previous is not None and len(rows) < 0.5 * previous:
+                if previous is not None and len(rows) < PAYLOAD_SHRINK_REFUSE * previous:
                     raise ValueError(
                         f"payload shrank {previous} → {len(rows)} — degraded FMP "
                         "feed? (seen 2026-08-02: IEFA served 138 of ~2,600 "
@@ -794,6 +795,8 @@ class StockDataPipeline:
     def _fetch_fund_file(self, result, endpoint, symbol, folder, empty_ok=False):
         """One stable call for a fund, saved as the raw rows. Empty or 402 is
         no data; any other error a failure. Either way the previous file stays.
+        Holdings with fewer than PAYLOAD_SHRINK_REFUSE of the previous file's
+        rows are a failure too (degraded feed), as in refresh_constituents.
         Returns the rows saved, else None."""
         try:
             rows = _retry_once(lambda: self._stable_rows(endpoint, symbol=symbol))
@@ -807,7 +810,18 @@ class StockDataPipeline:
         if not rows:
             result.record_no_data()
             return None
-        self._save_json(rows, self._fund_file(folder, symbol))
+        path = self._fund_file(folder, symbol)
+        if endpoint == "etf/holdings" and os.path.exists(path):
+            try:
+                previous = len(self._read_json(path))
+            except (OSError, ValueError, TypeError):
+                previous = None
+            if previous is not None and len(rows) < PAYLOAD_SHRINK_REFUSE * previous:
+                result.record(False, symbol)
+                print(f"{endpoint} {symbol} FAILED (previous file kept): payload shrank "
+                      f"{previous} → {len(rows)} — degraded FMP feed?")
+                return None
+        self._save_json(rows, path)
         result.record(True)
         return rows
 
@@ -820,16 +834,31 @@ class StockDataPipeline:
         _profile_slim.json and five etf/asset-exposure cross-check files.
         """
         result = StageResult("fetch_fund_holdings")
-        bulk = self._profile_bulk()
-        funds, detail = build_universe(bulk)
-        funds = sorted(funds, key=lambda f: -f["aum"])
-        if limit is not None:
-            funds = funds[:limit]
-        result.detail.update(detail)
         folder = self.fund_holdings_dir
-        self._save_json(funds, os.path.join(folder, "_universe.json"))
-        self._save_json([{k: r.get(k) for k in self._SLIM_KEYS} for r in bulk],
-                        os.path.join(folder, "_profile_slim.json"))
+        # A failure here must never crash the run (prices and fundamentals
+        # come after this stage): record it, keep every previous file.
+        try:
+            bulk = self._profile_bulk()
+            funds, detail = build_universe(bulk)
+            funds = sorted(funds, key=lambda f: -f["aum"])
+            if limit is not None:
+                funds = funds[:limit]
+            result.detail.update(detail)
+            self._save_json(funds, os.path.join(folder, "_universe.json"))
+            self._save_json([{k: r.get(k) for k in self._SLIM_KEYS} for r in bulk],
+                            os.path.join(folder, "_profile_slim.json"))
+            etfs = {r["symbol"] for r in bulk
+                    if str(r.get("isEtf", "")).strip().lower() == "true"}
+        except Exception as e:
+            result.record(False, "profile-bulk")
+            print(f"fetch_fund_holdings: SKIPPED — {type(e).__name__}: {redact(str(e))}; "
+                  "previous fund files kept")
+            return result
+        finally:
+            # refresh_constituents ran before this stage; nothing later needs
+            # the ~96k bulk rows, so free them for the build.
+            self._profile_bulk_rows = None
+        del bulk
 
         fetched = set()
         held_assets = set()
@@ -837,8 +866,6 @@ class StockDataPipeline:
             fetched.add(f["symbol"])
             rows = self._fetch_fund_file(result, "etf/holdings", f["symbol"], folder)
             held_assets.update(r.get("asset") for r in rows or [])
-        etfs = {r["symbol"] for r in bulk
-                if str(r.get("isEtf", "")).strip().lower() == "true"}
         extra = sorted(s for s in held_assets if s and s in etfs and s not in fetched)
         for s in extra:
             self._fetch_fund_file(result, "etf/holdings", s, folder)
@@ -869,8 +896,14 @@ class StockDataPipeline:
             return result
         if limit is not None:
             funds = funds[:limit]
-        for f in funds:
-            self._fetch_fund_file(result, "etf/info", f["symbol"], self.fund_info_dir)
+        # An unexpected error must never crash the run: record it and stop.
+        try:
+            for f in funds:
+                self._fetch_fund_file(result, "etf/info", f["symbol"], self.fund_info_dir)
+        except Exception as e:
+            result.record(False, "fund-info")
+            print(f"fetch_fund_info: STOPPED — {type(e).__name__}: {redact(str(e))}; "
+                  "previous fund files kept")
         return result
 
     _ADR_PAIRS = {"TSM": "2330.TW", "ASML": "ASML.AS", "NVO": "NOVO-B.CO"}

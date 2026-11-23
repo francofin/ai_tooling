@@ -6,8 +6,11 @@ FETCH_FAILURE_WARN = 0.02
 FETCH_FAILURE_FAIL = 0.10
 
 # Constituent lists: growth beyond this share of the previous count warns.
-# (Shrinking by more than 50% is refused by refresh_constituents itself.)
 CONSTITUENT_GROWTH_WARN = 0.50
+# A refreshed list (refresh_constituents) or fund holdings file
+# (fetch_fund_holdings) with fewer than this share of the previous file's
+# rows is refused and the previous file kept.
+PAYLOAD_SHRINK_REFUSE = 0.50
 
 # Freshness: NYSE sessions the modal last price date may trail the last
 # completed session. Exactly this many behind warns; more fails.
