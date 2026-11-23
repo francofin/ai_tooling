@@ -19,7 +19,7 @@ import pandas as pd
 from pipelines import pipeline_config as cfg
 from pipelines import state
 from pipelines.checks import (PASS, CheckResult, check_attribution, check_build_stage,
-                              check_constituents, check_counts,
+                              check_constituents, check_counts, check_fund_finder,
                               check_econ, check_factor_coverage,
                               check_factor_staleness, check_minimums,
                               check_freshness, check_outputs_readable,
@@ -34,15 +34,16 @@ from pipelines.store import LAST_PUBLISHED_REPORT, LIVE_MANIFEST, S3Store, run_k
 BUILD_STAGES = [
     "build_price_parquets", "build_fundamentals_parquets", "build_profile_aggregate",
     "build_factor_metrics", "build_contr_to_var", "build_index_attribution",
-    "build_econ_parquets", "build_relative_performance",
+    "build_fund_finder", "build_econ_parquets", "build_relative_performance",
 ]
 LEAN_STAGES = [
-    "refresh_constituents", "fetch_stock_prices", "fetch_etf_prices",
+    "refresh_constituents", "fetch_fund_holdings", "fetch_stock_prices", "fetch_etf_prices",
     "fetch_ttm_ratios", "fetch_sector_history", "fetch_index_prices",
     "fetch_fred_series", *BUILD_STAGES,
 ]
 FULL_STAGES = [
-    "refresh_constituents", "fetch_stock_prices", "fetch_etf_prices",
+    "refresh_constituents", "fetch_fund_holdings", "fetch_fund_info",
+    "fetch_stock_prices", "fetch_etf_prices",
     "fetch_profiles", "fetch_etf_profiles", "fetch_financial_statements",
     "fetch_ratios", "fetch_ttm_ratios", "fetch_revenue_segments",
     "fetch_sector_history", "fetch_index_prices", "fetch_fred_series", *BUILD_STAGES,
@@ -57,7 +58,7 @@ LIMITABLE = frozenset({
     "fetch_stock_prices", "fetch_etf_prices", "fetch_profiles", "fetch_etf_profiles",
     "fetch_financial_statements", "fetch_ratios", "fetch_ttm_ratios",
     "fetch_revenue_segments", "build_price_parquets", "build_fundamentals_parquets",
-    "build_factor_metrics",
+    "build_factor_metrics", "fetch_fund_holdings", "fetch_fund_info",
 })
 
 
@@ -239,6 +240,11 @@ def run_checks(ctx: RunContext, report: RunReport) -> None:
     results += check_factor_coverage(report.factor_staleness, constituent_counts(p))
     if "build_index_attribution" in stages:
         results += check_attribution(stages["build_index_attribution"].detail)
+    fund = stages.get("build_fund_finder")
+    if fund and fund.saved:
+        previous = next((s.get("detail") for s in baseline.get("stages", [])
+                         if s.get("name") == "build_fund_finder" and s.get("saved")), None)
+        results += check_fund_finder(fund.detail, previous)
     ctx.log("── checks: recent price moves")
     results += check_price_sanity(recent_adj_close(outputs))
     results += check_econ(fred_last_dates(p), ctx.today)

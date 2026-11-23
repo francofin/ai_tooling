@@ -91,6 +91,71 @@ after three clean runs):
 | `attribution.<sub>.residual` | sum of contributions vs the proxy ETF's price return is over the per-window limit; MSCI lists are reported, not checked, and so are YTD/1Y for r2000, rmicro, tsx_small_cap (members that graduated to a bigger index at reconstitution are missing from the snapshot, so those windows fall short of the ETF by several pp) |
 | `build_index_attribution.failure_rate` | a list was skipped (capped at WARN) |
 
+## Fund finder
+
+Three stages feed the fund finder page (`/fund-finder`; design:
+`docs/superpowers/specs/2026-11-22-fund-finder-design.md`):
+
+| Stage | Runs on | Does |
+|---|---|---|
+| `fetch_fund_holdings` | lean and full | builds the universe from `profile-bulk` (active US/CA ETFs over the AUM floor: US$100M, C$25M; leveraged/inverse names dropped; share-class series collapsed into the largest line), then one `etf/holdings` call per fund into `stock_data_json/fund_holdings/<SYMBOL>.json`, plus the ETFs those funds hold (look-through), plus five `etf/asset-exposure` cross-check files (`_crosscheck/`). Also writes `_universe.json` and `_profile_slim.json` |
+| `fetch_fund_info` | full only | one `etf/info` call per universe fund (MER, issuer, asset class) into `stock_data_json/fund_info/` |
+| `build_fund_finder` | lean and full (no API calls) | drops funds whose resolved holdings exceed `FUND_LEVERAGE_COVERAGE_PCT` (110%) of their raw weights (leveraged lines the name filter missed; listed in detail `dropped_leveraged_holdings`) and funds whose `etf/holdings` is only FMP's top 10 rescaled to 100% (exactly 10 rows summing to 100 ± 1 and `etf/info` holdingsCount 0 or missing; `FUND_TOP10_ROWS` / `FUND_TOP10_SUM_TOLERANCE` in `pipeline_config.py`; detail `dropped_top10_only` and `dropped_top10_only_symbols`; the count is saved in `funds.parquet`'s metadata and the page shows it as a footnote). Holding rows with a non-string `asset` are skipped (detail `bad_asset_rows`). Then builds `fund_data/funds.parquet`, `fund_data/isin_map.parquet` and `fund_data/exposure/00..63.parquet`, published to `thetradingfloor` (dataset `fund_finder`, 66 files) |
+
+Every failure keeps the previous files: a failed or empty fund call, a payload
+less than half the previous file, a non-object row or a failed write fails that
+fund only; a `profile-bulk` failure skips the whole fetch stage; any build error
+skips the dataset (the live copy stays as last published). None of them stops
+the run.
+
+Measured locally on 2026-11-23 (one full fetch, no limit; the fetch used the
+first leveraged pattern, the output row uses today's name and holdings filters
+on the same files):
+
+| | |
+|---|---|
+| Universe | 7,608 active US/CA ETFs → 3,564 funds (2,437 US, 1,127 CA); 901 dropped as leveraged/inverse, 3,082 under the AUM floor, 61 share-class series collapsed |
+| Calls | 4 `profile-bulk` parts + 3,832 `etf/holdings` (3,564 funds + 268 look-through) + 5 `etf/asset-exposure` + 3,564 `etf/info` |
+| Downloaded | `fetch_fund_holdings` 725 MB (profile-bulk included), `fetch_fund_info` 6.5 MB — about 0.7 GB a week of the 170 GB monthly allowance |
+| Time | `fetch_fund_holdings` 26 min, `fetch_fund_info` 21 min (at the 295 calls/min throttle), `build_fund_finder` 15 s |
+| Memory | peak RSS 0.6 GB for the fetches, 1.4 GB for the build (the run task has 16 GB) |
+| Disk | `fund_holdings/` 518 MB (a state unit), `fund_info/` 15 MB, `fund_data/` 13.6 MB (largest bucket 250 KB) |
+| Output | 3,534 funds after today's name filter (30 more dropped: Harvest "Enhanced High Income Shares", Ninepoint "HighShares"), 14 more dropped by holdings over 110%, 65 dropped as top-10-only (all Canadian, mostly NBI; 36 of them had stock rows); 2,277 funds with stock exposure rows (the rest are bond, commodity, cash or alternative funds, or FMP has no holdings for them), 1,005,423 exposure rows, 26,485 listings |
+
+Held-email lines, **all WARN-only in v1** (`FUND_FINDER_FAILURE_STATUS =
+"warn"` in `thresholds.py`; the three stages' failure rates and the
+`fund_finder` dataset count are capped at WARN too):
+
+| Line | Warns when |
+|---|---|
+| `fund_finder.funds` | fewer than `FUND_MIN_FUNDS` (2,000: 90% of the 2,313 measured before the top-10 drop, rounded down; 2,277 after it) funds have exposure rows |
+| `fund_finder.weight_sum` | a fund's raw holding weights sum outside 90–110% (names listed) |
+| `fund_finder.crosscheck.<SYM>` | for RY.TO, TD.TO, SHOP.TO, AAPL, MSFT: of the universe funds FMP's `etf/asset-exposure` lists, under 95% are in our lookup or under 95% of them agree within 0.5 pp with our **direct** rows (asset-exposure has no look-through), summed over the company's lines. Measured 2026-11-23: present 95.9–98.4%, within 0.5 pp 94.4–97.6%; TD.TO warns (94.4%): FMP still lists funds the build drops on purpose (five top-10-only, two leveraged), and four funds hold TD preferreds as well as the common (summed) |
+| `fund_finder.adr_pairs` | TSM, ASML or NVO does not share a company id with 2330.TW, ASML.AS, NOVO-B.CO |
+| `fund_finder.adr_links` | the share of ADRs linked to a home line fell more than 5 pp from the last published run (measured 75.4%: 1,576 of 2,091). An ADR links to the ISIN with the most non-US listings under its exact company name, ignoring its own ISIN traded abroad and US/CA ISINs (depositary receipts); a tie leaves it unlinked |
+| `fund_finder.look_through` | a fund still holds a universe fund that was not expanded: FMP had no holdings for the held fund (`unexpanded`), or the held fund itself holds funds (`deep_chains`, only one level is expanded), for more than `FUND_LOOK_THROUGH_WARN` (250) funds. Measured: 165 (8 unexpanded + 159 deep, 2 in both) |
+| `fund_finder.xeqt` | XEQT.TO has 1,000 or fewer holding rows with an asset (FMP stopped returning it looked through; measured 7,410) |
+
+**The dropped-names list.** `fetch_fund_holdings` detail `dropped_leveraged`
+(in the run report) is every fund name the leveraged/inverse pattern
+(`FUND_LEVERAGED_PATTERN` in `pipeline_config.py`) removed. Read it for false
+positives: a plain fund whose name happens to match (on 2026-11-23, for example,
+"BMO Short Federal Bond Index ETF" and the "Ultrashort ... Income" bond funds).
+Bond and cash funds there cost nothing (they have no stock rows); an equity
+fund there is missing from the page. Fix the pattern, run
+`pytest pipelines/tests/test_fund_universe.py`, and deploy. A leveraged fund
+named without a keyword stays in unless its holdings come to more than 110%:
+those are listed in `build_fund_finder` detail `dropped_leveraged_holdings`
+(14 on 2026-11-23, e.g. HCAL.TO, HFIN.TO, AMZA). Over 110% does not always
+mean leverage: it can come from an underlying fund's top-10-rescaled holdings
+(NSUY.TO, through NSDU.TO) or from negative unresolved rows (FX forwards,
+written calls) shrinking the raw sum. Check the fund's `via` rows and its
+negative rows before treating a name as leveraged. Known name gap: "Leverage
+Shares 100% TSLA AND 100% SPCX Daily ETF".
+
+To promote a check to FAIL, set `FUND_FINDER_FAILURE_STATUS = "fail"` after
+three clean runs (on the 2026-11-23 data only `crosscheck.TD.TO` warns).
+
 The pipeline fetches from FMP stable since 2026-11-21 (branch `fix/fmp-stable-pipeline`); outputs keep the v3 shapes.
 
 Tests: `../../.venv/bin/python -m pytest pipelines/tests -q`.

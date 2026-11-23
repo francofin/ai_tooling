@@ -6,8 +6,11 @@ FETCH_FAILURE_WARN = 0.02
 FETCH_FAILURE_FAIL = 0.10
 
 # Constituent lists: growth beyond this share of the previous count warns.
-# (Shrinking by more than 50% is refused by refresh_constituents itself.)
 CONSTITUENT_GROWTH_WARN = 0.50
+# A refreshed list (refresh_constituents) or fund holdings file
+# (fetch_fund_holdings) with fewer than this share of the previous file's
+# rows is refused and the previous file kept.
+PAYLOAD_SHRINK_REFUSE = 0.50
 
 # Freshness: NYSE sessions the modal last price date may trail the last
 # completed session. Exactly this many behind warns; more fails.
@@ -31,6 +34,9 @@ MIN_COUNTS = {
     "econ": 20,
     "profile_rows.company_profiles": 11000,
     "profile_rows.long_profiles": 5000,
+    # Files, not funds: funds.parquet + isin_map.parquet + 64 exposure buckets
+    # (every bucket is written, empty or not). WARN-only (WARN_ONLY_DATASETS).
+    "fund_finder": 66,
 }
 # Index attribution (check_attribution). Every attribution check is WARN-only
 # in v1: a FAIL fails the whole weekly run, and a bug in this new dataset must
@@ -56,11 +62,18 @@ ATTRIBUTION_UNCHECKED_RESIDUAL = {"msci_eafe", "msci_sm"}
 # not checked, for these windows until history-linked attribution replaces it.
 ATTRIBUTION_MIGRATING = {"r2000", "rmicro", "tsx_small_cap", "msci_sm"}
 ATTRIBUTION_LONG_WINDOWS = {"ytd", "1Y"}
-# Output datasets whose count drop vs the last publish may only warn: built
-# parquets are not state, so a list skipped this run is simply missing locally.
-WARN_ONLY_DATASETS = {"attribution"}
-# Build stages whose failure rate may only warn.
-WARN_ONLY_STAGES = {"build_index_attribution"}
+# Fund finder (check_fund_finder): WARN-only at first, like attribution.
+FUND_FINDER_FAILURE_STATUS = "warn"
+# Output datasets whose count drop vs the last publish (or minimum) may only
+# reach the status named here: built parquets are not state, so a list skipped
+# this run is simply missing locally.
+WARN_ONLY_DATASETS = {"attribution": ATTRIBUTION_FAILURE_STATUS,
+                      "fund_finder": FUND_FINDER_FAILURE_STATUS}
+# Fetch/build stages whose failure rate may only reach the status named here.
+WARN_ONLY_STAGES = {"build_index_attribution": ATTRIBUTION_FAILURE_STATUS,
+                    "build_fund_finder": FUND_FINDER_FAILURE_STATUS,
+                    "fetch_fund_holdings": FUND_FINDER_FAILURE_STATUS,
+                    "fetch_fund_info": FUND_FINDER_FAILURE_STATUS}
 
 # Factor rows per list vs the list's constituent count.
 FACTOR_MIN_COVERAGE = 0.80
@@ -95,3 +108,30 @@ ECON_DEFAULT_MAX_LAG_DAYS = 120
 NEWS_MIN_ARTICLES = {"fmp": 50, "search": 3}
 NEWS_MAX_AGE_DAYS = {"fmp": 3, "search": 7}
 NEWS_FAILED_SHARE_FAIL = 0.5
+
+# Fund finder lookup (fund_lookup.py): holding rows below this percent are
+# dropped; a fund whose raw weights sum outside the range is flagged.
+FUND_MIN_HOLDING_PCT = 0.001
+FUND_WEIGHT_SUM_RANGE = (90.0, 110.0)
+# A fund whose resolved holdings come to more than this percent of its raw
+# weights is leveraged (e.g. 127% Apple, a cash borrow below zero): dropped
+# from the lookup and listed in detail["dropped_leveraged_holdings"].
+FUND_LEVERAGE_COVERAGE_PCT = 110.0
+FUND_BUCKETS = 64
+# Fund finder checks. FUND_MIN_FUNDS: 90% of the funds with stock exposure
+# rows, rounded down to 100 (local measurement 2026-11-23, with the leveraged
+# name and holdings filters: 2,313 of 3,534 funds; the rest are bond,
+# commodity, cash or alternative funds, or FMP has no holdings for them).
+FUND_MIN_FUNDS = 2000
+# Cross-check vs etf/asset-exposure: share of FMP's in-universe funds present
+# in our lookup, and share whose weight agrees within FUND_CROSSCHECK_WEIGHT_PP.
+FUND_CROSSCHECK_PRESENT = 0.95
+FUND_CROSSCHECK_WEIGHT_PP = 0.5
+# ADR link share may fall at most this many points from the last published run.
+FUND_ADR_LINK_DROP_PP = 5.0
+# fund_finder.look_through warns only above this many funds (measured
+# 2026-11-23: 165, mostly fund -> ETF -> ETF chains and held funds FMP has no
+# holdings for).
+FUND_LOOK_THROUGH_WARN = 250
+# XEQT.TO must have more than this many holding rows with an `asset`.
+FUND_XEQT_MIN_ROWS = 1000

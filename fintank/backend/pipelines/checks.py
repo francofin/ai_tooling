@@ -79,11 +79,16 @@ def check_fetch(result: StageResult) -> CheckResult:
                        t.FETCH_FAILURE_WARN, detail)
 
 
+def _capped(status: str, name: str, warn_only: dict) -> str:
+    """A FAIL for a name in a WARN_ONLY_* table becomes that name's status."""
+    return warn_only.get(name, status) if status == FAIL else status
+
+
 def check_build_stage(result: StageResult) -> CheckResult:
-    """check_fetch, except that a WARN_ONLY_STAGES stage never fails the run."""
+    """check_fetch (used for fetch and build stages alike), except that a
+    WARN_ONLY_STAGES stage is capped at its own status."""
     out = check_fetch(result)
-    if result.name in t.WARN_ONLY_STAGES and out.status == FAIL:
-        out.status = t.ATTRIBUTION_FAILURE_STATUS
+    out.status = _capped(out.status, result.name, t.WARN_ONLY_STAGES)
     return out
 
 
@@ -163,8 +168,7 @@ def check_counts(current: dict, baseline: dict | None) -> list[CheckResult]:
         now = current.get(name, 0)
         ratio = now / base
         if ratio < t.COUNT_RATIO_FAIL:
-            status = (t.ATTRIBUTION_FAILURE_STATUS if name in t.WARN_ONLY_DATASETS
-                      else FAIL)
+            status = _capped(FAIL, name, t.WARN_ONLY_DATASETS)
         elif ratio < t.COUNT_RATIO_WARN:
             status = WARN
         else:
@@ -176,11 +180,13 @@ def check_counts(current: dict, baseline: dict | None) -> list[CheckResult]:
 
 def check_minimums(counts: dict) -> list[CheckResult]:
     """Absolute floors for site-wide outputs — catches a truncated build even on
-    the first publish, when check_counts has no baseline."""
+    the first publish, when check_counts has no baseline. A WARN_ONLY_DATASETS
+    dataset below its floor is capped at its own status."""
     out = []
     for name, floor in sorted(t.MIN_COUNTS.items()):
         now = counts.get(name, 0)
-        out.append(CheckResult(f"minimum.{name}", FAIL if now < floor else PASS, now,
+        status = _capped(FAIL, name, t.WARN_ONLY_DATASETS) if now < floor else PASS
+        out.append(CheckResult(f"minimum.{name}", status, now,
                                floor, f"{now:,} (minimum {floor:,})"))
     return out
 
@@ -261,6 +267,73 @@ def check_attribution(detail: dict,
         out.append(CheckResult(f"{name}.residual", bad if over else PASS, res, None,
                                f"worst {res:+.2f}pp vs ETF ({w})"
                                + (f"; over limit: {', '.join(over)}" if over else "") + note))
+    return out
+
+
+def check_fund_finder(detail: dict, previous: dict | None) -> list[CheckResult]:
+    """Fund finder build detail (build_fund_finder) against the thresholds;
+    `previous` is the last published run's detail, for the ADR-link drop.
+    Every problem is t.FUND_FINDER_FAILURE_STATUS (WARN at first)."""
+    bad = t.FUND_FINDER_FAILURE_STATUS
+    out = []
+
+    n = detail.get("funds_with_rows", 0)
+    out.append(CheckResult("fund_finder.funds", bad if n < t.FUND_MIN_FUNDS else PASS,
+                           n, t.FUND_MIN_FUNDS,
+                           f"{n:,} of {detail.get('funds', 0):,} funds have holdings"))
+
+    outside = detail.get("weight_sum_outside", [])
+    out.append(CheckResult("fund_finder.weight_sum", bad if outside else PASS,
+                           len(outside), 0,
+                           f"{len(outside)} funds' weights sum outside 90–110%"
+                           + (": " + ", ".join(outside[:20]) if outside else "")))
+
+    for sym, cc in sorted(detail.get("crosscheck", {}).items()):
+        name = f"fund_finder.crosscheck.{sym}"
+        if not cc["in_universe"]:
+            out.append(CheckResult(name, PASS, None, None,
+                                   "no fund FMP lists is in our universe"))
+            continue
+        floor = 100 * t.FUND_CROSSCHECK_PRESENT
+        low = cc["present_pct"] < floor or cc["weight_ok_pct"] < floor
+        out.append(CheckResult(
+            name, bad if low else PASS, round(cc["present_pct"], 2), floor,
+            f"of {cc['in_universe']} in-universe funds FMP lists: "
+            f"{cc['present_pct']:.1f}% in the lookup, {cc['weight_ok_pct']:.1f}% "
+            f"within {t.FUND_CROSSCHECK_WEIGHT_PP}pp"))
+
+    pairs = detail.get("adr_pairs", {})
+    broken = sorted(adr for adr in ("TSM", "ASML", "NVO")
+                    if not (pairs.get(adr) or {}).get("adr")
+                    or pairs[adr]["adr"] != pairs[adr].get("home"))
+    out.append(CheckResult("fund_finder.adr_pairs", bad if broken else PASS,
+                           len(broken), 0,
+                           "not linked to the home line: " + ", ".join(broken)
+                           if broken else "TSM, ASML, NVO link to their home lines"))
+
+    pct = detail.get("adr_link_pct", 0.0)
+    base = (previous or {}).get("adr_link_pct")
+    if base is None:
+        out.append(CheckResult("fund_finder.adr_links", PASS, round(pct, 2), None,
+                               f"{pct:.1f}% of ADRs linked; no baseline"))
+    else:
+        drop = base - pct
+        out.append(CheckResult(
+            "fund_finder.adr_links", bad if drop > t.FUND_ADR_LINK_DROP_PP else PASS,
+            round(pct, 2), t.FUND_ADR_LINK_DROP_PP,
+            f"{pct:.1f}% of ADRs linked (last published {base:.1f}%)"))
+
+    left = sorted(set(detail.get("unexpanded", [])) | set(detail.get("deep_chains", [])))
+    out.append(CheckResult("fund_finder.look_through",
+                           bad if len(left) > t.FUND_LOOK_THROUGH_WARN else PASS,
+                           len(left), t.FUND_LOOK_THROUGH_WARN,
+                           f"{len(left)} funds still hold a fund not looked through"
+                           + (": " + ", ".join(left[:20]) if left else "")))
+
+    xeqt = detail.get("xeqt_asset_rows", 0)
+    out.append(CheckResult("fund_finder.xeqt", bad if xeqt <= t.FUND_XEQT_MIN_ROWS else PASS,
+                           xeqt, t.FUND_XEQT_MIN_ROWS,
+                           f"XEQT.TO has {xeqt:,} holding rows with an asset"))
     return out
 
 

@@ -80,6 +80,8 @@ jobs:
         run: node --test fintank/src/utils/safeFetch.test.mjs
       - name: Capital markets commentary test
         run: node --test fintank/src/utils/capitalMarkets/spreadNarrative.test.mjs
+      - name: Fund finder query test
+        run: node --test fintank/src/utils/fundFinder/query.test.mjs
 
   build:
     needs: test

@@ -137,7 +137,9 @@ def test_minimums_fail_below_floor_even_without_baseline():
     assert results["minimum.profile_rows.company_profiles"] == c.FAIL
     assert results["minimum.stock_prices"] == c.PASS
     missing = statuses(c.check_minimums({}))
-    assert set(missing.values()) == {c.FAIL}
+    # WARN_ONLY_DATASETS (fund_finder) are capped at their own status.
+    assert {s for n, s in missing.items()
+            if n.removeprefix("minimum.") not in t.WARN_ONLY_DATASETS} == {c.FAIL}
 
 
 def test_factor_coverage_against_constituent_lists():
@@ -250,3 +252,121 @@ def test_a_missing_attribution_list_only_warns_on_counts():
                                   {"attribution": 8, "stock_prices": 8}))
     assert out["counts.attribution"] == c.WARN
     assert out["counts.stock_prices"] == c.FAIL     # other datasets unchanged
+
+
+# ── fund finder ──────────────────────────────────────────────────────────
+
+PAIRS = {"TSM": {"adr": "TW1", "home": "TW1"}, "ASML": {"adr": "NL1", "home": "NL1"},
+         "NVO": {"adr": "DK1", "home": "DK1"}}
+
+
+def _fund_detail(**over):
+    detail = {
+        "funds": 3400, "funds_with_rows": 3300, "rows": 900_000,
+        "weight_sum_outside": [], "unexpanded": [], "deep_chains": [],
+        "xeqt_asset_rows": 8285, "adrs": 100, "adrs_linked": 80, "unlinked": [],
+        "adr_link_pct": 80.0, "adr_pairs": PAIRS,
+        "crosscheck": {s: {"in_universe": 40, "present_pct": 100.0, "weight_ok_pct": 97.5}
+                       for s in ("RY.TO", "TD.TO", "SHOP.TO", "AAPL", "MSFT")},
+    }
+    detail.update(over)
+    return detail
+
+
+def test_check_fund_finder_clean():
+    out = c.check_fund_finder(_fund_detail(), {"adr_link_pct": 81.0})
+    assert out and {r.status for r in out} == {c.PASS}
+    assert {"fund_finder.funds", "fund_finder.weight_sum", "fund_finder.crosscheck.RY.TO",
+            "fund_finder.crosscheck.MSFT", "fund_finder.adr_pairs", "fund_finder.adr_links",
+            "fund_finder.look_through", "fund_finder.xeqt"} <= {r.name for r in out}
+
+
+def test_check_fund_finder_warns_not_fails():
+    detail = _fund_detail(
+        funds=10, funds_with_rows=10, weight_sum_outside=["BAD.TO"],
+        unexpanded=[f"MIX{i}.TO" for i in range(251)], xeqt_asset_rows=12, adr_link_pct=70.0, adr_pairs={},
+        crosscheck={"RY.TO": {"in_universe": 4, "present_pct": 50.0,
+                              "weight_ok_pct": 50.0}})
+    out = statuses(c.check_fund_finder(detail, {"adr_link_pct": 80.0}))
+    assert set(out.values()) == {c.WARN}
+    assert {"fund_finder.funds", "fund_finder.crosscheck.RY.TO", "fund_finder.adr_links",
+            "fund_finder.look_through", "fund_finder.xeqt",
+            "fund_finder.weight_sum"} <= set(out)
+
+
+def test_check_fund_finder_crosscheck_weight_only():
+    detail = _fund_detail(crosscheck={"AAPL": {"in_universe": 40, "present_pct": 100.0,
+                                               "weight_ok_pct": 90.0}})
+    assert statuses(c.check_fund_finder(detail, None))["fund_finder.crosscheck.AAPL"] == c.WARN
+
+
+def test_check_fund_finder_crosscheck_nothing_in_universe_is_reported():
+    detail = _fund_detail(crosscheck={"SHOP.TO": {"in_universe": 0, "present_pct": 0.0,
+                                                  "weight_ok_pct": 0.0}})
+    r = next(x for x in c.check_fund_finder(detail, None)
+             if x.name == "fund_finder.crosscheck.SHOP.TO")
+    assert r.status == c.PASS and "no fund" in r.detail
+
+
+def test_check_fund_finder_adr_pairs():
+    pairs = {**PAIRS, "TSM": {"adr": "US8740391003", "home": "TW1"}}
+    assert statuses(c.check_fund_finder(_fund_detail(adr_pairs=pairs), None))[
+        "fund_finder.adr_pairs"] == c.WARN
+    missing = {**PAIRS, "NVO": {"adr": None, "home": None}}
+    assert statuses(c.check_fund_finder(_fund_detail(adr_pairs=missing), None))[
+        "fund_finder.adr_pairs"] == c.WARN
+
+
+def test_check_fund_finder_adr_links_baseline():
+    r = next(x for x in c.check_fund_finder(_fund_detail(), None)
+             if x.name == "fund_finder.adr_links")
+    assert r.status == c.PASS and "no baseline" in r.detail
+    # exactly the allowed drop passes, more warns
+    assert statuses(c.check_fund_finder(_fund_detail(adr_link_pct=75.0),
+                                        {"adr_link_pct": 80.0}))[
+        "fund_finder.adr_links"] == c.PASS
+    assert statuses(c.check_fund_finder(_fund_detail(adr_link_pct=74.9),
+                                        {"adr_link_pct": 80.0}))[
+        "fund_finder.adr_links"] == c.WARN
+
+
+def test_check_fund_finder_look_through_warns_above_limit():
+    def status(unexpanded, deep):
+        return statuses(c.check_fund_finder(
+            _fund_detail(unexpanded=unexpanded, deep_chains=deep), None))[
+            "fund_finder.look_through"]
+    deep = [f"TOP{i}" for i in range(200)]
+    # 250 distinct funds (one in both lists counts once) passes; 251 warns
+    assert status([f"MIX{i}" for i in range(50)] + ["TOP0"], deep) == c.PASS
+    assert status([f"MIX{i}" for i in range(51)], deep) == c.WARN
+    r = next(x for x in c.check_fund_finder(_fund_detail(deep_chains=["TOP.TO"]), None)
+             if x.name == "fund_finder.look_through")
+    assert r.status == c.PASS and r.value == 1 and "TOP.TO" in r.detail
+
+
+def test_fund_finder_stage_failure_rates_are_capped_at_warn():
+    for name in ("build_fund_finder", "fetch_fund_holdings", "fetch_fund_info"):
+        r = StageResult(name)
+        for ok in (False, False, True):
+            r.record(ok, "x")
+        assert c.check_build_stage(r).status == c.WARN
+    other = StageResult("fetch_etf_profiles")
+    for ok in (False, False, True):
+        other.record(ok, "x")
+    assert c.check_build_stage(other).status == c.FAIL
+
+
+def test_fund_finder_count_drop_and_minimum_only_warn():
+    out = statuses(c.check_counts({"fund_finder": 10, "attribution": 1},
+                                  {"fund_finder": 66, "attribution": 9}))
+    assert out == {"counts.fund_finder": c.WARN, "counts.attribution": c.WARN}
+    assert t.MIN_COUNTS["fund_finder"] == 66
+    assert statuses(c.check_minimums({}))["minimum.fund_finder"] == c.WARN
+
+
+def test_fund_finder_thresholds():
+    assert t.FUND_FINDER_FAILURE_STATUS == "warn"
+    assert (t.FUND_CROSSCHECK_PRESENT, t.FUND_CROSSCHECK_WEIGHT_PP,
+            t.FUND_ADR_LINK_DROP_PP, t.FUND_XEQT_MIN_ROWS) == (0.95, 0.5, 5.0, 1000)
+    assert t.FUND_LOOK_THROUGH_WARN == 250 and t.FUND_LEVERAGE_COVERAGE_PCT == 110.0
+    assert t.FUND_MIN_FUNDS == 2000

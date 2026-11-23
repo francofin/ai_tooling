@@ -1,0 +1,222 @@
+[
+ {
+  "symbol": "AGG",
+  "asset": "",
+  "name": "BLACKROCK CASH CL INST SL AGENCY",
+  "isin": "US0669225197",
+  "securityCusip": "066922519",
+  "sharesNumber": 0,
+  "weightPercentage": 2.75574554,
+  "marketValue": 3826775381.14,
+  "updatedAt": "2026-11-22 14:30:52"
+ },
+ {
+  "symbol": "AGG",
+  "asset": "",
+  "name": "TREASURY NOTE 4.63% 02/15/2035",
+  "isin": "US91282CMM00",
+  "securityCusip": "91282CMM0",
+  "sharesNumber": 0,
+  "weightPercentage": 0.40395349,
+  "marketValue": 560951381.91,
+  "updatedAt": "2026-11-22 14:30:52"
+ },
+ {
+  "symbol": "AGG",
+  "asset": "",
+  "name": "TREASURY NOTE 4.00% 02/28/2030",
+  "isin": "US91282CGQ87",
+  "securityCusip": "91282CGQ8",
+  "sharesNumber": 0,
+  "weightPercentage": 0.39849018,
+  "marketValue": 553364733.67,
+  "updatedAt": "2026-11-22 14:30:52"
+ },
+ {
+  "symbol": "AGG",
+  "asset": "",
+  "name": "TREASURY NOTE 3.88% 08/15/2034",
+  "isin": "US91282CLF67",
+  "securityCusip": "91282CLF6",
+  "sharesNumber": 0,
+  "weightPercentage": 0.38852967,
+  "marketValue": 539533048.95,
+  "updatedAt": "2026-11-22 14:30:52"
+ },
+ {
+  "symbol": "AGG",
+  "asset": "",
+  "name": "TREASURY NOTE 4.25% 05/15/2035",
+  "isin": "US91282CNC19",
+  "securityCusip": "91282CNC1",
+  "sharesNumber": 0,
+  "weightPercentage": 0.38664608,
+  "marketValue": 536917384.16,
+  "updatedAt": "2026-11-22 14:30:52"
+ },
+ {
+  "symbol": "AGG",
+  "asset": "",
+  "name": "TREASURY NOTE (2OLD) 4.38% 05/15/2036",
+  "isin": "US91282CQQ77",
+  "securityCusip": "91282CQQ7",
+  "sharesNumber": 0,
+  "weightPercentage": 0.38579024,
+  "marketValue": 535728917.92,
+  "updatedAt": "2026-11-22 14:30:52"
+ },
+ {
+  "symbol": "AGG",
+  "asset": "",
+  "name": "TREASURY NOTE 4.25% 08/15/2035",
+  "isin": "US91282CNT44",
+  "securityCusip": "91282CNT4",
+  "sharesNumber": 0,
+  "weightPercentage": 0.38515559,
+  "marketValue": 534847612.04,
+  "updatedAt": "2026-11-22 14:30:52"
+ },
+ {
+  "symbol": "AGG",
+  "asset": "",
+  "name": "TREASURY NOTE 4.25% 11/15/2034",
+  "isin": "US91282CLW90",
+  "securityCusip": "91282CLW9",
+  "sharesNumber": 0,
+  "weightPercentage": 0.38242898,
+  "marketValue": 531061296.72,
+  "updatedAt": "2026-11-22 14:30:52"
+ },
+ {
+  "symbol": "AGG",
+  "asset": "",
+  "name": "TREASURY NOTE 4.13% 02/15/2036",
+  "isin": "US91282CPZ85",
+  "securityCusip": "91282CPZ8",
+  "sharesNumber": 0,
+  "weightPercentage": 0.38186716,
+  "marketValue": 530281129.38,
+  "updatedAt": "2026-11-22 14:30:52"
+ },
+ {
+  "symbol": "AGG",
+  "asset": "",
+  "name": "TREASURY NOTE 4.38% 05/15/2034",
+  "isin": "US91282CKQ32",
+  "securityCusip": "91282CKQ3",
+  "sharesNumber": 0,
+  "weightPercentage": 0.38141801,
+  "marketValue": 529657414.39,
+  "updatedAt": "2026-11-22 14:30:52"
+ },
+ {
+  "symbol": "AGG",
+  "asset": "",
+  "name": "TREASURY NOTE 4.50% 11/15/2033",
+  "isin": "US91282CJJ18",
+  "securityCusip": "91282CJJ1",
+  "sharesNumber": 0,
+  "weightPercentage": 0.37777193,
+  "marketValue": 524594277.08,
+  "updatedAt": "2026-11-22 14:30:52"
+ },
+ {
+  "symbol": "AGG",
+  "asset": "",
+  "name": "TREASURY NOTE 4.00% 11/15/2035",
+  "isin": "US91282CPJ44",
+  "securityCusip": "91282CPJ4",
+  "sharesNumber": 0,
+  "weightPercentage": 0.37277227,
+  "marketValue": 517651481.69,
+  "updatedAt": "2026-11-22 14:30:52"
+ },
+ {
+  "symbol": "AGG",
+  "asset": "",
+  "name": "TREASURY NOTE 4.00% 02/15/2034",
+  "isin": "US91282CJZ59",
+  "securityCusip": "91282CJZ5",
+  "sharesNumber": 0,
+  "weightPercentage": 0.37258634,
+  "marketValue": 517393288.34,
+  "updatedAt": "2026-11-22 14:30:52"
+ },
+ {
+  "symbol": "AGG",
+  "asset": "",
+  "name": "TREASURY NOTE 3.88% 06/15/2028",
+  "isin": "US91282CNH06",
+  "securityCusip": "91282CNH0",
+  "sharesNumber": 0,
+  "weightPercentage": 0.36148303,
+  "marketValue": 501974637.62,
+  "updatedAt": "2026-11-22 14:30:52"
+ },
+ {
+  "symbol": "AGG",
+  "asset": "",
+  "name": "TREASURY NOTE 3.63% 08/15/2028",
+  "isin": "US91282CNU17",
+  "securityCusip": "91282CNU1",
+  "sharesNumber": 0,
+  "weightPercentage": 0.33848562,
+  "marketValue": 470039205.65,
+  "updatedAt": "2026-11-22 14:30:52"
+ },
+ {
+  "symbol": "AGG",
+  "asset": "",
+  "name": "TREASURY NOTE 3.88% 08/15/2033",
+  "isin": "US91282CHT18",
+  "securityCusip": "91282CHT1",
+  "sharesNumber": 0,
+  "weightPercentage": 0.33735642,
+  "marketValue": 468471135.61,
+  "updatedAt": "2026-11-22 14:30:52"
+ },
+ {
+  "symbol": "AGG",
+  "asset": "",
+  "name": "TREASURY NOTE 3.88% 07/15/2028",
+  "isin": "US91282CNM90",
+  "securityCusip": "91282CNM9",
+  "sharesNumber": 0,
+  "weightPercentage": 0.33355879,
+  "marketValue": 463197539.92,
+  "updatedAt": "2026-11-22 14:30:52"
+ },
+ {
+  "symbol": "AGG",
+  "asset": "",
+  "name": "TREASURY NOTE 3.63% 08/31/2030",
+  "isin": "US91282CNX55",
+  "securityCusip": "91282CNX5",
+  "sharesNumber": 0,
+  "weightPercentage": 0.31919011,
+  "marketValue": 443244426.6,
+  "updatedAt": "2026-11-22 14:30:52"
+ },
+ {
+  "symbol": "AGG",
+  "asset": "",
+  "name": "TREASURY NOTE 4.13% 05/31/2031",
+  "isin": "US91282CQU89",
+  "securityCusip": "91282CQU8",
+  "sharesNumber": 0,
+  "weightPercentage": 0.31683731,
+  "marketValue": 439977206.56,
+  "updatedAt": "2026-11-22 14:30:52"
+ },
+ {
+  "symbol": "AGG",
+  "asset": "",
+  "name": "TREASURY NOTE 1.38% 11/15/2031",
+  "isin": "US91282CDJ71",
+  "securityCusip": "91282CDJ7",
+  "sharesNumber": 0,
+  "weightPercentage": 0.31041055,
+  "marketValue": 431052666.9,
+  "updatedAt": "2026-11-22 14:30:52"
+ }
+]

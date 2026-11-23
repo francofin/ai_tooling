@@ -68,6 +68,7 @@ import io
 import json
 import os
 import re
+import shutil
 import sys
 import time
 import warnings
@@ -99,10 +100,14 @@ if BACKEND_DIR not in sys.path:
 from pipelines import pipeline_config as cfg  # noqa: E402
 from pipelines.attribution import compute_attribution  # noqa: E402
 from pipelines.factor_windows import WINDOWS, window_return_and_std  # noqa: E402
+from pipelines.fund_lookup import build_lookup  # noqa: E402
+from pipelines.fund_universe import build_universe, company_ids  # noqa: E402
 from pipelines.fmp_stable_shapes import (HISTORY_ROW_CAP, etf_list_rows, holdings_rows,  # noqa: E402
                                          index_payload, price_payload, sector_snapshot_rows,
                                          statement_rows, ttm_rows)
 from pipelines.results import StageResult, redact  # noqa: E402
+from pipelines.thresholds import (FUND_BUCKETS, FUND_CROSSCHECK_WEIGHT_PP,  # noqa: E402
+                                  PAYLOAD_SHRINK_REFUSE)
 
 warnings.filterwarnings("ignore")
 
@@ -235,6 +240,7 @@ class StockDataPipeline:
 
         self.limiter = RateLimiter(max_calls=max_calls, pause=pause)
         self._s3 = None
+        self._profile_bulk_rows = None
 
     def __repr__(self):
         creds = " ".join(
@@ -306,6 +312,22 @@ class StockDataPipeline:
         call upload_folder() with no prefix override.
         """
         return os.path.join(self.parquet_root, "revenue_segments")
+
+    @property
+    def fund_holdings_dir(self):
+        """Raw etf/holdings per fund, plus _universe.json, _profile_slim.json
+        and _crosscheck/. A state unit via state.SPLIT_ROOTS."""
+        return os.path.join(self.json_root, "fund_holdings")
+
+    @property
+    def fund_info_dir(self):
+        return os.path.join(self.json_root, "fund_info")
+
+    @property
+    def fund_data_dir(self):
+        """Built fund finder outputs == their S3 prefix: funds.parquet,
+        isin_map.parquet, exposure/{00..63}.parquet. Local only, not state."""
+        return os.path.join(self.root, "fund_data")
 
     @property
     def econ_json_dir(self):
@@ -473,6 +495,13 @@ class StockDataPipeline:
         return _retry_once(lambda: self._stable_rows("etf-list"))
 
     def _profile_bulk(self):
+        """profile-bulk rows, fetched once per pipeline instance (the weekly
+        run needs them in refresh_constituents and the fund fetch)."""
+        if self._profile_bulk_rows is None:
+            self._profile_bulk_rows = self._fetch_profile_bulk()
+        return self._profile_bulk_rows
+
+    def _fetch_profile_bulk(self):
         """All stable profile-bulk rows (CSV parts 0, 1, 2 ...) as dicts.
 
         Stops at the first part with no data rows, or at a 400 on a part after
@@ -709,7 +738,7 @@ class StockDataPipeline:
             previous = previous_count(path)
             try:
                 rows = fetch_rows()
-                if previous is not None and len(rows) < 0.5 * previous:
+                if previous is not None and len(rows) < PAYLOAD_SHRINK_REFUSE * previous:
                     raise ValueError(
                         f"payload shrank {previous} → {len(rows)} — degraded FMP "
                         "feed? (seen 2026-08-02: IEFA served 138 of ~2,600 "
@@ -751,6 +780,300 @@ class StockDataPipeline:
                 return requested
             refresh("etf_data", etf_list)
 
+        return result
+
+    # ═════════════════════════════════════════════════════════════════════
+    # Fund finder fetches (weekly): ETF holdings, and ETF info on full runs.
+    # ═════════════════════════════════════════════════════════════════════
+    _CROSSCHECK_SYMBOLS = ("RY.TO", "TD.TO", "SHOP.TO", "AAPL", "MSFT")
+    _SLIM_KEYS = ("symbol", "isin", "exchange", "companyName", "isEtf", "isFund", "isAdr")
+
+    @staticmethod
+    def _fund_file(folder, symbol):
+        return os.path.join(folder, f"{symbol.replace('/', '_')}.json")
+
+    def _fetch_fund_file(self, result, endpoint, symbol, folder, empty_ok=False):
+        """One stable call for a fund, saved as the raw rows. Empty or 402 is
+        no data; any other error a failure. Either way the previous file stays.
+        Holdings with fewer than PAYLOAD_SHRINK_REFUSE of the previous file's
+        rows are a failure too (degraded feed), as in refresh_constituents.
+        Returns the rows saved, else None."""
+        try:
+            rows = _retry_once(lambda: self._stable_rows(endpoint, symbol=symbol))
+        except Exception as e:
+            if getattr(e, "status", None) == 402:
+                result.record_no_data()
+            else:
+                result.record(False, symbol)
+                print(f"{endpoint} {symbol} FAILED (previous file kept): {redact(str(e))}")
+            return None
+        if not rows:
+            result.record_no_data()
+            return None
+        if not all(isinstance(r, dict) for r in rows):
+            result.record(False, symbol)
+            print(f"{endpoint} {symbol} FAILED (previous file kept): non-object row "
+                  "in payload")
+            return None
+        path = self._fund_file(folder, symbol)
+        if endpoint == "etf/holdings" and os.path.exists(path):
+            try:
+                previous = len(self._read_json(path))
+            except (OSError, ValueError, TypeError):
+                previous = None
+            if previous is not None and len(rows) < PAYLOAD_SHRINK_REFUSE * previous:
+                result.record(False, symbol)
+                print(f"{endpoint} {symbol} FAILED (previous file kept): payload shrank "
+                      f"{previous} → {len(rows)} — degraded FMP feed?")
+                return None
+        self._save_json(rows, path)
+        result.record(True)
+        return rows
+
+    def fetch_fund_holdings(self, limit=None):
+        """Holdings of every fund in the universe -> fund_holdings/{SYMBOL}.json.
+
+        Universe = build_universe(profile-bulk), the `limit` largest by AUM.
+        ETFs held by those funds (isEtf in profile-bulk) and not yet fetched
+        are fetched too (look-through). Also writes _universe.json,
+        _profile_slim.json and five etf/asset-exposure cross-check files.
+        """
+        result = StageResult("fetch_fund_holdings")
+        folder = self.fund_holdings_dir
+        # A failure here must never crash the run (prices and fundamentals
+        # come after this stage): record it, keep every previous file.
+        try:
+            bulk = self._profile_bulk()
+            funds, detail = build_universe(bulk)
+            funds = sorted(funds, key=lambda f: -f["aum"])
+            if limit is not None:
+                funds = funds[:limit]
+            result.detail.update(detail)
+            self._save_json(funds, os.path.join(folder, "_universe.json"))
+            self._save_json([{k: r.get(k) for k in self._SLIM_KEYS} for r in bulk],
+                            os.path.join(folder, "_profile_slim.json"))
+            etfs = {r["symbol"] for r in bulk
+                    if str(r.get("isEtf", "")).strip().lower() == "true"}
+        except Exception as e:
+            result.record(False, "profile-bulk")
+            print(f"fetch_fund_holdings: SKIPPED — {type(e).__name__}: {redact(str(e))}; "
+                  "previous fund files kept")
+            return result
+        finally:
+            # refresh_constituents ran before this stage; nothing later needs
+            # the ~96k bulk rows, so free them for the build.
+            self._profile_bulk_rows = None
+        del bulk
+
+        def fetch_one(symbol):
+            # One bad payload or a failed write fails that fund only: its
+            # previous file stays and the stage carries on.
+            try:
+                return self._fetch_fund_file(result, "etf/holdings", symbol, folder) or []
+            except Exception as e:
+                result.record(False, symbol)
+                print(f"etf/holdings {symbol} FAILED (previous file kept): "
+                      f"{type(e).__name__}: {redact(str(e))}")
+                return []
+
+        fetched = set()
+        held_assets = set()
+        for f in funds:
+            fetched.add(f["symbol"])
+            # Only string assets: an unhashable one (a list) would raise here.
+            held_assets.update(a for r in fetch_one(f["symbol"])
+                               if isinstance(a := r.get("asset"), str))
+        extra = sorted(s for s in held_assets if s in etfs and s not in fetched)
+        for s in extra:
+            fetch_one(s)
+        result.detail["look_through_fetched"] = len(extra)
+
+        checked = []
+        for s in self._CROSSCHECK_SYMBOLS:
+            try:
+                rows = _retry_once(lambda: self._stable_rows("etf/asset-exposure", symbol=s))
+                if rows:
+                    self._save_json(rows, self._fund_file(os.path.join(folder, "_crosscheck"), s))
+                    checked.append(s)
+            except Exception as e:
+                print(f"asset-exposure {s} skipped: {type(e).__name__}: {redact(str(e))}")
+        result.detail["crosscheck"] = checked
+        return result
+
+    def fetch_fund_info(self, limit=None):
+        """etf/info for each fund in _universe.json -> fund_info/{SYMBOL}.json."""
+        result = StageResult("fetch_fund_info")
+        path = os.path.join(self.fund_holdings_dir, "_universe.json")
+        try:
+            with open(path) as f:
+                funds = json.load(f)
+        except (OSError, ValueError):
+            result.record(False, "_universe.json")
+            return result
+        if limit is not None:
+            funds = funds[:limit]
+        # An unexpected error must never crash the run: record it and stop.
+        try:
+            for f in funds:
+                self._fetch_fund_file(result, "etf/info", f["symbol"], self.fund_info_dir)
+        except Exception as e:
+            result.record(False, "fund-info")
+            print(f"fetch_fund_info: STOPPED — {type(e).__name__}: {redact(str(e))}; "
+                  "previous fund files kept")
+        return result
+
+    _ADR_PAIRS = {"TSM": "2330.TW", "ASML": "ASML.AS", "NVO": "NOVO-B.CO"}
+    _HOLDING_KEYS = ("asset", "isin", "weightPercentage", "updatedAt", "updated")
+
+    @staticmethod
+    def _read_json(path):
+        with open(path) as f:
+            return json.load(f)
+
+    def _load_fund_holdings(self, folder, funds):
+        """Holdings the build needs, trimmed to _HOLDING_KEYS per row: every
+        universe fund's file, plus the files of what those funds hold (one
+        level of look-through). Files of funds that left the universe and
+        nobody holds are never read. Files held only two levels down are
+        not read either; they map to [] so build_lookup still sees (and
+        logs) the deep chain."""
+        on_disk = {name[:-5] for name in os.listdir(folder)
+                   if name.endswith(".json") and not name.startswith("_")}
+
+        def stem(symbol):
+            return symbol.replace("/", "_")
+
+        def load(symbol):
+            return [{k: r[k] for k in self._HOLDING_KEYS if k in r}
+                    for r in self._read_json(self._fund_file(folder, symbol))
+                    if isinstance(r, dict)]
+
+        def held(rows):
+            return {a for r in rows if isinstance(a := r.get("asset"), str) and a}
+
+        holdings = {f["symbol"]: load(f["symbol"]) for f in funds
+                    if stem(f["symbol"]) in on_disk}
+        level1 = set().union(*map(held, holdings.values())) if holdings else set()
+        for s in sorted(level1 - set(holdings)):
+            if stem(s) in on_disk:
+                holdings[s] = load(s)
+        level2 = set().union(*(held(holdings[s]) for s in level1 if s in holdings)) \
+            if level1 else set()
+        for s in level2 - set(holdings):
+            if stem(s) in on_disk:
+                holdings[s] = []
+        return holdings
+
+    @staticmethod
+    def _fund_crosscheck(rows, universe, exposure, cid):
+        """FMP's etf/asset-exposure rows for one pick vs our lookup's DIRECT
+        rows (via == ""), summed over the company's lines per fund:
+        asset-exposure lists direct holdings only, so look-through weight
+        would never agree."""
+        fmp = {}
+        for r in rows:
+            if r.get("symbol") in universe:
+                try:
+                    fmp[r["symbol"]] = float(r.get("weightPercentage") or 0)
+                except (TypeError, ValueError):
+                    fmp[r["symbol"]] = 0.0
+        direct = exposure[(exposure.company_id == cid) & (exposure.via == "")] \
+            if cid else exposure.iloc[0:0]
+        ours = direct.groupby("fund").weight.sum().to_dict()
+        n = len(fmp)
+        present = sum(1 for f in fmp if f in ours)
+        ok = sum(1 for f, w in fmp.items()
+                 if f in ours and abs(ours[f] - w) <= FUND_CROSSCHECK_WEIGHT_PP)
+        return {"in_universe": n,
+                "present_pct": 100.0 * present / n if n else 0.0,
+                "weight_ok_pct": 100.0 * ok / n if n else 0.0}
+
+    def build_fund_finder(self):
+        """Fund finder lookup from fund_holdings/ and fund_info/ ->
+        fund_data/{funds,isin_map}.parquet and fund_data/exposure/{00..63}.parquet
+        (every bucket, empty ones with the schema). Local only, overwritten.
+
+        _universe.json says which funds exist; other <SYMBOL>.json files are
+        only read when a universe fund holds them (look-through), see
+        _load_fund_holdings. Any error skips the dataset: nothing is
+        written and the live bucket keeps the last published copy. detail =
+        build_lookup's + company_ids' detail + crosscheck, adr_pairs and
+        adr_link_pct, for check_fund_finder."""
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        result = StageResult("build_fund_finder")
+        folder = self.fund_holdings_dir
+        try:
+            funds = self._read_json(os.path.join(folder, "_universe.json"))
+            slim = self._read_json(os.path.join(folder, "_profile_slim.json"))
+            holdings = self._load_fund_holdings(folder, funds)
+            fund_info = {}
+            if os.path.isdir(self.fund_info_dir):
+                for name in sorted(os.listdir(self.fund_info_dir)):
+                    if name.endswith(".json"):
+                        rows = self._read_json(os.path.join(self.fund_info_dir, name))
+                        if rows:
+                            r = rows[0]
+                            fund_info[name[:-5]] = {"mer": r.get("expenseRatio"),
+                                                    "issuer": r.get("etfCompany"),
+                                                    "asset_class": r.get("assetClass"),
+                                                    "holdings_count": r.get("holdingsCount")}
+            listings = {r["symbol"]: {"name": r.get("companyName"),
+                                      "exchange": r.get("exchange"),
+                                      "is_adr": str(r.get("isAdr", "")).strip().lower()
+                                      == "true"}
+                        for r in slim if r.get("symbol")}
+            sym_to_cid, isin_to_cid, id_detail = company_ids(slim)
+            exposure, funds_df, isin_map, detail = build_lookup(
+                holdings, funds, sym_to_cid, isin_to_cid, fund_info, listings=listings)
+
+            universe = {f["symbol"] for f in funds}
+            cross_dir = os.path.join(folder, "_crosscheck")
+            crosscheck = {}
+            if os.path.isdir(cross_dir):
+                for name in sorted(os.listdir(cross_dir)):
+                    if name.endswith(".json"):
+                        pick = name[:-5]
+                        crosscheck[pick] = self._fund_crosscheck(
+                            self._read_json(os.path.join(cross_dir, name)), universe,
+                            exposure, sym_to_cid.get(pick))
+            adrs = id_detail["adrs"]
+            detail.update(id_detail)
+            detail.update({
+                "crosscheck": crosscheck,
+                "adr_pairs": {adr: {"adr": sym_to_cid.get(adr), "home": sym_to_cid.get(home)}
+                              for adr, home in self._ADR_PAIRS.items()},
+                "adr_link_pct": 100.0 * id_detail["adrs_linked"] / adrs if adrs else 0.0})
+
+            # Write into a scratch folder, then swap: a failure leaves nothing new.
+            out_dir = self.fund_data_dir
+            tmp = out_dir + ".partial"
+            shutil.rmtree(tmp, ignore_errors=True)
+            os.makedirs(os.path.join(tmp, "exposure"))
+            funds_df.to_parquet(os.path.join(tmp, "funds.parquet"), index=False)
+            isin_map.to_parquet(os.path.join(tmp, "isin_map.parquet"), index=False)
+            # An explicit schema, so empty buckets keep string columns, not null.
+            schema = pa.schema([("company_id", pa.string()), ("fund", pa.string()),
+                                ("weight", pa.float64()), ("via", pa.string()),
+                                ("bucket", pa.int64())])
+            for b in range(FUND_BUCKETS):
+                pq.write_table(pa.Table.from_pandas(exposure[exposure.bucket == b],
+                                                    schema=schema, preserve_index=False),
+                               os.path.join(tmp, "exposure", f"{b:02d}.parquet"))
+            shutil.rmtree(out_dir, ignore_errors=True)
+            os.replace(tmp, out_dir)
+        # Any error skips the dataset: a new dataset must never crash the run.
+        except Exception as e:
+            shutil.rmtree(self.fund_data_dir + ".partial", ignore_errors=True)
+            result.record(False, "fund_finder")
+            print(f"build_fund_finder: SKIPPED — {type(e).__name__}: {redact(str(e))}; "
+                  "the live copy stays as last published")
+            return result
+        result.record(True)
+        result.detail = detail
+        print(f"build_fund_finder: {len(funds_df):,} funds, {len(exposure):,} exposure rows, "
+              f"{len(isin_map):,} listings → {self.fund_data_dir}")
         return result
 
     def _save_holdings_snapshot(self, key, rows):

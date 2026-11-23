@@ -42,3 +42,17 @@ def test_keys_match_the_upload_methods(pipeline):
         ("econ", "econ_data/relative_perf/eafevg.parquet"),
     ]
     assert [d for d, _ in keys] == sorted((d for d, _ in keys), key=DATASET_ORDER.index)
+
+
+def test_outputs_registered(pipeline):
+    d = pipeline.fund_data_dir
+    touch(os.path.join(d, "funds.parquet"))
+    touch(os.path.join(d, "isin_map.parquet"))
+    for i in range(64):
+        touch(os.path.join(d, "exposure", f"{i:02d}.parquet"))
+    outs = [o for o in collect_outputs(pipeline) if o.dataset == "fund_finder"]
+    assert len(outs) == 66
+    assert [o.key for o in outs] == (
+        ["fund_data/funds.parquet", "fund_data/isin_map.parquet"]
+        + [f"fund_data/exposure/{i:02d}.parquet" for i in range(64)])
+    assert all(o.local_path.startswith(d) for o in outs)

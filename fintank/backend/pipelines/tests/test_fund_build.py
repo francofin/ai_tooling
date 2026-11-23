@@ -1,0 +1,242 @@
+"""build_fund_finder: fund_holdings/ + fund_info/ on disk -> fund_data/. No network."""
+import csv
+import io
+import json
+import os
+
+import pandas as pd
+import pytest
+
+from pipelines import runner
+from pipelines import stock_pipeline as sp
+from pipelines.fund_universe import bucket_of, build_universe
+from pipelines.outputs import DATASET_ORDER
+from pipelines.tests.helpers import load_fixture
+
+RY = "CA7800871021"
+
+
+def _write(path, data):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(data, f)
+
+
+def stage_inputs(p, crosscheck=True):
+    """What fetch_fund_holdings / fetch_fund_info leave on disk."""
+    rows = list(csv.DictReader(io.StringIO(load_fixture("profile_bulk_funds", "csv"))))
+    funds, _ = build_universe(rows)
+    h = p.fund_holdings_dir
+    _write(os.path.join(h, "_universe.json"), funds)
+    _write(os.path.join(h, "_profile_slim.json"),
+           [{k: r.get(k) for k in sp.StockDataPipeline._SLIM_KEYS} for r in rows])
+    for sym, name in (("XIU.TO", "xiu"), ("XEQT.TO", "xeqt"), ("VEA", "vea"),
+                      ("AGG", "agg")):
+        _write(os.path.join(h, f"{sym}.json"), load_fixture(f"etf_holdings_{name}"))
+    # A fund that left the universe: only its own file, nobody holds it.
+    _write(os.path.join(h, "GONE.json"),
+           [{"asset": "AAPL", "isin": "US0378331005", "weightPercentage": 100.0}])
+    if crosscheck:
+        _write(os.path.join(h, "_crosscheck", "RY.TO.json"),
+               load_fixture("etf_asset_exposure_ry"))
+    _write(os.path.join(p.fund_info_dir, "XIU.TO.json"), load_fixture("etf_info_xiu"))
+    return funds
+
+
+def test_build_writes_all_files(pipeline):
+    funds = stage_inputs(pipeline)
+    result = pipeline.build_fund_finder()
+    assert result.name == "build_fund_finder"
+    assert result.failed == 0 and result.saved == 1
+
+    d = pipeline.fund_data_dir
+    assert d == os.path.join(pipeline.root, "fund_data")
+    names = sorted(os.listdir(os.path.join(d, "exposure")))
+    assert names == [f"{i:02d}.parquet" for i in range(64)]
+    assert os.path.isfile(os.path.join(d, "funds.parquet"))
+    assert os.path.isfile(os.path.join(d, "isin_map.parquet"))
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    schemas = {str(pq.read_schema(os.path.join(d, "exposure", n)).remove_metadata())
+               for n in names}
+    assert len(schemas) == 1                                  # empty buckets too
+    schema = pq.read_schema(os.path.join(d, "exposure", names[0]))
+    assert schema.field("company_id").type == pa.string()
+    assert schema.field("via").type == pa.string()
+    assert any(pq.read_metadata(os.path.join(d, "exposure", n)).num_rows == 0
+               for n in names)                                # fixture has empty buckets
+
+    total = 0
+    for name in names:
+        df = pd.read_parquet(os.path.join(d, "exposure", name))
+        assert list(df.columns) == ["company_id", "fund", "weight", "via", "bucket"]
+        assert all(bucket_of(c) == int(name[:2]) for c in df.company_id)
+        assert (df.bucket == int(name[:2])).all()
+        total += len(df)
+    assert total == result.detail["rows"] > 0
+
+    fdf = pd.read_parquet(os.path.join(d, "funds.parquet"))
+    assert sorted(fdf.symbol) == sorted(f["symbol"] for f in funds)   # GONE excluded
+    xiu = fdf.set_index("symbol").loc["XIU.TO"]
+    assert xiu.mer == 0.18 and xiu.issuer == "BlackRock" and xiu.asset_class == "Equity"
+    imap = pd.read_parquet(os.path.join(d, "isin_map.parquet"))
+    ry = imap.set_index("symbol").loc["RY.TO"]
+    assert ry.company_id == RY and ry["name"] and ry.is_adr in (False, 0)
+
+
+def test_build_detail(pipeline):
+    stage_inputs(pipeline)
+    detail = pipeline.build_fund_finder().detail
+    for key in ("funds", "funds_with_rows", "rows", "weight_sum_outside", "unexpanded",
+                "deep_chains", "xeqt_asset_rows", "adrs", "adrs_linked", "unlinked"):
+        assert key in detail
+    assert detail["adr_link_pct"] == pytest.approx(75.0)          # 3 of 4 fixture ADRs
+    assert detail["adr_pairs"]["TSM"] == {"adr": "TW0002330008", "home": "TW0002330008"}
+    assert detail["adr_pairs"]["NVO"]["adr"] == detail["adr_pairs"]["NVO"]["home"]
+    # FMP lists XIU.TO 9.43, ZEB.TO 19.8 (no holdings saved here), VEA 0.89.
+    cc = detail["crosscheck"]["RY.TO"]
+    assert cc["in_universe"] == 3
+    assert cc["present_pct"] == pytest.approx(200 / 3)
+    assert cc["weight_ok_pct"] == pytest.approx(200 / 3)
+
+
+def test_crosscheck_skips_funds_outside_universe(pipeline):
+    stage_inputs(pipeline, crosscheck=False)
+    _write(os.path.join(pipeline.fund_holdings_dir, "_crosscheck", "AAPL.json"),
+           [{"symbol": "NOTAFUND", "asset": "AAPL", "weightPercentage": 5.0}])
+    cc = pipeline.build_fund_finder().detail["crosscheck"]
+    assert cc == {"AAPL": {"in_universe": 0, "present_pct": 0.0, "weight_ok_pct": 0.0}}
+
+
+def test_build_without_fund_info_still_writes(pipeline):
+    stage_inputs(pipeline)
+    import shutil
+    shutil.rmtree(pipeline.fund_info_dir)
+    result = pipeline.build_fund_finder()
+    assert result.failed == 0
+    fdf = pd.read_parquet(os.path.join(pipeline.fund_data_dir, "funds.parquet"))
+    assert fdf.mer.isna().all()
+
+
+def test_build_exception_records_failure_and_writes_nothing(pipeline, capsys):
+    # No _universe.json at all.
+    result = pipeline.build_fund_finder()
+    assert result.failed == 1 and result.attempted == 1
+    assert not os.path.exists(pipeline.fund_data_dir)
+    assert "build_fund_finder" in capsys.readouterr().out
+
+
+def test_build_error_message_is_redacted(pipeline, monkeypatch, capsys):
+    stage_inputs(pipeline)
+
+    def boom(*a, **kw):
+        raise RuntimeError("GET https://x/stable/etf?apikey=SECRET123 failed")
+    monkeypatch.setattr(sp, "build_lookup", boom)
+    result = pipeline.build_fund_finder()
+    assert result.failed == 1
+    out = capsys.readouterr().out
+    assert "SECRET123" not in out and "apikey=***" in out
+    assert not os.path.exists(pipeline.fund_data_dir)
+
+
+def test_build_stage_registered():
+    i = runner.BUILD_STAGES.index("build_index_attribution")
+    assert runner.BUILD_STAGES[i + 1] == "build_fund_finder"
+    assert DATASET_ORDER[DATASET_ORDER.index("attribution") + 1] == "fund_finder"
+
+
+
+def _spy_lookup(monkeypatch):
+    seen = {}
+    real = sp.build_lookup
+
+    def spy(holdings, *a, **kw):
+        seen["holdings"] = holdings
+        return real(holdings, *a, **kw)
+    monkeypatch.setattr(sp, "build_lookup", spy)
+    return seen
+
+
+def test_build_skips_files_of_funds_nobody_needs(pipeline, monkeypatch):
+    funds = stage_inputs(pipeline)
+    # An ETF held by XIU.TO (one level) is loaded; one only it holds is not.
+    xiu = load_fixture("etf_holdings_xiu") + [
+        {"asset": "MID", "isin": "", "weightPercentage": 1.0}]
+    _write(os.path.join(pipeline.fund_holdings_dir, "XIU.TO.json"), xiu)
+    _write(os.path.join(pipeline.fund_holdings_dir, "MID.json"),
+           [{"asset": "DEEP", "isin": "", "weightPercentage": 100.0}])
+    _write(os.path.join(pipeline.fund_holdings_dir, "DEEP.json"),
+           [{"asset": "AAPL", "isin": "US0378331005", "weightPercentage": 100.0}])
+    loaded = []
+    real_read = sp.StockDataPipeline._read_json
+    monkeypatch.setattr(sp.StockDataPipeline, "_read_json",
+                        staticmethod(lambda path: loaded.append(os.path.basename(path))
+                                     or real_read(path)))
+    seen = _spy_lookup(monkeypatch)
+    result = pipeline.build_fund_finder()
+    assert result.failed == 0
+    assert "GONE.json" not in loaded and "DEEP.json" not in loaded
+    assert "MID.json" in loaded
+    assert "GONE" not in seen["holdings"]
+    assert set(seen["holdings"]) == {"XIU.TO", "XEQT.TO", "VEA", "AGG", "MID", "DEEP"}
+    assert {"XIU.TO", "XEQT.TO", "VEA", "AGG"} <= {f["symbol"] for f in funds}
+    assert seen["holdings"]["DEEP"] == []          # known to exist, never read
+    assert result.detail["deep_chains"] == ["XIU.TO"]
+
+
+def test_build_trims_holding_rows(pipeline, monkeypatch):
+    stage_inputs(pipeline)
+    _write(os.path.join(pipeline.fund_holdings_dir, "AGG.json"),
+           [{"symbol": "AGG", "asset": "AAPL", "name": "Apple", "isin": "US0378331005",
+             "securityCusip": "x", "sharesNumber": 1, "weightPercentage": 1.0,
+             "marketValue": 2.0, "updatedAt": "2026-11-15 00:00:00",
+             "updated": "2026-11-15"}])
+    seen = _spy_lookup(monkeypatch)
+    assert pipeline.build_fund_finder().failed == 0
+    allowed = {"asset", "isin", "weightPercentage", "updatedAt", "updated"}
+    for rows in seen["holdings"].values():
+        for r in rows:
+            assert set(r) <= allowed
+    assert seen["holdings"]["AGG"] == [{"asset": "AAPL", "isin": "US0378331005",
+                                        "weightPercentage": 1.0,
+                                        "updatedAt": "2026-11-15 00:00:00",
+                                        "updated": "2026-11-15"}]
+    assert "updatedAt" in seen["holdings"]["XIU.TO"][0]
+
+
+def test_crosscheck_compares_direct_rows_only():
+    exposure = pd.DataFrame({
+        "company_id": [RY, RY, RY, "OTHER"],
+        "fund": ["XIU.TO", "XIU.TO", "ZWB.TO", "XIU.TO"],
+        "weight": [9.43, 3.0, 2.0, 50.0],
+        "via": ["", "ZEB.TO", "ZEB.TO", ""]})
+    rows = [{"symbol": "XIU.TO", "asset": "RY.TO", "weightPercentage": 9.43},
+            {"symbol": "ZWB.TO", "asset": "RY.TO", "weightPercentage": 2.0}]
+    cc = sp.StockDataPipeline._fund_crosscheck(rows, {"XIU.TO", "ZWB.TO"}, exposure, RY)
+    # XIU.TO agrees on its direct row; ZWB.TO holds RY only through ZEB.TO.
+    assert cc == {"in_universe": 2, "present_pct": 50.0, "weight_ok_pct": 50.0}
+
+
+def test_build_completes_with_non_string_assets(pipeline):
+    stage_inputs(pipeline)
+    h = pipeline.fund_holdings_dir
+    rows = load_fixture("etf_holdings_xiu") + [
+        {"asset": ["X"], "weightPercentage": 1.0}, {"asset": {"a": 1}, "weightPercentage": 1.0}]
+    _write(os.path.join(h, "XIU.TO.json"), rows)
+    result = pipeline.build_fund_finder()
+    assert result.failed == 0 and result.saved == 1
+    assert result.detail["bad_asset_rows"] == 2
+
+
+def test_top10_count_reaches_funds_parquet(pipeline):
+    stage_inputs(pipeline)
+    h = pipeline.fund_holdings_dir
+    _write(os.path.join(h, "XEQT.TO.json"),
+           [{"asset": f"S{i}", "isin": "", "weightPercentage": 10.0} for i in range(10)])
+    _write(os.path.join(pipeline.fund_info_dir, "XEQT.TO.json"), [{"holdingsCount": 0}])
+    detail = pipeline.build_fund_finder().detail
+    assert detail["dropped_top10_only_symbols"] == ["XEQT.TO"]
+    fdf = pd.read_parquet(os.path.join(pipeline.fund_data_dir, "funds.parquet"))
+    assert fdf.attrs["dropped_top10_only"] == 1
+    assert "XEQT.TO" not in set(fdf.symbol)

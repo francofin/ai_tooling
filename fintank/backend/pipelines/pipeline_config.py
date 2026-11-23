@@ -708,3 +708,44 @@ FIELD_MAPPINGS = {
         'finalLink': 'final_link',
     },
 }
+
+
+# --- Fund finder (ETF exposure search) universe ---------------------------
+# Exchange-column values (not exchangeFullName) that count as US / Canadian
+# listings. FMP reports NYSE Arca funds as AMEX.
+FUND_US_EXCHANGES = ["AMEX", "NASDAQ", "NYSE", "CBOE"]
+FUND_CA_EXCHANGES = ["TSX", "NEO"]
+
+# Minimum marketCap (fund AUM) per region. Canada is lower because the whole
+# Canadian ETF market is far smaller; a US $100M floor would drop real funds.
+FUND_AUM_FLOOR = {"us": 100e6, "ca": 25e6}
+
+# Funds whose etf/holdings is only FMP's top 10 rescaled to 100% (Canadian
+# mutual-fund ETF series: etf/info holdingsCount 0) overstate every weight
+# 2-4x, so the build leaves them out: exactly FUND_TOP10_ROWS rows whose
+# weights sum to 100 +/- FUND_TOP10_SUM_TOLERANCE, and holdingsCount 0 or
+# missing. The count reaches the page as a footnote.
+FUND_TOP10_ROWS = 10
+FUND_TOP10_SUM_TOLERANCE = 1.0
+
+# Leveraged / inverse products distort exposure rankings, so they are dropped
+# by name. "Short" followed by a bond word (Treasury, Bond, Muni...) is spared,
+# e.g. a short T-bill fund. Ultra-short bond funds ("Ultra-Short Bond", "Ultra
+# Short-Term") are kept: only the fused UltraShort/UltraPro and ProShares'
+# "Ultra" line (FMP spells it "ProShares - Ultra QQQ") are leveraged ("Invesco S&P Ultra Dividend" is not). "Daily"
+# alone is not a signal (Daily PutWrite, Daily Income); daily-reset funds are
+# caught by their multiplier, Bear/Bull or Leveraged. Single-stock leveraged
+# income lines: "HighShares", "Enhanced High Income Shares". Funds whose
+# holdings sum over FUND_LEVERAGE_COVERAGE_PCT are dropped in the build too.
+FUND_LEVERAGED_PATTERN = (
+    r"\b-?\d+(\.\d+)?x\b"
+    r"|\bultra(pro|short)\b"
+    r"|\bproshares\W+ultra\b"
+    r"|leveraged"
+    r"|inverse"
+    r"|\bbear\b"
+    r"|\bbull\b"
+    r"|highshares"
+    r"|enhanced high income shares"
+    r"|(?<!ultra-)(?<!ultra )\bshort\b(?![- ](term|duration|maturity|dated|treasury|bond|income|government|corporate|municipal|muni))"
+)
