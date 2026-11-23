@@ -907,11 +907,46 @@ class StockDataPipeline:
         return result
 
     _ADR_PAIRS = {"TSM": "2330.TW", "ASML": "ASML.AS", "NVO": "NOVO-B.CO"}
+    _HOLDING_KEYS = ("asset", "isin", "weightPercentage", "updatedAt", "updated")
 
     @staticmethod
     def _read_json(path):
         with open(path) as f:
             return json.load(f)
+
+    def _load_fund_holdings(self, folder, funds):
+        """Holdings the build needs, trimmed to _HOLDING_KEYS per row: every
+        universe fund's file, plus the files of what those funds hold (one
+        level of look-through). Files of funds that left the universe and
+        nobody holds are never read. Files held only two levels down are
+        not read either; they map to [] so build_lookup still sees (and
+        logs) the deep chain."""
+        on_disk = {name[:-5] for name in os.listdir(folder)
+                   if name.endswith(".json") and not name.startswith("_")}
+
+        def stem(symbol):
+            return symbol.replace("/", "_")
+
+        def load(symbol):
+            return [{k: r[k] for k in self._HOLDING_KEYS if k in r}
+                    for r in self._read_json(self._fund_file(folder, symbol))
+                    if isinstance(r, dict)]
+
+        def held(rows):
+            return {r.get("asset") for r in rows if r.get("asset")}
+
+        holdings = {f["symbol"]: load(f["symbol"]) for f in funds
+                    if stem(f["symbol"]) in on_disk}
+        level1 = set().union(*map(held, holdings.values())) if holdings else set()
+        for s in sorted(level1 - set(holdings)):
+            if stem(s) in on_disk:
+                holdings[s] = load(s)
+        level2 = set().union(*(held(holdings[s]) for s in level1 if s in holdings)) \
+            if level1 else set()
+        for s in level2 - set(holdings):
+            if stem(s) in on_disk:
+                holdings[s] = []
+        return holdings
 
     @staticmethod
     def _fund_crosscheck(rows, universe, exposure, cid):
@@ -939,7 +974,8 @@ class StockDataPipeline:
         (every bucket, empty ones with the schema). Local only, overwritten.
 
         _universe.json says which funds exist; other <SYMBOL>.json files are
-        only used for look-through. Any error skips the dataset: nothing is
+        only read when a universe fund holds them (look-through), see
+        _load_fund_holdings. Any error skips the dataset: nothing is
         written and the live bucket keeps the last published copy. detail =
         build_lookup's + company_ids' detail + crosscheck, adr_pairs and
         adr_link_pct, for check_fund_finder."""
@@ -951,9 +987,7 @@ class StockDataPipeline:
         try:
             funds = self._read_json(os.path.join(folder, "_universe.json"))
             slim = self._read_json(os.path.join(folder, "_profile_slim.json"))
-            holdings = {name[:-5]: self._read_json(os.path.join(folder, name))
-                        for name in sorted(os.listdir(folder))
-                        if name.endswith(".json") and not name.startswith("_")}
+            holdings = self._load_fund_holdings(folder, funds)
             fund_info = {}
             if os.path.isdir(self.fund_info_dir):
                 for name in sorted(os.listdir(self.fund_info_dir)):

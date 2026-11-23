@@ -145,3 +145,61 @@ def test_build_stage_registered():
     assert runner.BUILD_STAGES[i + 1] == "build_fund_finder"
     assert DATASET_ORDER[DATASET_ORDER.index("attribution") + 1] == "fund_finder"
 
+
+
+def _spy_lookup(monkeypatch):
+    seen = {}
+    real = sp.build_lookup
+
+    def spy(holdings, *a, **kw):
+        seen["holdings"] = holdings
+        return real(holdings, *a, **kw)
+    monkeypatch.setattr(sp, "build_lookup", spy)
+    return seen
+
+
+def test_build_skips_files_of_funds_nobody_needs(pipeline, monkeypatch):
+    funds = stage_inputs(pipeline)
+    # An ETF held by XIU.TO (one level) is loaded; one only it holds is not.
+    xiu = load_fixture("etf_holdings_xiu") + [
+        {"asset": "MID", "isin": "", "weightPercentage": 1.0}]
+    _write(os.path.join(pipeline.fund_holdings_dir, "XIU.TO.json"), xiu)
+    _write(os.path.join(pipeline.fund_holdings_dir, "MID.json"),
+           [{"asset": "DEEP", "isin": "", "weightPercentage": 100.0}])
+    _write(os.path.join(pipeline.fund_holdings_dir, "DEEP.json"),
+           [{"asset": "AAPL", "isin": "US0378331005", "weightPercentage": 100.0}])
+    loaded = []
+    real_read = sp.StockDataPipeline._read_json
+    monkeypatch.setattr(sp.StockDataPipeline, "_read_json",
+                        staticmethod(lambda path: loaded.append(os.path.basename(path))
+                                     or real_read(path)))
+    seen = _spy_lookup(monkeypatch)
+    result = pipeline.build_fund_finder()
+    assert result.failed == 0
+    assert "GONE.json" not in loaded and "DEEP.json" not in loaded
+    assert "MID.json" in loaded
+    assert "GONE" not in seen["holdings"]
+    assert set(seen["holdings"]) == {"XIU.TO", "XEQT.TO", "VEA", "AGG", "MID", "DEEP"}
+    assert {"XIU.TO", "XEQT.TO", "VEA", "AGG"} <= {f["symbol"] for f in funds}
+    assert seen["holdings"]["DEEP"] == []          # known to exist, never read
+    assert result.detail["deep_chains"] == ["XIU.TO"]
+
+
+def test_build_trims_holding_rows(pipeline, monkeypatch):
+    stage_inputs(pipeline)
+    _write(os.path.join(pipeline.fund_holdings_dir, "AGG.json"),
+           [{"symbol": "AGG", "asset": "AAPL", "name": "Apple", "isin": "US0378331005",
+             "securityCusip": "x", "sharesNumber": 1, "weightPercentage": 1.0,
+             "marketValue": 2.0, "updatedAt": "2026-11-15 00:00:00",
+             "updated": "2026-11-15"}])
+    seen = _spy_lookup(monkeypatch)
+    assert pipeline.build_fund_finder().failed == 0
+    allowed = {"asset", "isin", "weightPercentage", "updatedAt", "updated"}
+    for rows in seen["holdings"].values():
+        for r in rows:
+            assert set(r) <= allowed
+    assert seen["holdings"]["AGG"] == [{"asset": "AAPL", "isin": "US0378331005",
+                                        "weightPercentage": 1.0,
+                                        "updatedAt": "2026-11-15 00:00:00",
+                                        "updated": "2026-11-15"}]
+    assert "updatedAt" in seen["holdings"]["XIU.TO"][0]
