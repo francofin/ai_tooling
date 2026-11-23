@@ -722,14 +722,17 @@ FUND_AUM_FLOOR = {"us": 100e6, "ca": 25e6}
 
 # Leveraged / inverse / daily-reset products distort exposure rankings, so they
 # are dropped by name. "Daily Income" and "Short-Term/Duration" (bond funds)
-# are deliberately spared by the negative lookaheads.
+# are deliberately spared by the negative lookaheads. Ultra-short bond funds
+# ("Ultra-Short Bond", "Ultra Short-Term") are kept: only the fused UltraShort/
+# UltraPro and a bare "Ultra" not followed by "short" are leveraged.
 FUND_LEVERAGED_PATTERN = (
     r"\b-?\d(\.\d)?x\b"
-    r"|\bultra(pro|short)?\b"
+    r"|\bultra(pro|short)\b"
+    r"|\bultra\b(?![- ]short)"
     r"|leveraged"
     r"|inverse"
     r"|\bbear\b"
     r"|\bbull\b"
     r"|\bdaily\b(?! income)"
-    r"|\bshort\b(?![- ](term|duration|maturity|dated))"
+    r"|(?<!ultra-)(?<!ultra )\bshort\b(?![- ](term|duration|maturity|dated))"
 )

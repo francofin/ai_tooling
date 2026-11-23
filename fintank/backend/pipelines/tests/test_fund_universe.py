@@ -57,3 +57,28 @@ def test_company_ids_ambiguous_adr_unlinked():
 def test_bucket_of_is_stable():
     assert bucket_of("CA7800871021") == 40
     assert all(0 <= bucket_of(c) < 64 for c in ["a", "US0378331005", "CA7800871021"])
+
+
+import re
+
+import pytest
+
+from pipelines import pipeline_config as cfg
+from pipelines.fund_universe import _aum
+
+
+@pytest.mark.parametrize("name,dropped", [
+    ("Vanguard Ultra-Short Bond ETF", False),
+    ("BMO Ultra Short-Term Bond ETF", False),
+    ("JPMorgan Ultra-Short Income ETF", False),
+    ("ProShares UltraShort QQQ", True),
+    ("ProShares UltraPro QQQ", True),
+    ("ProShares Ultra QQQ", True),
+])
+def test_leveraged_pattern_names(name, dropped):
+    assert bool(re.search(cfg.FUND_LEVERAGED_PATTERN, name, re.I)) is dropped
+
+
+@pytest.mark.parametrize("v", ["nan", "inf", "-inf", "", "x"])
+def test_aum_non_finite_is_zero(v):
+    assert _aum({"marketCap": v}) == 0.0

@@ -5,6 +5,7 @@
 its interlisted or ADR lines count once; `bucket_of` shards company ids.
 """
 import hashlib
+import math
 import re
 
 from . import pipeline_config as cfg
@@ -21,9 +22,10 @@ def _flag(row, key):
 
 def _aum(row):
     try:
-        return float(row.get("marketCap") or 0)
+        v = float(row.get("marketCap") or 0)
     except (TypeError, ValueError):
         return 0.0
+    return v if math.isfinite(v) else 0.0
 
 
 def _region(exchange):
