@@ -71,7 +71,7 @@ const FundFinder = () => {
               {data.unknown?.length > 0 && (
                 <p className="small text-muted">Not found: {data.unknown.join(', ')}</p>
               )}
-              <FundResultsTable funds={data.funds || []} picks={picks} />
+              <FundResultsTable funds={data.funds || []} picks={picks} fetched={data.fetched} />
               {data.fetched && <p className="small text-muted mb-1">Holdings fetched {data.fetched} from fund issuers via FMP.</p>}
             </>
           )}

@@ -13,7 +13,7 @@ export const formatAum = (aum, currency) => {
   return `${prefix}${compact}`
 }
 
-const FundResultsTable = ({ funds, picks }) => {
+const FundResultsTable = ({ funds, picks, fetched }) => {
   if (!funds.length) return <p className="text-muted">{EMPTY_TEXT}</p>
   return (
     <Table responsive hover className="align-middle">
@@ -44,6 +44,9 @@ const FundResultsTable = ({ funds, picks }) => {
               {fund.also?.length > 0 && (
                 <div className="small text-muted">also available as {fund.also.join(', ')}</div>
               )}
+              {fund.fetched && fund.fetched !== fetched && (
+                <div className="small text-muted">fetched {fund.fetched}</div>
+              )}
             </td>
             <td className="text-end">
               <strong>{pct(fund.combined, 1)}</strong>
@@ -59,7 +62,7 @@ const FundResultsTable = ({ funds, picks }) => {
             })}
             <td className="text-end">{pct(fund.mer, 2)}</td>
             <td className="text-end">{formatAum(fund.aum, fund.currency)}</td>
-            <td>{fund.exchange}</td>
+            <td>{[fund.exchange, fund.currency].filter(Boolean).join(' · ') || '—'}</td>
           </tr>
         ))}
       </tbody>
