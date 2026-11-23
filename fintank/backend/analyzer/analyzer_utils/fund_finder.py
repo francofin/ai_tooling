@@ -136,16 +136,17 @@ def _num(value):
 def _collapse(rows):
     """Merge duplicate funds in one market: same issuer and every pick's weight within tolerance."""
     kept = []
+    groups = {}  # (region, issuer) -> kept rows, in kept order; only these can merge
     for row in sorted(rows, key=lambda r: -(r["aum"] or 0.0)):
-        for winner in kept:
-            if (winner["region"] == row["region"] and winner["issuer"] and row["issuer"]
-                    and winner["issuer"] == row["issuer"]
-                    and all(abs(winner["weights"][p]["weight"] - row["weights"][p]["weight"]) <= COLLAPSE_TOLERANCE
-                            for p in winner["weights"])):
+        group = groups.setdefault((row["region"], row["issuer"]), []) if row["issuer"] else []
+        for winner in group:
+            if all(abs(winner["weights"][p]["weight"] - row["weights"][p]["weight"]) <= COLLAPSE_TOLERANCE
+                   for p in winner["weights"]):
                 winner["also"] = (winner["also"] | row["also"] | {row["symbol"]}) - {winner["symbol"]}
                 break
         else:
             kept.append(row)
+            group.append(row)
     return kept
 
 
