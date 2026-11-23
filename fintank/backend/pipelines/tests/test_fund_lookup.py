@@ -57,11 +57,13 @@ def test_symbol_fallback_when_no_isin():
 
 
 def test_tiny_rows_dropped():
-    exp, *_ = run({"VEA": fx("vea")})
-    shop_ids = exp[exp.weight.between(0.6, 0.61)]
-    assert len(shop_ids) == 1
+    apple = "US0378331005"
+    # A company held nowhere else in VEA: kept at 0.01, dropped at 0.0005.
+    kept, *_ = run({"VEA": fx("vea") + [row("AAPL", 0.01, isin=apple)]})
+    assert (kept.company_id == apple).sum() == 1
+    exp, *_ = run({"VEA": fx("vea") + [row("AAPL", 0.0005, isin=apple)]})
+    assert not (exp.company_id == apple).any()
     assert (exp.weight >= 0.001).all()
-    assert not (exp.weight < 0.0001).any()
 
 
 def test_look_through_expands_one_level():
@@ -70,8 +72,7 @@ def test_look_through_expands_one_level():
     exp, funds_df, _, detail = run(h, {"MIX.TO"})
     r = exp[(exp.company_id == RY) & (exp.fund == "MIX.TO")].sort_values("via")
     assert list(r.via) == ["VEA", "XIU.TO"]
-    assert sum(r.weight) == pytest.approx(0.5 * 9.42991875 + 0.5 * 0.892, abs=1e-3) \
-        or sum(r.weight) == pytest.approx(0.5 * 9.42991875 + 0.5 * 0.8925, abs=1e-3)
+    assert sum(r.weight) == pytest.approx(0.5 * 9.42991875 + 0.5 * 0.89248737)
     assert detail["unexpanded"] == []
 
 
