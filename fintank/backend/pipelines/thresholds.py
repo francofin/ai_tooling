@@ -69,7 +69,8 @@ WARN_ONLY_DATASETS = {"attribution": ATTRIBUTION_FAILURE_STATUS,
 # Fetch/build stages whose failure rate may only reach the status named here.
 WARN_ONLY_STAGES = {"build_index_attribution": ATTRIBUTION_FAILURE_STATUS,
                     "build_fund_finder": FUND_FINDER_FAILURE_STATUS,
-                    "fetch_fund_holdings": FUND_FINDER_FAILURE_STATUS}
+                    "fetch_fund_holdings": FUND_FINDER_FAILURE_STATUS,
+                    "fetch_fund_info": FUND_FINDER_FAILURE_STATUS}
 
 # Factor rows per list vs the list's constituent count.
 FACTOR_MIN_COVERAGE = 0.80

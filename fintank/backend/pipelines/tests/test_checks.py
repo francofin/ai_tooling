@@ -336,12 +336,12 @@ def test_check_fund_finder_deep_chain_warns():
 
 
 def test_fund_finder_stage_failure_rates_are_capped_at_warn():
-    for name in ("build_fund_finder", "fetch_fund_holdings"):
+    for name in ("build_fund_finder", "fetch_fund_holdings", "fetch_fund_info"):
         r = StageResult(name)
         for ok in (False, False, True):
             r.record(ok, "x")
         assert c.check_build_stage(r).status == c.WARN
-    other = StageResult("fetch_fund_info")
+    other = StageResult("fetch_etf_profiles")
     for ok in (False, False, True):
         other.record(ok, "x")
     assert c.check_build_stage(other).status == c.FAIL
