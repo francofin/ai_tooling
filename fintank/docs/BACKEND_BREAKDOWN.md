@@ -129,6 +129,7 @@ All mounted under `/api/`.
 | `GET /stock-prices-monthly/<symbol>/` | `stock:prices:monthly:<SYM>:v1` | S3 `stock_prices/monthly/…` | lazy, per symbol |
 | `GET /financial-statements/<symbol>/<universe>/<type>/` | `stock:statements:<type>:<universe>:<SYM>:v1` | S3 `_model_part_` parquet | lazy, per symbol |
 | `GET /financial-statements/<symbol>/<type>/` | same | as above, universe auto-resolved | lazy |
+| `GET /fund-finder/?include=&exclude=&listed=ca\|us\|both`, `GET /funds-holding/<symbol>/?listed=` | `funds:meta:v1` (funds + isin_map), `funds:company:<id>:v1`, `funds:query:<sha1>:v1`; 6h | S3 `fund_data/` (weekly pipeline: `funds.parquet`, `isin_map.parquet`, `exposure/00..63.parquet`, ~14 MB; one bucket ≤ 250 KB) via [fund_finder.py](backend/analyzer/analyzer_utils/fund_finder.py) | lazy; a query reads only the buckets of its picks (measured cold on local files: 70–220 ms) |
 
 The last five are **lazy per-symbol** rather than beat-warmed: there are thousands of symbols, so the first request for a symbol pays the S3 read and every subsequent one is served from Redis for 24h.
 

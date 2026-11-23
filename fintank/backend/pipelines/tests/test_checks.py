@@ -359,4 +359,4 @@ def test_fund_finder_thresholds():
     assert t.FUND_FINDER_FAILURE_STATUS == "warn"
     assert (t.FUND_CROSSCHECK_PRESENT, t.FUND_CROSSCHECK_WEIGHT_PP,
             t.FUND_ADR_LINK_DROP_PP, t.FUND_XEQT_MIN_ROWS) == (0.95, 0.5, 5.0, 1000)
-    assert t.FUND_MIN_FUNDS == 3000
+    assert t.FUND_MIN_FUNDS == 2100

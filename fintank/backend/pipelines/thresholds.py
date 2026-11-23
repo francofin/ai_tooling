@@ -114,9 +114,11 @@ NEWS_FAILED_SHARE_FAIL = 0.5
 FUND_MIN_HOLDING_PCT = 0.001
 FUND_WEIGHT_SUM_RANGE = (90.0, 110.0)
 FUND_BUCKETS = 64
-# Fund finder checks. FUND_MIN_FUNDS is a placeholder until the dry run
-# (Task 8 sets it to ~90% of the measured count of funds with holdings).
-FUND_MIN_FUNDS = 3000
+# Fund finder checks. FUND_MIN_FUNDS: 90% of the funds with stock exposure
+# rows, rounded down to 100 (local measurement 2026-11-23: 2,357 of 3,564
+# funds; the rest are bond, commodity, cash or alternative funds, or FMP has
+# no holdings for them).
+FUND_MIN_FUNDS = 2100
 # Cross-check vs etf/asset-exposure: share of FMP's in-universe funds present
 # in our lookup, and share whose weight agrees within FUND_CROSSCHECK_WEIGHT_PP.
 FUND_CROSSCHECK_PRESENT = 0.95
