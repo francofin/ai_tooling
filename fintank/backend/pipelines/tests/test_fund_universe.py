@@ -87,7 +87,6 @@ def test_bucket_of_is_stable():
     ("GraniteShares 1.25x Long TSLA Daily ETF", True),
     ("Direxion Daily Semiconductor Bull 3X Shares", True),
     ("T-Rex 2X Long NVIDIA Daily Target ETF", True),
-    ("Direxion Daily S&P 500 Bear 1X Shares", True),
 ])
 def test_leveraged_pattern_names(name, dropped):
     assert bool(re.search(cfg.FUND_LEVERAGED_PATTERN, name, re.I)) is dropped

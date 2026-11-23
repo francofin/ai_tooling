@@ -880,9 +880,10 @@ class StockDataPipeline:
         held_assets = set()
         for f in funds:
             fetched.add(f["symbol"])
-            held_assets.update(r.get("asset") for r in fetch_one(f["symbol"]))
-        extra = sorted(s for s in held_assets
-                       if isinstance(s, str) and s in etfs and s not in fetched)
+            # Only string assets: an unhashable one (a list) would raise here.
+            held_assets.update(a for r in fetch_one(f["symbol"])
+                               if isinstance(a := r.get("asset"), str))
+        extra = sorted(s for s in held_assets if s in etfs and s not in fetched)
         for s in extra:
             fetch_one(s)
         result.detail["look_through_fetched"] = len(extra)

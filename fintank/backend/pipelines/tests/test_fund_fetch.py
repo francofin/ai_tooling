@@ -277,3 +277,13 @@ def test_crosscheck_save_error_only_omitted(pipeline):
     result = pipeline.fetch_fund_holdings()
     assert result.failed == 0
     assert "TD.TO" not in result.detail["crosscheck"]
+
+
+def test_unhashable_asset_does_not_crash_the_stage(pipeline):
+    make_get(pipeline, extra={"XIU.TO": [
+        {"symbol": "XIU.TO", "asset": ["X"], "weightPercentage": 1.0},
+        {"symbol": "XIU.TO", "asset": {"a": 1}, "weightPercentage": 1.0},
+        {"symbol": "XIU.TO", "asset": "AAPL", "weightPercentage": 1.0}]})
+    result = pipeline.fetch_fund_holdings()
+    assert result.failed == 0
+    assert result.detail["crosscheck"] == CHECK

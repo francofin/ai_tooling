@@ -154,6 +154,18 @@ But not:       [SHOP.TO ×]                   [+ add a stock]
 - Each fund links to its existing `/etf-data/[ticker]` page.
 - Empty state: "No ETF in this market holds these stocks without the excluded ones."
 
+## Changed after the 2026-11-23 measurement
+
+A full local fetch (3,564 funds) showed these, and the build changed as follows (the sections above are the original design):
+
+- **ADR link**: an ADR links to the ISIN with the most listings among non-ADR, non-fund rows with the identical company name on non-US exchanges, ignoring the ADR's own ISIN (the ADR traded abroad, e.g. TSFA.F) and ISINs starting US or CA (depositary receipts, e.g. ASML.TO); a tie stays unlinked. The "exactly one candidate" rule left TSM, ASML and NVO unlinked; links went from 69.0% to 75.4%.
+- **Leveraged funds by name**: the pattern adds `highshares` and `enhanced high income shares`, takes any multiplier (`\b-?\d+(\.\d+)?x\b`), drops only ProShares' "Ultra" line instead of any bare "Ultra", and no longer treats "Daily" alone as a signal.
+- **Leveraged funds by holdings**: a fund whose resolved holdings exceed 110% of its raw weights (`FUND_LEVERAGE_COVERAGE_PCT`) is left out of the lookup and listed in `dropped_leveraged_holdings`.
+- **Cross-check** compares FMP's `etf/asset-exposure` with our direct rows only (no look-through), summed over a company's lines per fund. Bars unchanged (95%, 0.5 pp).
+- **Look-through check** warns only above 250 funds (`FUND_LOOK_THROUGH_WARN`); 165 measured, mostly fund → ETF → ETF chains.
+- **MER 0** (FMP's missing value) is shown as "—".
+- **`FUND_MIN_FUNDS` = 2,000**: 90% of the 2,313 funds with exposure rows, rounded down to 100.
+
 ## Phase 2 (not this build)
 
 US mutual funds (with share-class collapse; VFIAX and VOO hold the same portfolio), the fund screener, weight caps, and sector/country filters built from per-fund sector and country weights computed through look-through.

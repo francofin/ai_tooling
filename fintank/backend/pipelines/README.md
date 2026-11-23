@@ -130,7 +130,7 @@ Held-email lines, **all WARN-only in v1** (`FUND_FINDER_FAILURE_STATUS =
 |---|---|
 | `fund_finder.funds` | fewer than `FUND_MIN_FUNDS` (2,000, 90% of the measured 2,313 rounded down) funds have exposure rows |
 | `fund_finder.weight_sum` | a fund's raw holding weights sum outside 90–110% (names listed) |
-| `fund_finder.crosscheck.<SYM>` | for RY.TO, TD.TO, SHOP.TO, AAPL, MSFT: of the universe funds FMP's `etf/asset-exposure` lists, under 95% are in our lookup or under 95% of them agree within 0.5 pp with our **direct** rows (asset-exposure has no look-through), summed over the company's lines. Measured 2026-11-23: present 99.0–99.9%, within 0.5 pp 94.4–97.6%; TD.TO warns (94.4%): five Canadian mutual-fund ETF series whose `etf/holdings` list only their top 10 rescaled to 100%, four funds holding TD preferreds as well as the common (summed), and two leveraged funds the build dropped that FMP still lists |
+| `fund_finder.crosscheck.<SYM>` | for RY.TO, TD.TO, SHOP.TO, AAPL, MSFT: of the universe funds FMP's `etf/asset-exposure` lists, under 95% are in our lookup or under 95% of them agree within 0.5 pp with our **direct** rows (asset-exposure has no look-through), summed over the company's lines. Measured 2026-11-23: present 98.8–99.9%, within 0.5 pp 94.4–97.6%; TD.TO warns (94.4%): five Canadian mutual-fund ETF series whose `etf/holdings` list only their top 10 rescaled to 100%, four funds holding TD preferreds as well as the common (summed), and two leveraged funds the build dropped that FMP still lists |
 | `fund_finder.adr_pairs` | TSM, ASML or NVO does not share a company id with 2330.TW, ASML.AS, NOVO-B.CO |
 | `fund_finder.adr_links` | the share of ADRs linked to a home line fell more than 5 pp from the last published run (measured 75.4%: 1,576 of 2,091). An ADR links to the ISIN with the most non-US listings under its exact company name, ignoring its own ISIN traded abroad and US/CA ISINs (depositary receipts); a tie leaves it unlinked |
 | `fund_finder.look_through` | a fund still holds a universe fund that was not expanded: FMP had no holdings for the held fund (`unexpanded`), or the held fund itself holds funds (`deep_chains`, only one level is expanded), for more than `FUND_LOOK_THROUGH_WARN` (250) funds. Measured: 165 (8 unexpanded + 159 deep, 2 in both) |
@@ -146,7 +146,11 @@ fund there is missing from the page. Fix the pattern, run
 `pytest pipelines/tests/test_fund_universe.py`, and deploy. A leveraged fund
 named without a keyword stays in unless its holdings come to more than 110%:
 those are listed in `build_fund_finder` detail `dropped_leveraged_holdings`
-(14 on 2026-11-23, e.g. HCAL.TO, HFIN.TO, AMZA). Known name gap: "Leverage
+(14 on 2026-11-23, e.g. HCAL.TO, HFIN.TO, AMZA). Over 110% does not always
+mean leverage: it can come from an underlying fund's top-10-rescaled holdings
+(NSUY.TO, through NSDU.TO) or from negative unresolved rows (FX forwards,
+written calls) shrinking the raw sum. Check the fund's `via` rows and its
+negative rows before treating a name as leveraged. Known name gap: "Leverage
 Shares 100% TSLA AND 100% SPCX Daily ETF".
 
 To promote a check to FAIL, set `FUND_FINDER_FAILURE_STATUS = "fail"` after
