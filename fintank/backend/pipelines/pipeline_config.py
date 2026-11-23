@@ -708,3 +708,28 @@ FIELD_MAPPINGS = {
         'finalLink': 'final_link',
     },
 }
+
+
+# --- Fund finder (ETF exposure search) universe ---------------------------
+# Exchange-column values (not exchangeFullName) that count as US / Canadian
+# listings. FMP reports NYSE Arca funds as AMEX.
+FUND_US_EXCHANGES = ["AMEX", "NASDAQ", "NYSE", "CBOE"]
+FUND_CA_EXCHANGES = ["TSX", "NEO"]
+
+# Minimum marketCap (fund AUM) per region. Canada is lower because the whole
+# Canadian ETF market is far smaller; a US $100M floor would drop real funds.
+FUND_AUM_FLOOR = {"us": 100e6, "ca": 25e6}
+
+# Leveraged / inverse / daily-reset products distort exposure rankings, so they
+# are dropped by name. "Daily Income" and "Short-Term/Duration" (bond funds)
+# are deliberately spared by the negative lookaheads.
+FUND_LEVERAGED_PATTERN = (
+    r"\b-?\d(\.\d)?x\b"
+    r"|\bultra(pro|short)?\b"
+    r"|leveraged"
+    r"|inverse"
+    r"|\bbear\b"
+    r"|\bbull\b"
+    r"|\bdaily\b(?! income)"
+    r"|\bshort\b(?![- ](term|duration|maturity|dated))"
+)
