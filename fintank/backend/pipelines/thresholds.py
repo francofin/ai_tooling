@@ -95,3 +95,9 @@ ECON_DEFAULT_MAX_LAG_DAYS = 120
 NEWS_MIN_ARTICLES = {"fmp": 50, "search": 3}
 NEWS_MAX_AGE_DAYS = {"fmp": 3, "search": 7}
 NEWS_FAILED_SHARE_FAIL = 0.5
+
+# Fund finder lookup (fund_lookup.py): holding rows below this percent are
+# dropped; a fund whose raw weights sum outside the range is flagged.
+FUND_MIN_HOLDING_PCT = 0.001
+FUND_WEIGHT_SUM_RANGE = (90.0, 110.0)
+FUND_BUCKETS = 64
