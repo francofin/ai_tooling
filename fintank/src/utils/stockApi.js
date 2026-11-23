@@ -105,3 +105,13 @@ const SECTOR_NEWS_CATEGORIES = {
 };
 
 export const sectorNewsCategory = (sector) => SECTOR_NEWS_CATEGORIES[sector] || 'stock';
+
+// Fund finder. `query` is the object from toQuery() (listed, include, exclude as strings).
+export const fetchFundFinder = (query) =>
+  request(`/fund-finder/?${new URLSearchParams(query).toString()}`, 'fund finder');
+
+export const fetchFundsHolding = (symbol, listed) =>
+  request(
+    `/funds-holding/${encodeURIComponent(symbol)}/?${new URLSearchParams(listed ? { listed } : {}).toString()}`,
+    'funds holding',
+  );

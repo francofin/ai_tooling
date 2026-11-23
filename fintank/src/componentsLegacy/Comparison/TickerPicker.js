@@ -23,7 +23,13 @@ const MAX_SUGGESTIONS = 8
  * always run against current state -- wire it directly to a `useState`
  * setter, never to a wrapper that assumes it always receives an array.
  */
-const TickerPicker = ({ symbols, onChange }) => {
+const TickerPicker = ({
+  symbols,
+  onChange,
+  max = MAX_SYMBOLS,
+  label = 'Compare tickers',
+  id = 'ticker-search',
+}) => {
   // /all-stock-names/ returns { stocks: [...] }, not a bare array -- reading
   // `data` directly would make every isArray check false and the autocomplete
   // would silently never suggest anything.
@@ -32,7 +38,7 @@ const TickerPicker = ({ symbols, onChange }) => {
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
   const inputRef = useRef(null)
-  const full = symbols.length >= MAX_SYMBOLS
+  const full = symbols.length >= max
 
   const suggestions = useMemo(() => {
     const term = query.trim().toUpperCase()
@@ -49,7 +55,7 @@ const TickerPicker = ({ symbols, onChange }) => {
   const add = (item) => {
     const symbol = (item?.symbol ?? '').toUpperCase()
     if (!symbol) return
-    onChange((prev) => (prev.length >= MAX_SYMBOLS || prev.includes(symbol) ? prev : [...prev, symbol]))
+    onChange((prev) => (prev.length >= max || prev.includes(symbol) ? prev : [...prev, symbol]))
     setQuery('')
     setActive(0)
   }
@@ -81,18 +87,18 @@ const TickerPicker = ({ symbols, onChange }) => {
 
   return (
     <div className="ticker-picker">
-      <Form.Label htmlFor="ticker-search">Compare tickers</Form.Label>
+      <Form.Label htmlFor={id}>{label}</Form.Label>
       <Form.Control
-        id="ticker-search"
+        id={id}
         ref={inputRef}
         role="combobox"
         aria-expanded={suggestions.length > 0}
-        aria-controls="ticker-suggestions"
-        aria-activedescendant={suggestions.length ? `ticker-option-${active}` : undefined}
+        aria-controls={`${id}-suggestions`}
+        aria-activedescendant={suggestions.length ? `${id}-option-${active}` : undefined}
         aria-autocomplete="list"
         autoComplete="off"
         disabled={full}
-        placeholder={full ? `Maximum ${MAX_SYMBOLS} tickers` : 'Search a ticker'}
+        placeholder={full ? `Maximum ${max} tickers` : 'Search a ticker'}
         value={query}
         onChange={(event) => {
           setQuery(event.target.value)
@@ -102,11 +108,11 @@ const TickerPicker = ({ symbols, onChange }) => {
       />
 
       {suggestions.length > 0 && (
-        <ListGroup id="ticker-suggestions" role="listbox" className="mt-1 shadow-sm">
+        <ListGroup id={`${id}-suggestions`} role="listbox" className="mt-1 shadow-sm">
           {suggestions.map((item, index) => (
             <ListGroup.Item
               key={item.symbol}
-              id={`ticker-option-${index}`}
+              id={`${id}-option-${index}`}
               role="option"
               aria-selected={index === active}
               action
