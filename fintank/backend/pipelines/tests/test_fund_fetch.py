@@ -232,3 +232,48 @@ def test_holdings_at_half_previous_are_saved(pipeline):
     with open(path) as f:
         assert json.load(f) == new
     assert "XIU.TO" not in result.failed_items
+
+
+def test_non_dict_holdings_row_fails_that_fund_only(pipeline, capsys):
+    path, old = _old_holdings(pipeline, "XIU.TO", 2)
+    make_get(pipeline, extra={"XIU.TO": ["junk", {"symbol": "XIU.TO", "asset": "AAPL",
+                                                  "weightPercentage": 1.0}]})
+    result = pipeline.fetch_fund_holdings()
+    with open(path) as f:
+        assert json.load(f) == old
+    assert result.failed_items == ["XIU.TO"]
+    others = [f["symbol"] for f in _funds() if f["symbol"] != "XIU.TO"]
+    for s in others:
+        assert os.path.exists(os.path.join(pipeline.fund_holdings_dir, f"{s}.json"))
+    assert result.detail["crosscheck"] == CHECK
+    assert "XIU.TO" in capsys.readouterr().out
+
+
+def test_save_error_fails_that_fund_only(pipeline, capsys):
+    make_get(pipeline)
+    real_save = pipeline._save_json
+
+    def save(data, filename, update=False):
+        if filename.endswith("XIU.TO.json"):
+            raise OSError("disk full apikey=SECRET9")
+        return real_save(data, filename, update)
+    pipeline._save_json = save
+    result = pipeline.fetch_fund_holdings()
+    assert result.failed_items == ["XIU.TO"]
+    assert result.detail["crosscheck"] == CHECK
+    out = capsys.readouterr().out
+    assert "SECRET9" not in out and "XIU.TO" in out
+
+
+def test_crosscheck_save_error_only_omitted(pipeline):
+    make_get(pipeline)
+    real_save = pipeline._save_json
+
+    def save(data, filename, update=False):
+        if "_crosscheck" in filename and filename.endswith("TD.TO.json"):
+            raise OSError("disk full")
+        return real_save(data, filename, update)
+    pipeline._save_json = save
+    result = pipeline.fetch_fund_holdings()
+    assert result.failed == 0
+    assert "TD.TO" not in result.detail["crosscheck"]

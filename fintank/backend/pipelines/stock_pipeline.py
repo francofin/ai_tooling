@@ -810,6 +810,11 @@ class StockDataPipeline:
         if not rows:
             result.record_no_data()
             return None
+        if not all(isinstance(r, dict) for r in rows):
+            result.record(False, symbol)
+            print(f"{endpoint} {symbol} FAILED (previous file kept): non-object row "
+                  "in payload")
+            return None
         path = self._fund_file(folder, symbol)
         if endpoint == "etf/holdings" and os.path.exists(path):
             try:
@@ -860,27 +865,37 @@ class StockDataPipeline:
             self._profile_bulk_rows = None
         del bulk
 
+        def fetch_one(symbol):
+            # One bad payload or a failed write fails that fund only: its
+            # previous file stays and the stage carries on.
+            try:
+                return self._fetch_fund_file(result, "etf/holdings", symbol, folder) or []
+            except Exception as e:
+                result.record(False, symbol)
+                print(f"etf/holdings {symbol} FAILED (previous file kept): "
+                      f"{type(e).__name__}: {redact(str(e))}")
+                return []
+
         fetched = set()
         held_assets = set()
         for f in funds:
             fetched.add(f["symbol"])
-            rows = self._fetch_fund_file(result, "etf/holdings", f["symbol"], folder)
-            held_assets.update(r.get("asset") for r in rows or [])
-        extra = sorted(s for s in held_assets if s and s in etfs and s not in fetched)
+            held_assets.update(r.get("asset") for r in fetch_one(f["symbol"]))
+        extra = sorted(s for s in held_assets
+                       if isinstance(s, str) and s in etfs and s not in fetched)
         for s in extra:
-            self._fetch_fund_file(result, "etf/holdings", s, folder)
+            fetch_one(s)
         result.detail["look_through_fetched"] = len(extra)
 
         checked = []
         for s in self._CROSSCHECK_SYMBOLS:
             try:
                 rows = _retry_once(lambda: self._stable_rows("etf/asset-exposure", symbol=s))
+                if rows:
+                    self._save_json(rows, self._fund_file(os.path.join(folder, "_crosscheck"), s))
+                    checked.append(s)
             except Exception as e:
-                print(f"asset-exposure {s} skipped: {redact(str(e))}")
-                continue
-            if rows:
-                self._save_json(rows, self._fund_file(os.path.join(folder, "_crosscheck"), s))
-                checked.append(s)
+                print(f"asset-exposure {s} skipped: {type(e).__name__}: {redact(str(e))}")
         result.detail["crosscheck"] = checked
         return result
 
