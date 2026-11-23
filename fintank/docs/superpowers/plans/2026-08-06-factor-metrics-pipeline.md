@@ -90,6 +90,7 @@ The heart of the producer: given a symbol's `adjClose` series, compute the 1M/3M
 there. `backend/utils/` already holds four standalone scripts no Django code
 imports (`RunCovar`, `GetPrices`, `SP500PeerList`, `PeerCalculations`), so a
 producer-only module fits its existing use.
+(Note 2026-11-22: `RunCovar`, `GetPrices`, `SP500PeerList` and `PeerCalculations` were deleted in the FMP stable migration, branch 3.)
 
 **Interfaces:**
 - Consumes: nothing.
