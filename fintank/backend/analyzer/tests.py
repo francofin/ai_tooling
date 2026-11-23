@@ -1274,8 +1274,10 @@ class FundFinderTests(SimpleTestCase):
     def test_s3_error_is_502(self):
         from django.test import Client
         from analyzer.analyzer_utils import fund_finder
-        with patch.object(fund_finder, '_read_parquet', side_effect=fund_finder.FundsUnavailable('x')):
-            self.assertEqual(Client().get('/api/fund-finder/?include=RY.TO&listed=ca').status_code, 502)
+        with patch.object(fund_finder, '_read_parquet', side_effect=fund_finder.FundsUnavailable('fund_data/exposure/40.parquet')):
+            r = Client().get('/api/fund-finder/?include=RY.TO&listed=ca')
+        self.assertEqual(r.status_code, 502)
+        self.assertEqual(r.json(), {'detail': 'Fund data is unavailable right now.'})
 
     def test_read_parquet_wraps_s3_errors(self):
         from analyzer.analyzer_utils import fund_finder
@@ -1309,3 +1311,37 @@ class FundFinderTests(SimpleTestCase):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(len(self.symbols(r)), 10)
         self.assertEqual(self.get('RY.TO/', path='/api/funds-holding/').status_code, 400)
+
+    def test_collapsed_also_never_lists_the_winner(self):
+        self.fund('W', aum=500, issuer='X', series=[]), self.fund('L', aum=100, issuer='X', series=['W'])
+        self.hold('W', self.RY, 5.0), self.hold('L', self.RY, 5.0)
+        f = self.get('?include=RY.TO&listed=ca').json()['funds']
+        self.assertEqual([(x['symbol'], x['also']) for x in f], [('W', ['L'])])
+
+    def test_funds_holding_rejects_comma(self):
+        r = self.get('RY.TO,TD.TO/?listed=ca', path='/api/funds-holding/')
+        self.assertEqual((r.status_code, r.json()), (400, {'detail': 'one symbol only'}))
+
+    def test_junk_query_is_not_cached(self):
+        from django.core.cache import cache
+        self.fund('A')
+        self.hold('A', self.RY, 5.0)
+        self.get('?include=ZZZZ&listed=ca')
+        self.assertFalse(any(str(k).startswith('funds:query:') for k in cache._cache))
+
+    def test_no_cached_value_is_a_dataframe_and_buckets_read_per_company(self):
+        from django.core.cache import cache
+        self.fund('A')
+        self.hold('A', self.RY, 5.0), self.hold('A', self.TD, 3.0)
+        self.get('?include=RY.TO&listed=ca')
+        self.reads.clear()
+        self.get('?include=RY.TO,TD.TO&listed=ca')
+        reads = [k for k in self.reads if 'exposure' in k]
+        self.assertEqual(reads, [f'fund_data/exposure/{self._b(self.TD):02d}.parquet'])
+        for key in list(cache._cache):
+            self.assertNotIsInstance(cache.get(key.split(':', 2)[2]), pd.DataFrame)
+
+    @staticmethod
+    def _b(cid):
+        from analyzer.analyzer_utils.fund_finder import bucket_of
+        return bucket_of(cid)

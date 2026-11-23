@@ -45,7 +45,7 @@ def _read_parquet(key):
         with data_getter.fs.open(BUCKET_URL + key) as f:
             return pd.read_parquet(io.BytesIO(f.read()))
     except _READ_ERRORS as exc:
-        raise FundsUnavailable(key) from exc
+        raise FundsUnavailable(UNAVAILABLE) from exc
 
 
 def _symbols(raw):
@@ -73,27 +73,47 @@ def parse_query(params):
     return include, exclude, listed
 
 
-def _cached_frame(key, loader):
-    hit = cache.get(key)
-    if hit is not None:
-        return hit
-    frame = loader()
-    cache.set(key, frame, timeout=TTL)
-    return frame
+FUNDS_COLUMNS = ["symbol", "name", "exchange", "region", "currency", "aum", "mer", "issuer", "fetched", "series"]
+UNAVAILABLE = "Fund data is unavailable right now."
 
 
 def _meta():
-    def load():
-        return {
-            "funds": _read_parquet("fund_data/funds.parquet"),
-            "isin": _read_parquet("fund_data/isin_map.parquet"),
-        }
-    return _cached_frame("funds:meta:v1", load)
+    """Slim, plain-Python meta: symbol -> company id, and fund rows as dicts."""
+    hit = cache.get("funds:meta:v1")
+    if hit is not None:
+        return hit
+    isin = _read_parquet("fund_data/isin_map.parquet")
+    funds = _read_parquet("fund_data/funds.parquet")
+    meta = {
+        "by_symbol": dict(zip(isin["symbol"], isin["company_id"])),
+        "funds": {
+            r["symbol"]: {**r, "series": [str(x) for x in (r["series"] if r["series"] is not None else [])]}
+            for r in funds.reindex(columns=FUNDS_COLUMNS).to_dict("records")
+        },
+    }
+    cache.set("funds:meta:v1", meta, timeout=TTL)
+    return meta
 
 
-def _bucket(n):
-    return _cached_frame(f"funds:bucket:{n:02d}:v1",
-                         lambda: _read_parquet(f"fund_data/exposure/{n:02d}.parquet"))
+def _holdings(company_ids):
+    """{company_id: [(fund, weight, via)]}. Only per-company rows are cached; buckets are not."""
+    out, missing = {}, {}
+    for cid in company_ids:
+        hit = cache.get(f"funds:company:{cid}:v1")
+        if hit is not None:
+            out[cid] = hit
+        else:
+            missing.setdefault(bucket_of(cid), []).append(cid)
+    for n, cids in missing.items():
+        frame = _read_parquet(f"fund_data/exposure/{n:02d}.parquet")
+        frame = frame[frame["company_id"].isin(cids)]
+        rows = {cid: [] for cid in cids}
+        for r in frame.itertuples(index=False):
+            rows[r.company_id].append((str(r.fund), float(r.weight), r.via or ""))
+        for cid, tuples in rows.items():
+            cache.set(f"funds:company:{cid}:v1", tuples, timeout=TTL)
+            out[cid] = tuples
+    return out
 
 
 def _resolve(symbols, by_symbol):
@@ -122,7 +142,7 @@ def _collapse(rows):
                     and winner["issuer"] == row["issuer"]
                     and all(abs(winner["weights"][p]["weight"] - row["weights"][p]["weight"]) <= COLLAPSE_TOLERANCE
                             for p in winner["weights"])):
-                winner["also"] |= row["also"] | {row["symbol"]}
+                winner["also"] = (winner["also"] | row["also"] | {row["symbol"]}) - {winner["symbol"]}
                 break
         else:
             kept.append(row)
@@ -131,59 +151,46 @@ def _collapse(rows):
 
 def _query(include, exclude, listed, limit):
     meta = _meta()
-    isin = meta["isin"]
-    by_symbol = dict(zip(isin["symbol"], isin["company_id"]))
-    picks, unknown_in = _resolve(include, by_symbol)
-    out, unknown_ex = _resolve(exclude, by_symbol)
-    clash = {cid: sym for sym, cid in picks}
+    funds = meta["funds"]
+    picks, unknown_in = _resolve(include, meta["by_symbol"])
+    out, unknown_ex = _resolve(exclude, meta["by_symbol"])
+    clash = {cid for _, cid in picks}
     for sym, cid in out:
         if cid in clash:
             raise BadQuery(f"{sym} is in both include and exclude")
-    unknown = unknown_in + unknown_ex
     result = {"listed": listed, "include": [s for s, _ in picks], "exclude": [s for s, _ in out],
-              "unknown": unknown, "fetched": None, "funds": []}
+              "unknown": unknown_in + unknown_ex, "fetched": None, "funds": []}
     if not picks:
         return result
 
-    wanted = {cid for _, cid in picks} | {cid for _, cid in out}
-    frames = []
-    for n in sorted({bucket_of(c) for c in wanted}):
-        frame = _bucket(n)
-        frames.append(frame[frame["company_id"].isin(wanted)])
-    exposure = pd.concat(frames) if frames else pd.DataFrame(columns=["company_id", "fund", "weight", "via"])
-
-    excluded_cids = {cid for _, cid in out}
-    dropped = set(exposure.loc[exposure["company_id"].isin(excluded_cids), "fund"])
-    included_cids = {cid for _, cid in picks}
-    held = exposure[exposure["company_id"].isin(included_cids) & ~exposure["fund"].isin(dropped)]
-
-    funds = meta["funds"].set_index("symbol", drop=False)
+    holdings = _holdings(clash | {cid for _, cid in out})
+    dropped = {f for _, cid in out for f, _, _ in holdings[cid]}
     per_fund = {}
-    for r in held.itertuples(index=False):
-        slot = per_fund.setdefault(r.fund, {}).setdefault(r.company_id, [0.0, set()])
-        slot[0] += float(r.weight)
-        if r.via:
-            slot[1].add(r.via)
+    for _, cid in picks:
+        for fund_symbol, weight, via in holdings[cid]:
+            if fund_symbol in dropped:
+                continue
+            slot = per_fund.setdefault(fund_symbol, {}).setdefault(cid, [0.0, set()])
+            slot[0] += weight
+            if via:
+                slot[1].add(via)
 
     rows = []
     for fund_symbol, by_company in per_fund.items():
-        if fund_symbol not in funds.index:
-            continue
-        info = funds.loc[fund_symbol]
-        if listed != "both" and info["region"] != listed:
+        info = funds.get(fund_symbol)
+        if info is None or (listed != "both" and info["region"] != listed):
             continue
         weights = {}
         for sym, cid in picks:
             weight, via = by_company.get(cid, (0.0, set()))
             weights[sym] = {"weight": round(weight, 4), "via": sorted(via)}
-        series = info["series"]
         rows.append({
             "symbol": fund_symbol, "name": info["name"], "exchange": info["exchange"],
             "region": info["region"], "currency": info["currency"],
             "combined": round(sum(w["weight"] for w in weights.values()), 4),
             "weights": weights, "mer": _num(info["mer"]), "aum": _num(info["aum"]),
             "fetched": info["fetched"], "issuer": info["issuer"] if isinstance(info["issuer"], str) else None,
-            "also": {s for s in (list(series) if series is not None else []) if s != fund_symbol},
+            "also": set(info["series"]) - {fund_symbol},
         })
 
     rows = _collapse(rows)
@@ -207,5 +214,6 @@ def find_funds(include, exclude, listed, limit=DEFAULT_LIMIT):
     if hit is not None:
         return hit
     result = _query(include, exclude, listed, limit)
-    cache.set(key, result, timeout=TTL)
+    if result["include"]:  # junk queries must not mint cache keys
+        cache.set(key, result, timeout=TTL)
     return result

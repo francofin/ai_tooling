@@ -446,6 +446,8 @@ def _fund_response(request, symbol=None):
     try:
         params = request.query_params
         if symbol is not None:
+            if "," in symbol:
+                raise fund_finder.BadQuery("one symbol only")
             params = {"include": symbol, "listed": params.get("listed")}
         include, exclude, listed = fund_finder.parse_query(params)
         limit = fund_finder.HOLDING_LIMIT if symbol is not None else fund_finder.DEFAULT_LIMIT
@@ -455,7 +457,7 @@ def _fund_response(request, symbol=None):
         return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
     except fund_finder.FundsUnavailable as e:
         logger.warning("fund finder upstream failed: %s", type(e.__cause__).__name__)
-        return Response({"detail": client_safe_message(e)}, status=status.HTTP_502_BAD_GATEWAY)
+        return Response({"detail": fund_finder.UNAVAILABLE}, status=status.HTTP_502_BAD_GATEWAY)
     except Exception as e:
         return server_error_response(logger, "fund_finder", e)
 
