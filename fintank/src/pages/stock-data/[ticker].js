@@ -1,5 +1,4 @@
 import React from 'react';
-import Link from 'next/link';
 import { Container, Row, Col } from 'react-bootstrap';
 import {
   Chart as ChartJS,
@@ -144,9 +143,6 @@ const StockDetail = ({ symbol, profile, dates, series, asOfDate, unknownSymbol }
             {series && <MomentumCharts dates={dates} series={series} />}
 
             <StatementsSection symbol={symbol} />
-            <p className="mt-4">
-              <Link href={`/fund-finder?include=${encodeURIComponent(symbol)}`}>Funds that hold this</Link>
-            </p>
             <AnalystView key={symbol} symbol={symbol} currency={profile.currency} />
             <EarningsNotePanel key={symbol} symbol={symbol} />
             <SectorNews sector={profile.sector} />
