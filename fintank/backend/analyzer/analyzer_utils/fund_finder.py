@@ -85,6 +85,9 @@ def _meta():
     isin = _read_parquet("fund_data/isin_map.parquet")
     funds = _read_parquet("fund_data/funds.parquet")
     meta = {
+        # How many funds the pipeline left out because FMP lists only their
+        # top 10 holdings (funds.parquet pandas metadata); shown as a footnote.
+        "dropped_top10_only": int(funds.attrs.get("dropped_top10_only") or 0),
         "by_symbol": dict(zip(isin["symbol"], isin["company_id"])),
         "funds": {
             r["symbol"]: {**r, "series": [str(x) for x in (r["series"] if r["series"] is not None else [])]}
@@ -160,7 +163,8 @@ def _query(include, exclude, listed, limit):
         if cid in clash:
             raise BadQuery(f"{sym} is in both include and exclude")
     result = {"listed": listed, "include": [s for s, _ in picks], "exclude": [s for s, _ in out],
-              "unknown": unknown_in + unknown_ex, "fetched": None, "funds": []}
+              "unknown": unknown_in + unknown_ex, "fetched": None, "funds": [],
+              "dropped_top10_only": meta.get("dropped_top10_only", 0)}
     if not picks:
         return result
 

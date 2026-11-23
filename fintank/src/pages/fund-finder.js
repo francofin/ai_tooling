@@ -5,7 +5,7 @@ import { Alert, Container, Spinner } from 'react-bootstrap'
 import FundFinderForm from '@componentsLegacy/FundFinder/FundFinderForm'
 import FundResultsTable from '@componentsLegacy/FundFinder/FundResultsTable'
 import { useFundFinder } from '@hooks/useFundFinder'
-import { parseQuery, toQuery, canSearch } from '@utils/fundFinder/query.mjs'
+import { parseQuery, toQuery, canSearch, top10Footnote } from '@utils/fundFinder/query.mjs'
 
 const FundFinder = () => {
   const router = useRouter()
@@ -73,6 +73,9 @@ const FundFinder = () => {
               )}
               <FundResultsTable funds={data.funds || []} picks={picks} fetched={data.fetched} />
               {data.fetched && <p className="small text-muted mb-1">Holdings fetched {data.fetched} from fund issuers via FMP.</p>}
+              {top10Footnote(data.dropped_top10_only) && (
+                <p className="small text-muted mb-1">{top10Footnote(data.dropped_top10_only)}</p>
+              )}
             </>
           )}
 

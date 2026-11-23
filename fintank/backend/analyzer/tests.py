@@ -1140,6 +1140,7 @@ class FundFinderTests(SimpleTestCase):
             ('2330.TW', self.TSMC, 'TSMC', 'TAI', False),
         ], columns=['symbol', 'company_id', 'name', 'exchange', 'is_adr'])
         self.reads = []
+        self.top10 = None  # funds.parquet attrs: top-10-only funds left out
 
     def fund(self, symbol, region='ca', aum=1000.0, issuer=None, series=(), fetched='2026-11-20'):
         self.funds.append({
@@ -1156,7 +1157,10 @@ class FundFinderTests(SimpleTestCase):
         from analyzer.analyzer_utils import fund_finder
         self.reads.append(key)
         if key == 'fund_data/funds.parquet':
-            return pd.DataFrame(self.funds)
+            frame = pd.DataFrame(self.funds)
+            if self.top10 is not None:
+                frame.attrs['dropped_top10_only'] = self.top10
+            return frame
         if key == 'fund_data/isin_map.parquet':
             return self.isin
         b = int(key.split('/')[-1].split('.')[0])
@@ -1176,6 +1180,22 @@ class FundFinderTests(SimpleTestCase):
     def test_bucket_of_is_pinned(self):
         from analyzer.analyzer_utils.fund_finder import bucket_of
         self.assertEqual(bucket_of('CA7800871021'), 40)
+
+    def test_top10_count_in_response(self):
+        self.top10 = 36
+        self.fund('A')
+        self.hold('A', self.RY, 5.0)
+        r = self.get('?include=RY.TO&listed=ca')
+        self.assertEqual(r.json()['dropped_top10_only'], 36)
+        # also when nothing matches, and on the stock-page shortcut
+        self.assertEqual(self.get('?include=NOPE&listed=ca').json()['dropped_top10_only'], 36)
+        self.assertEqual(self.get('?listed=ca', path='/api/funds-holding/RY.TO/').json()['dropped_top10_only'], 36)
+
+    def test_top10_count_missing_is_zero(self):
+        self.top10 = None
+        self.fund('A')
+        self.hold('A', self.RY, 5.0)
+        self.assertEqual(self.get('?include=RY.TO&listed=ca').json()['dropped_top10_only'], 0)
 
     def test_ranking_is_pure_combined_weight(self):
         self.fund('A'), self.fund('B')
@@ -1345,3 +1365,4 @@ class FundFinderTests(SimpleTestCase):
     def _b(cid):
         from analyzer.analyzer_utils.fund_finder import bucket_of
         return bucket_of(cid)
+

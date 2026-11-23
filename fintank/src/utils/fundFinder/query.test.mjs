@@ -2,7 +2,7 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { parseQuery, toQuery, canSearch, formatMer } from './query.mjs'
+import { parseQuery, toQuery, canSearch, formatMer, top10Footnote } from './query.mjs'
 
 describe('parseQuery / toQuery', () => {
   it('round-trips a full query', () => {
@@ -72,5 +72,16 @@ describe('formatMer', () => {
     assert.equal(formatMer(null), '—')
     assert.equal(formatMer(undefined), '—')
     assert.equal(formatMer('x'), '—')
+  })
+})
+
+describe('top10Footnote', () => {
+  it('names the count, singular for one, nothing for 0 or missing', () => {
+    assert.equal(top10Footnote(36), '36 funds are left out because FMP lists only their top 10 holdings.')
+    assert.equal(top10Footnote(1), '1 fund is left out because FMP lists only its top 10 holdings.')
+    assert.equal(top10Footnote(0), null)
+    assert.equal(top10Footnote(undefined), null)
+    assert.equal(top10Footnote(null), null)
+    assert.equal(top10Footnote('x'), null)
   })
 })

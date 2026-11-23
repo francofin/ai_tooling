@@ -164,7 +164,9 @@ A full local fetch (3,564 funds) showed these, and the build changed as follows 
 - **Cross-check** compares FMP's `etf/asset-exposure` with our direct rows only (no look-through), summed over a company's lines per fund. Bars unchanged (95%, 0.5 pp).
 - **Look-through check** warns only above 250 funds (`FUND_LOOK_THROUGH_WARN`); 165 measured, mostly fund → ETF → ETF chains.
 - **MER 0** (FMP's missing value) is shown as "—".
-- **`FUND_MIN_FUNDS` = 2,000**: 90% of the 2,313 funds with exposure rows, rounded down to 100.
+- **Top-10-only funds dropped** (owner's call): a fund whose `etf/holdings` is exactly 10 rows summing to 100 ± 1 with `etf/info` holdingsCount 0 or missing is FMP's top 10 rescaled to 100% (weights overstated 2–4×). The build leaves it out (65 funds, all Canadian, mostly NBI mutual-fund ETF series), saves the count in `funds.parquet`'s metadata, the API returns it as `dropped_top10_only`, and the page shows "N funds are left out because FMP lists only their top 10 holdings." (no footnote when 0).
+- **Non-string `asset`** rows are skipped by the fetch look-through and the build, and counted (`bad_asset_rows`).
+- **`FUND_MIN_FUNDS` = 2,000**: 90% of the 2,313 funds with exposure rows, rounded down to 100 (2,277 after the top-10 drop).
 
 ## Phase 2 (not this build)
 

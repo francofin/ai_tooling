@@ -7,6 +7,7 @@ from collections import Counter
 
 import pandas as pd
 
+from . import pipeline_config as cfg
 from .fund_universe import bucket_of
 from .thresholds import (FUND_BUCKETS, FUND_LEVERAGE_COVERAGE_PCT,
                          FUND_MIN_HOLDING_PCT, FUND_WEIGHT_SUM_RANGE)
@@ -31,8 +32,34 @@ def _fetched(rows):
     return Counter(days).most_common(1)[0][0] if days else None
 
 
+def _top10_only(rows, info):
+    """FMP's top 10 rescaled to 100% instead of the full portfolio."""
+    if len(rows) != cfg.FUND_TOP10_ROWS or (info or {}).get("holdings_count"):
+        return False
+    return abs(sum(_w(r) for r in rows) - 100.0) <= cfg.FUND_TOP10_SUM_TOLERANCE
+
+
+def _clean(holdings):
+    """Rows whose asset is a string or absent (an ISIN-only row); returns
+    (holdings, number of rows dropped for a non-string asset)."""
+    bad = 0
+    out = {}
+    for fund, rows in holdings.items():
+        keep = []
+        for r in rows or []:
+            if not isinstance(r, dict):
+                bad += 1
+            elif r.get("asset") is None or isinstance(r.get("asset"), str):
+                keep.append(r)
+            else:
+                bad += 1
+        out[fund] = keep
+    return out, bad
+
+
 def build_lookup(holdings, funds, symbol_to_company, isin_to_company,
                  fund_info, *, listings=None):
+    holdings, bad_assets = _clean(holdings)
     def resolve(r):
         isin = (r.get("isin") or "").strip()
         return (isin_to_company.get(isin) if isin else None) \
@@ -88,7 +115,10 @@ def build_lookup(holdings, funds, symbol_to_company, isin_to_company,
     # missed) would top every ranking: drop the fund from the lookup.
     levered = sorted(s for s, st in stats.items()
                      if st["coverage"] > FUND_LEVERAGE_COVERAGE_PCT)
-    drop = set(levered)
+    top10 = sorted(f["symbol"] for f in funds if f["symbol"] not in levered
+                   and _top10_only(holdings.get(f["symbol"]) or [],
+                                   fund_info.get(f["symbol"])))
+    drop = set(levered) | set(top10)
     recs = [(c, fd, w, via, bucket_of(c, FUND_BUCKETS))
             for (c, fd, via), w in agg.items()
             if w >= FUND_MIN_HOLDING_PCT and fd not in drop]
@@ -112,6 +142,8 @@ def build_lookup(holdings, funds, symbol_to_company, isin_to_company,
             "rows": int(counts.get(f["symbol"], 0)),
             "coverage_pct": stats[f["symbol"]]["coverage"]})
     funds_df = pd.DataFrame(frecs, columns=FUND_COLS)
+    # Saved in funds.parquet's pandas metadata; Django shows it as a footnote.
+    funds_df.attrs["dropped_top10_only"] = len(top10)
 
     present = set(exposure.company_id)
     lst = listings or {}
@@ -130,5 +162,7 @@ def build_lookup(holdings, funds, symbol_to_company, isin_to_company,
               "rows": len(exposure), "weight_sum_outside": sorted(outside),
               "unexpanded": sorted(set(unexpanded)),
               "deep_chains": sorted(deep), "xeqt_asset_rows": xeqt,
-              "dropped_leveraged_holdings": levered}
+              "dropped_leveraged_holdings": levered,
+              "dropped_top10_only": len(top10), "dropped_top10_only_symbols": top10,
+              "bad_asset_rows": bad_assets}
     return exposure, funds_df, isin_map, detail

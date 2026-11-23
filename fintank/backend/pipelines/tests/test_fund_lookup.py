@@ -135,3 +135,44 @@ def test_holdings_over_coverage_limit_drop_the_fund():
     assert "LEV.TO" not in set(exp.fund) and "LEV.TO" not in set(funds_df.symbol)
     assert {"EDGE.TO", "XIU.TO"} <= set(exp.fund) and "EDGE.TO" in set(funds_df.symbol)
     assert detail["funds_with_rows"] == 2
+
+
+def _ten(total):
+    return [row(f"S{i}", total / 10) for i in range(10)]
+
+
+def _top10_run(rows, info):
+    sym = {f"S{i}": f"ID{i}" for i in range(10)}
+    funds = [{"symbol": "TEN.TO", "name": "Ten", "exchange": "TSX", "region": "ca",
+              "currency": "CAD", "aum": 1.0, "isin": "", "series": []}]
+    return build_lookup({"TEN.TO": rows}, funds, sym, {}, info)
+
+
+@pytest.mark.parametrize("info", [{"TEN.TO": {"holdings_count": 0}},
+                                  {"TEN.TO": {"holdings_count": None}}, {}])
+def test_top10_only_fund_dropped_and_counted(info):
+    exp, funds_df, _, detail = _top10_run(_ten(100.0), info)
+    assert exp.empty and funds_df.empty
+    assert detail["dropped_top10_only"] == 1
+    assert detail["dropped_top10_only_symbols"] == ["TEN.TO"]
+    assert funds_df.attrs["dropped_top10_only"] == 1
+
+
+@pytest.mark.parametrize("rows,info", [
+    (_ten(100.0), {"TEN.TO": {"holdings_count": 10}}),   # FMP says it really has 10
+    (_ten(60.0), {"TEN.TO": {"holdings_count": 0}}),     # not rescaled to 100
+    (_ten(100.0)[:9] + [row("S9", 1.0)] + [row("X", 9.0)], {}),   # 11 rows
+])
+def test_ten_row_fund_kept_when_not_top10_only(rows, info):
+    exp, funds_df, _, detail = _top10_run(rows, info)
+    assert list(funds_df.symbol) == ["TEN.TO"] and not exp.empty
+    assert detail["dropped_top10_only"] == 0 and funds_df.attrs["dropped_top10_only"] == 0
+
+
+def test_non_string_assets_skipped_and_counted():
+    rows = [row("RY.TO", 5.0, isin=RY), {"asset": ["X"], "weightPercentage": 3.0},
+            {"asset": {"a": 1}, "weightPercentage": 2.0}, {"asset": 7, "weightPercentage": 1.0}]
+    exp, funds_df, _, detail = run({"XIU.TO": rows, "MIX.TO": [row("XIU.TO", 50)]},
+                                   {"XIU.TO", "MIX.TO"})
+    assert detail["bad_asset_rows"] == 3
+    assert set(exp.fund) == {"XIU.TO", "MIX.TO"}

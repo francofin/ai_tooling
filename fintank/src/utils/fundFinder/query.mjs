@@ -42,3 +42,13 @@ export const formatMer = (mer) => {
   const n = Number(mer)
   return mer == null || Number.isNaN(n) || n === 0 ? '—' : `${n.toFixed(2)}%`
 }
+
+// Footnote for the funds the pipeline leaves out (FMP lists only their top
+// 10 holdings, rescaled to 100%); null when there are none or no count.
+export const top10Footnote = (count) => {
+  const n = Number(count)
+  if (count == null || !Number.isInteger(n) || n <= 0) return null
+  return n === 1
+    ? '1 fund is left out because FMP lists only its top 10 holdings.'
+    : `${n} funds are left out because FMP lists only their top 10 holdings.`
+}

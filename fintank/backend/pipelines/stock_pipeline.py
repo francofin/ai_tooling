@@ -949,7 +949,7 @@ class StockDataPipeline:
                     if isinstance(r, dict)]
 
         def held(rows):
-            return {r.get("asset") for r in rows if r.get("asset")}
+            return {a for r in rows if isinstance(a := r.get("asset"), str) and a}
 
         holdings = {f["symbol"]: load(f["symbol"]) for f in funds
                     if stem(f["symbol"]) in on_disk}
@@ -1017,7 +1017,8 @@ class StockDataPipeline:
                             r = rows[0]
                             fund_info[name[:-5]] = {"mer": r.get("expenseRatio"),
                                                     "issuer": r.get("etfCompany"),
-                                                    "asset_class": r.get("assetClass")}
+                                                    "asset_class": r.get("assetClass"),
+                                                    "holdings_count": r.get("holdingsCount")}
             listings = {r["symbol"]: {"name": r.get("companyName"),
                                       "exchange": r.get("exchange"),
                                       "is_adr": str(r.get("isAdr", "")).strip().lower()

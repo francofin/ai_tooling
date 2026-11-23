@@ -216,3 +216,27 @@ def test_crosscheck_compares_direct_rows_only():
     cc = sp.StockDataPipeline._fund_crosscheck(rows, {"XIU.TO", "ZWB.TO"}, exposure, RY)
     # XIU.TO agrees on its direct row; ZWB.TO holds RY only through ZEB.TO.
     assert cc == {"in_universe": 2, "present_pct": 50.0, "weight_ok_pct": 50.0}
+
+
+def test_build_completes_with_non_string_assets(pipeline):
+    stage_inputs(pipeline)
+    h = pipeline.fund_holdings_dir
+    rows = load_fixture("etf_holdings_xiu") + [
+        {"asset": ["X"], "weightPercentage": 1.0}, {"asset": {"a": 1}, "weightPercentage": 1.0}]
+    _write(os.path.join(h, "XIU.TO.json"), rows)
+    result = pipeline.build_fund_finder()
+    assert result.failed == 0 and result.saved == 1
+    assert result.detail["bad_asset_rows"] == 2
+
+
+def test_top10_count_reaches_funds_parquet(pipeline):
+    stage_inputs(pipeline)
+    h = pipeline.fund_holdings_dir
+    _write(os.path.join(h, "XEQT.TO.json"),
+           [{"asset": f"S{i}", "isin": "", "weightPercentage": 10.0} for i in range(10)])
+    _write(os.path.join(pipeline.fund_info_dir, "XEQT.TO.json"), [{"holdingsCount": 0}])
+    detail = pipeline.build_fund_finder().detail
+    assert detail["dropped_top10_only_symbols"] == ["XEQT.TO"]
+    fdf = pd.read_parquet(os.path.join(pipeline.fund_data_dir, "funds.parquet"))
+    assert fdf.attrs["dropped_top10_only"] == 1
+    assert "XEQT.TO" not in set(fdf.symbol)
