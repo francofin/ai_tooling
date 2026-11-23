@@ -31,6 +31,9 @@ MIN_COUNTS = {
     "econ": 20,
     "profile_rows.company_profiles": 11000,
     "profile_rows.long_profiles": 5000,
+    # Files, not funds: funds.parquet + isin_map.parquet + 64 exposure buckets
+    # (every bucket is written, empty or not). WARN-only (WARN_ONLY_DATASETS).
+    "fund_finder": 66,
 }
 # Index attribution (check_attribution). Every attribution check is WARN-only
 # in v1: a FAIL fails the whole weekly run, and a bug in this new dataset must
@@ -56,11 +59,17 @@ ATTRIBUTION_UNCHECKED_RESIDUAL = {"msci_eafe", "msci_sm"}
 # not checked, for these windows until history-linked attribution replaces it.
 ATTRIBUTION_MIGRATING = {"r2000", "rmicro", "tsx_small_cap", "msci_sm"}
 ATTRIBUTION_LONG_WINDOWS = {"ytd", "1Y"}
-# Output datasets whose count drop vs the last publish may only warn: built
-# parquets are not state, so a list skipped this run is simply missing locally.
-WARN_ONLY_DATASETS = {"attribution"}
-# Build stages whose failure rate may only warn.
-WARN_ONLY_STAGES = {"build_index_attribution"}
+# Fund finder (check_fund_finder): WARN-only at first, like attribution.
+FUND_FINDER_FAILURE_STATUS = "warn"
+# Output datasets whose count drop vs the last publish (or minimum) may only
+# reach the status named here: built parquets are not state, so a list skipped
+# this run is simply missing locally.
+WARN_ONLY_DATASETS = {"attribution": ATTRIBUTION_FAILURE_STATUS,
+                      "fund_finder": FUND_FINDER_FAILURE_STATUS}
+# Fetch/build stages whose failure rate may only reach the status named here.
+WARN_ONLY_STAGES = {"build_index_attribution": ATTRIBUTION_FAILURE_STATUS,
+                    "build_fund_finder": FUND_FINDER_FAILURE_STATUS,
+                    "fetch_fund_holdings": FUND_FINDER_FAILURE_STATUS}
 
 # Factor rows per list vs the list's constituent count.
 FACTOR_MIN_COVERAGE = 0.80
@@ -101,3 +110,14 @@ NEWS_FAILED_SHARE_FAIL = 0.5
 FUND_MIN_HOLDING_PCT = 0.001
 FUND_WEIGHT_SUM_RANGE = (90.0, 110.0)
 FUND_BUCKETS = 64
+# Fund finder checks. FUND_MIN_FUNDS is a placeholder until the dry run
+# (Task 8 sets it to ~90% of the measured count of funds with holdings).
+FUND_MIN_FUNDS = 3000
+# Cross-check vs etf/asset-exposure: share of FMP's in-universe funds present
+# in our lookup, and share whose weight agrees within FUND_CROSSCHECK_WEIGHT_PP.
+FUND_CROSSCHECK_PRESENT = 0.95
+FUND_CROSSCHECK_WEIGHT_PP = 0.5
+# ADR link share may fall at most this many points from the last published run.
+FUND_ADR_LINK_DROP_PP = 5.0
+# XEQT.TO must have more than this many holding rows with an `asset`.
+FUND_XEQT_MIN_ROWS = 1000

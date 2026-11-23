@@ -199,3 +199,29 @@ def test_build_failures_count_as_checks(pipeline, tmp_path):
     by_name = {c["name"]: c["status"] for c in report.checks}
     assert by_name["build_relative_performance.failure_rate"] == "fail"
     assert by_name["minimum.stock_prices"] == "fail"           # empty fixture data
+
+
+def test_fund_finder_checked_against_last_published_detail(pipeline, tmp_path, monkeypatch):
+    from pipelines.store import LAST_PUBLISHED_REPORT
+    seen = []
+    monkeypatch.setattr(runner, "check_fund_finder",
+                        lambda detail, previous: seen.append((detail, previous)) or [])
+    ctx = make_ctx(tmp_path, pipeline=pipeline, today=dt.date(2026, 10, 10))
+    ctx.store.put_json(LAST_PUBLISHED_REPORT, {"stages": [
+        {"name": "build_fund_finder", "saved": 1, "detail": {"adr_link_pct": 81.0}}]})
+    report = RunReport("lean-1", "weekly", "lean", "2026-10-10T10:00:00+00:00", dry_run=True)
+    report.add_stage(StageResult("build_fund_finder", attempted=1, saved=1,
+                                 detail={"adr_link_pct": 80.0}), 1.0)
+    runner.run_checks(ctx, report)
+    assert seen == [({"adr_link_pct": 80.0}, {"adr_link_pct": 81.0})]
+
+
+def test_failed_fund_finder_build_only_warns(pipeline, tmp_path):
+    ctx = make_ctx(tmp_path, pipeline=pipeline, today=dt.date(2026, 10, 10))
+    report = RunReport("lean-1", "weekly", "lean", "2026-10-10T10:00:00+00:00", dry_run=True)
+    report.add_stage(StageResult("build_fund_finder", attempted=1, failed=1), 1.0)
+    runner.run_checks(ctx, report)
+    by_name = {c["name"]: c["status"] for c in report.checks}
+    assert by_name["build_fund_finder.failure_rate"] == "warn"
+    assert by_name["minimum.fund_finder"] == "warn"
+    assert not any(n.startswith("fund_finder.") for n in by_name)
