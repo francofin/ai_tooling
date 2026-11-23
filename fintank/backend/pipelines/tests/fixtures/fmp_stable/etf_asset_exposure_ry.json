@@ -1,0 +1,26 @@
+[
+ {
+  "_handwritten": true,
+  "symbol": "XIU.TO",
+  "asset": "RY.TO",
+  "weightPercentage": 9.43,
+  "sharesNumber": 8048150,
+  "marketValue": 2117065857.5
+ },
+ {
+  "_handwritten": true,
+  "symbol": "ZEB.TO",
+  "asset": "RY.TO",
+  "weightPercentage": 19.8,
+  "sharesNumber": 4100000,
+  "marketValue": 935000000.0
+ },
+ {
+  "_handwritten": true,
+  "symbol": "VEA",
+  "asset": "RY.TO",
+  "weightPercentage": 0.89,
+  "sharesNumber": 9200000,
+  "marketValue": 1240000000.0
+ }
+]
