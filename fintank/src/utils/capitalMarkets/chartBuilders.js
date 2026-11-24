@@ -1,4 +1,5 @@
 import { FREQUENCY_KEYS } from "./chartOptions";
+import { weeklyForDisplay } from "./downsample.mjs";
 
 /**
  * Chart.js line config for one {dates, value} series from /economic-data/.
@@ -10,18 +11,27 @@ import { FREQUENCY_KEYS } from "./chartOptions";
  * read a stale `selectedFrequency` -- switching the dropdown drew the
  * previously selected frequency. With no state there is nothing to be stale.
  */
-export const buildLineChart = ({ series, label, color }) => ({
-  labels: series?.dates ?? [],
-  datasets: [
-    {
-      label,
-      data: series?.value ?? [],
-      borderColor: color,
-      backgroundColor: color,
-      pointRadius: 1,
-    },
-  ],
-});
+export const buildLineChart = ({ series, label, color }) => {
+  // Long daily series are drawn weekly; see downsample.mjs. The commentary
+  // reads the full series, so no figure on the page changes.
+  const shown = weeklyForDisplay(series);
+  return {
+    labels: shown?.dates ?? [],
+    datasets: [
+      {
+        label,
+        data: shown?.value ?? [],
+        borderColor: color,
+        backgroundColor: color,
+        borderWidth: 1.5,
+        // No dot per point: hundreds to thousands of dots per chart were most
+        // of the drawing cost. The hover tooltip still shows the nearest point.
+        pointRadius: 0,
+        pointHoverRadius: 3,
+      },
+    ],
+  };
+};
 
 /** Pick one frequency out of an equity_markets[pack] object. */
 export const selectFrequencySeries = (pack, frequency) =>

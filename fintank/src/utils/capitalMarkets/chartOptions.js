@@ -32,14 +32,12 @@ export const indexLineOptions = {
       text: "Time Series Data",
     },
   },
-  animations: {
-    tension: {
-      duration: 1000,
-      easing: "linear",
-      from: 1,
-      to: 0,
-      loop: false,
-    },
+  // Animating every point of every chart on each tab switch froze the page;
+  // the tab content fades in with CSS instead (.capital-markets-tab-pane).
+  animation: false,
+  interaction: {
+    mode: "index",
+    intersect: false,
   },
 };
 

@@ -71,6 +71,22 @@ const CapitalMarketIndicators = ({ economic, equityMarkets, lastUpdated }) => {
   const indexData = useHomeIndex();
   const { data: stockNames } = useStockNames();
   const [activeTab, setActiveTab] = useState(EQUITY_TAB);
+  // Tabs opened so far. A tab's charts are built on its first visit and then
+  // kept (hidden with d-none), so switching back is instant.
+  const [visitedTabs, setVisitedTabs] = useState(() => new Set([EQUITY_TAB]));
+
+  const selectTab = (tab) => {
+    if (!tab) return;
+    setActiveTab(tab);
+    setVisitedTabs((current) =>
+      current.has(tab) ? current : new Set(current).add(tab)
+    );
+  };
+
+  // /index-performance/ answers {data: [...quotes]}; the slider needs the list.
+  const indexQuotes = Array.isArray(indexData.data?.data)
+    ? indexData.data.data
+    : [];
 
   const searchableStocks = stockNames?.stocks?.filter(
     (stock) => stock.universe === "sp500" || stock.universe === "tsx"
@@ -121,7 +137,7 @@ const CapitalMarketIndicators = ({ economic, equityMarkets, lastUpdated }) => {
         </Container>
       </section>
 
-      {data.topBlocks && (
+      {data.topBlocks && indexQuotes.length > 0 && (
         <section className="py-6 bg-gray-100">
           <Container>
             <div className="text-center pb-lg-4">
@@ -136,7 +152,7 @@ const CapitalMarketIndicators = ({ economic, equityMarkets, lastUpdated }) => {
               md={2}
               lg={3}
               xl={4}
-              data={indexData.data}
+              data={indexQuotes}
               loop
               speed={1000}
               pagination
@@ -152,7 +168,7 @@ const CapitalMarketIndicators = ({ economic, equityMarkets, lastUpdated }) => {
             <Nav
               variant="tabs"
               className="search-bar-nav-tabs"
-              onSelect={setActiveTab}
+              onSelect={selectTab}
             >
               {tabData.marketSearchTabs.tabs.map((tab, index) => (
                 <Nav.Item
@@ -168,14 +184,30 @@ const CapitalMarketIndicators = ({ economic, equityMarkets, lastUpdated }) => {
               ))}
             </Nav>
             <section className="py-0 bg-white-100">
-              {/* Only the active section is rendered, so the inactive tab's
-                  Chart.js canvases are never created. */}
+              {/* A tab's charts are created on its first visit only, then
+                  hidden rather than destroyed when the user switches away. */}
               {!hasData && <DataUnavailable />}
-              {hasData && activeTab === EQUITY_TAB && (
-                <EquitySection equityMarkets={equityMarkets} />
+              {hasData && visitedTabs.has(EQUITY_TAB) && (
+                <div
+                  className={
+                    activeTab === EQUITY_TAB
+                      ? "capital-markets-tab-pane"
+                      : "d-none"
+                  }
+                >
+                  <EquitySection equityMarkets={equityMarkets} />
+                </div>
               )}
-              {hasData && activeTab === ECONOMIC_TAB && (
-                <EconomicSection economic={economic} />
+              {hasData && visitedTabs.has(ECONOMIC_TAB) && (
+                <div
+                  className={
+                    activeTab === ECONOMIC_TAB
+                      ? "capital-markets-tab-pane"
+                      : "d-none"
+                  }
+                >
+                  <EconomicSection economic={economic} />
+                </div>
               )}
               {hasData && (
                 <Container>
