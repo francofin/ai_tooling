@@ -1379,6 +1379,15 @@ class FundFinderTests(SimpleTestCase):
         self._plain_and_levered(issuer='Hamilton')
         self.assertEqual(self.symbols(self.get('?include=RY.TO&listed=ca&leveraged=1')), ['L', 'A'])
 
+    def test_leveraged_not_collapsed_at_tiny_weights(self):
+        # 1.25x of a tail holding is within COLLAPSE_TOLERANCE of the plain fund's weight.
+        self.fund('A', aum=500, issuer='Hamilton', leveraged=False)
+        self.fund('L', aum=100, issuer='Hamilton', leveraged=True, coverage=125.0)
+        self.hold('A', self.RY, 0.02)
+        self.hold('L', self.RY, 0.025)
+        r = self.get('?include=RY.TO&listed=ca&leveraged=1').json()['funds']
+        self.assertEqual([(f['symbol'], f['also']) for f in r], [('L', []), ('A', [])])
+
     def test_exclude_applies_to_leveraged(self):
         self._plain_and_levered()
         self.hold('L', self.TD, 3.0)

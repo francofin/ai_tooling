@@ -146,9 +146,11 @@ def _num(value):
 def _collapse(rows):
     """Merge duplicate funds in one market: same issuer and every pick's weight within tolerance."""
     kept = []
-    groups = {}  # (region, issuer) -> kept rows, in kept order; only these can merge
+    groups = {}  # (region, issuer, leveraged) -> kept rows, in kept order; only these can merge
     for row in sorted(rows, key=lambda r: -(r["aum"] or 0.0)):
-        group = groups.setdefault((row["region"], row["issuer"]), []) if row["issuer"] else []
+        # A leveraged fund never merges with a plain one: at a tiny weight 1.25x
+        # can fall within COLLAPSE_TOLERANCE of its unlevered sibling.
+        group = groups.setdefault((row["region"], row["issuer"], row["leveraged"]), []) if row["issuer"] else []
         for winner in group:
             if all(abs(winner["weights"][p]["weight"] - row["weights"][p]["weight"]) <= COLLAPSE_TOLERANCE
                    for p in winner["weights"]):
