@@ -125,16 +125,22 @@ def test_dtypes_fetched_and_info():
     assert isinstance(f.series, list)
 
 
-def test_holdings_over_coverage_limit_drop_the_fund():
+def test_coverage_band_keeps_and_flags_leveraged():
     apple = "US0378331005"
-    lev = [row("AAPL", 127.5, isin=apple), row("", -27.5)]      # cash borrow
-    edge = [row("AAPL", 110.0, isin=apple), row("", -10.0)]     # at the limit: kept
-    exp, funds_df, _, detail = run({"LEV.TO": lev, "EDGE.TO": edge, "XIU.TO": fx("xiu")},
-                                   {"LEV.TO", "EDGE.TO", "XIU.TO"})
-    assert detail["dropped_leveraged_holdings"] == ["LEV.TO"]
-    assert "LEV.TO" not in set(exp.fund) and "LEV.TO" not in set(funds_df.symbol)
-    assert {"EDGE.TO", "XIU.TO"} <= set(exp.fund) and "EDGE.TO" in set(funds_df.symbol)
-    assert detail["funds_with_rows"] == 2
+    lev = [row("AAPL", 127.5, isin=apple), row("", -27.5)]      # 1.275x: kept, flagged
+    edge = [row("AAPL", 110.0, isin=apple), row("", -10.0)]     # at 110: kept, not flagged
+    wild = [row("AAPL", 160.0, isin=apple), row("", -60.0)]     # over 150: dropped
+    exp, funds_df, _, detail = run({"LEV.TO": lev, "EDGE.TO": edge, "WILD.TO": wild, "XIU.TO": fx("xiu")},
+                                   {"LEV.TO", "EDGE.TO", "WILD.TO", "XIU.TO"})
+    assert detail["dropped_leveraged_holdings"] == ["WILD.TO"]
+    assert detail["leveraged_kept"] == ["LEV.TO"]
+    assert "WILD.TO" not in set(exp.fund) and "WILD.TO" not in set(funds_df.symbol)
+    flags = dict(zip(funds_df.symbol, funds_df.leveraged))
+    assert flags == {"LEV.TO": True, "EDGE.TO": False, "XIU.TO": False}
+    assert funds_df.leveraged.dtype == bool
+    lev_w = exp[(exp.fund == "LEV.TO")].weight.sum()
+    assert lev_w == pytest.approx(127.5)                          # real weight, not scaled
+    assert detail["funds_with_rows"] == 3
 
 
 def _ten(total):
