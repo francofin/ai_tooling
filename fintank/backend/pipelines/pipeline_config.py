@@ -737,6 +737,9 @@ FUND_TOP10_SUM_TOLERANCE = 1.0
 # caught by their multiplier, Bear/Bull or Leveraged. Single-stock leveraged
 # income lines: "HighShares", "Enhanced High Income Shares". Funds whose
 # holdings sum over FUND_LEVERAGE_COVERAGE_PCT are dropped in the build too.
+# "Long/Short", "Long-Short" and "Long Short" equity funds are kept (owner
+# decision 2026-11-26): their shorts are negative weights, which
+# FUND_MIN_HOLDING_PCT already leaves out, so they rank on their longs.
 FUND_LEVERAGED_PATTERN = (
     r"\b-?\d+(\.\d+)?x\b"
     r"|\bultra(pro|short)\b"
@@ -747,5 +750,5 @@ FUND_LEVERAGED_PATTERN = (
     r"|\bbull\b"
     r"|highshares"
     r"|enhanced high income shares"
-    r"|(?<!ultra-)(?<!ultra )\bshort\b(?![- ](term|duration|maturity|dated|treasury|bond|income|government|corporate|municipal|muni))"
+    r"|(?<!ultra-)(?<!ultra )(?<!long/)(?<!long-)(?<!long )\bshort\b(?![- ](term|duration|maturity|dated|treasury|bond|income|government|corporate|municipal|muni))"
 )
