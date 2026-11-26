@@ -449,9 +449,10 @@ def _fund_response(request, symbol=None):
             if "," in symbol:
                 raise fund_finder.BadQuery("one symbol only")
             params = {"include": symbol, "listed": params.get("listed")}
-        include, exclude, listed = fund_finder.parse_query(params)
+        # The stock-page shortcut builds params without "leveraged": never shown there.
+        include, exclude, listed, leveraged = fund_finder.parse_query(params)
         limit = fund_finder.HOLDING_LIMIT if symbol is not None else fund_finder.DEFAULT_LIMIT
-        payload = fund_finder.find_funds(include, exclude, listed, limit)
+        payload = fund_finder.find_funds(include, exclude, listed, limit, leveraged)
         return Response(payload, status=status.HTTP_200_OK)
     except fund_finder.BadQuery as e:
         return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)

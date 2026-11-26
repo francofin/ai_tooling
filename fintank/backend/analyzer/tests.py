@@ -1142,13 +1142,17 @@ class FundFinderTests(SimpleTestCase):
         self.reads = []
         self.top10 = None  # funds.parquet attrs: top-10-only funds left out
 
-    def fund(self, symbol, region='ca', aum=1000.0, issuer=None, series=(), fetched='2026-11-20'):
-        self.funds.append({
+    def fund(self, symbol, region='ca', aum=1000.0, issuer=None, series=(), fetched='2026-11-20',
+             leveraged=None, coverage=90.0):
+        record = {
             'symbol': symbol, 'name': symbol + ' fund', 'exchange': 'TSX' if region == 'ca' else 'NYSE',
             'region': region, 'currency': 'CAD' if region == 'ca' else 'USD', 'aum': aum, 'mer': 0.5,
             'issuer': issuer, 'asset_class': 'Equity', 'fetched': fetched, 'series': list(series),
-            'rows': 10, 'coverage_pct': 90.0,
-        })
+            'rows': 10, 'coverage_pct': coverage,
+        }
+        if leveraged is not None:  # None: an old funds.parquet without the column
+            record['leveraged'] = leveraged
+        self.funds.append(record)
 
     def hold(self, fund, company, weight, via=''):
         self.exposure.append({'company_id': company, 'fund': fund, 'weight': weight, 'via': via})
@@ -1322,6 +1326,64 @@ class FundFinderTests(SimpleTestCase):
         self.reads.clear()
         self.get('?include=RY.TO&listed=both')
         self.assertNotIn('fund_data/funds.parquet', self.reads)
+
+    def _plain_and_levered(self, issuer=None):
+        self.fund('A', aum=500, issuer=issuer, leveraged=False)
+        self.fund('L', aum=100, issuer=issuer, leveraged=True, coverage=124.4)
+        self.hold('A', self.RY, 5.0)
+        self.hold('L', self.RY, 6.2)
+
+    def test_leveraged_hidden_by_default(self):
+        self._plain_and_levered()
+        r = self.get('?include=RY.TO&listed=ca')
+        self.assertEqual(self.symbols(r), ['A'])
+        self.assertIs(r.json()['leveraged'], False)
+
+    def test_leveraged_shown_when_asked(self):
+        self._plain_and_levered()
+        r = self.get('?include=RY.TO&listed=ca&leveraged=1').json()
+        self.assertEqual([f['symbol'] for f in r['funds']], ['L', 'A'])
+        lev, plain = r['funds']
+        self.assertIs(lev['leveraged'], True)
+        self.assertEqual(lev['coverage_pct'], 124.4)
+        self.assertIs(plain['leveraged'], False)
+        self.assertIs(r['leveraged'], True)
+
+    def test_leveraged_only_exact_one(self):
+        self._plain_and_levered()
+        for value in ('true', '0', ''):
+            with self.subTest(value=value):
+                self.assertEqual(self.symbols(self.get(f'?include=RY.TO&listed=ca&leveraged={value}')), ['A'])
+
+    def test_leveraged_query_cache_separate(self):
+        self._plain_and_levered()
+        self.assertEqual(self.symbols(self.get('?include=RY.TO&listed=ca')), ['A'])
+        self.assertEqual(self.symbols(self.get('?include=RY.TO&listed=ca&leveraged=1')), ['L', 'A'])
+        self.assertEqual(self.symbols(self.get('?include=RY.TO&listed=ca')), ['A'])
+
+    def test_old_parquet_without_column(self):
+        self.fund('A')  # no 'leveraged' key at all
+        self.hold('A', self.RY, 5.0)
+        for q in ('?include=RY.TO&listed=ca', '?include=RY.TO&listed=ca&leveraged=1'):
+            with self.subTest(q=q):
+                r = self.get(q)
+                self.assertEqual(r.status_code, 200)
+                self.assertEqual([(f['symbol'], f['leveraged']) for f in r.json()['funds']], [('A', False)])
+
+    def test_funds_holding_never_leveraged(self):
+        self._plain_and_levered()
+        r = self.get('RY.TO/?listed=ca&leveraged=1', path='/api/funds-holding/')
+        self.assertEqual(self.symbols(r), ['A'])
+
+    def test_leveraged_not_collapsed_into_sibling(self):
+        self._plain_and_levered(issuer='Hamilton')
+        self.assertEqual(self.symbols(self.get('?include=RY.TO&listed=ca&leveraged=1')), ['L', 'A'])
+
+    def test_exclude_applies_to_leveraged(self):
+        self._plain_and_levered()
+        self.hold('L', self.TD, 3.0)
+        r = self.get('?include=RY.TO&exclude=TD.TO&listed=ca&leveraged=1')
+        self.assertEqual(self.symbols(r), ['A'])
 
     def test_funds_holding_shortcut(self):
         for i in range(12):
