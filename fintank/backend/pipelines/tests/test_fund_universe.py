@@ -87,6 +87,14 @@ def test_bucket_of_is_stable():
     ("GraniteShares 1.25x Long TSLA Daily ETF", True),
     ("Direxion Daily Semiconductor Bull 3X Shares", True),
     ("T-Rex 2X Long NVIDIA Daily Target ETF", True),
+    # Long/short equity funds are ordinary funds, kept (owner decision 2026-11-26)
+    ("First Trust Long/Short Equity ETF", False),
+    ("Harbor Long-Short Equity ETF", False),
+    ("BMO Long Short Canadian Equity ETF", False),
+    ("Franklin LONG/SHORT Equity ETF", False),
+    # ...unless something else in the name marks them leveraged
+    ("Acme 2x Long/Short Equity ETF", True),
+    ("Acme Leveraged Long/Short ETF", True),
 ])
 def test_leveraged_pattern_names(name, dropped):
     assert bool(re.search(cfg.FUND_LEVERAGED_PATTERN, name, re.I)) is dropped
