@@ -16,13 +16,14 @@ const OPTIONS = {
 // swr@1 spreads an array key across the fetcher's arguments, hence `(_, a, b, c)`.
 export const useFundFinder = (state) => {
   const key = canSearch(state)
-    ? ['fund-finder', state.listed, state.include.join(','), state.exclude.join(',')]
+    ? ['fund-finder', state.listed, state.include.join(','), state.exclude.join(','), state.leveraged ? '1' : '']
     : null
   return withIsLoading(
     key,
     useSWR(
       key,
-      (_, listed, include, exclude) => fetchFundFinder({ listed, include, ...(exclude ? { exclude } : {}) }),
+      (_, listed, include, exclude, leveraged) =>
+        fetchFundFinder({ listed, include, ...(exclude ? { exclude } : {}), ...(leveraged ? { leveraged } : {}) }),
       OPTIONS,
     ),
   )

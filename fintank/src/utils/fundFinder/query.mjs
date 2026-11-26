@@ -23,6 +23,7 @@ export const parseQuery = (urlQuery) => {
     listed: LISTED.includes(listed) ? listed : null,
     include: parseList(q.include),
     exclude: parseList(q.exclude),
+    leveraged: first(q.leveraged) === '1',
   }
 }
 
@@ -31,6 +32,7 @@ export const toQuery = (state) => {
   if (state.listed) out.listed = state.listed
   if (state.include?.length) out.include = state.include.join(',')
   if (state.exclude?.length) out.exclude = state.exclude.join(',')
+  if (state.leveraged) out.leveraged = '1'
   return out
 }
 
@@ -51,4 +53,16 @@ export const top10Footnote = (count) => {
   return n === 1
     ? '1 fund is left out because FMP lists only its top 10 holdings.'
     : `${n} funds are left out because FMP lists only their top 10 holdings.`
+}
+
+// Leveraged funds (e.g. "Enhanced" 1.25x ETFs) are shown only when asked.
+export const LEVERAGED_FOOTNOTE =
+  'Leveraged funds borrow to hold more than 100% of their assets; weights shown are their full exposure.'
+
+// Badge text from holdings coverage in percent: 124.4 -> "1.24x"; null when
+// missing or not over 100%.
+export const leverageLabel = (coveragePct) => {
+  const n = Number(coveragePct)
+  if (coveragePct == null || Number.isNaN(n) || n <= 100) return null
+  return `${(n / 100).toFixed(2)}x`
 }

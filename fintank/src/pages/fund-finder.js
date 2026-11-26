@@ -5,13 +5,14 @@ import { Alert, Container, Spinner } from 'react-bootstrap'
 import FundFinderForm from '@componentsLegacy/FundFinder/FundFinderForm'
 import FundResultsTable from '@componentsLegacy/FundFinder/FundResultsTable'
 import { useFundFinder } from '@hooks/useFundFinder'
-import { parseQuery, toQuery, canSearch, top10Footnote } from '@utils/fundFinder/query.mjs'
+import { parseQuery, toQuery, canSearch, top10Footnote, LEVERAGED_FOOTNOTE } from '@utils/fundFinder/query.mjs'
 
 const FundFinder = () => {
   const router = useRouter()
   const [listed, setListed] = useState(null)
   const [include, setInclude] = useState([])
   const [exclude, setExclude] = useState([])
+  const [leveraged, setLeveraged] = useState(false)
   const [hydrated, setHydrated] = useState(false)
 
   // Read the URL once it is available (static pages have an empty query on first render).
@@ -21,20 +22,21 @@ const FundFinder = () => {
     setListed(initial.listed)
     setInclude(initial.include)
     setExclude(initial.exclude)
+    setLeveraged(initial.leveraged)
     setHydrated(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router.isReady])
 
-  const state = { listed, include, exclude }
+  const state = { listed, include, exclude, leveraged }
 
   // Keep the URL in step with the form, shallow so nothing is refetched server-side.
   useEffect(() => {
     if (!hydrated) return
-    router.replace({ pathname: router.pathname, query: toQuery({ listed, include, exclude }) }, undefined, {
+    router.replace({ pathname: router.pathname, query: toQuery({ listed, include, exclude, leveraged }) }, undefined, {
       shallow: true,
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hydrated, listed, include, exclude])
+  }, [hydrated, listed, include, exclude, leveraged])
 
   const searchable = canSearch(state)
   const { data, error, isLoading } = useFundFinder(state)
@@ -52,7 +54,13 @@ const FundFinder = () => {
             Find ETFs by what they hold: the funds with the most combined weight in the stocks you pick.
           </p>
 
-          <FundFinderForm state={state} onListed={setListed} onInclude={setInclude} onExclude={setExclude} />
+          <FundFinderForm
+            state={state}
+            onListed={setListed}
+            onInclude={setInclude}
+            onExclude={setExclude}
+            onLeveraged={setLeveraged}
+          />
 
           {searchable && isLoading && (
             <div className="text-center py-5">
@@ -76,6 +84,7 @@ const FundFinder = () => {
               {top10Footnote(data.dropped_top10_only) && (
                 <p className="small text-muted mb-1">{top10Footnote(data.dropped_top10_only)}</p>
               )}
+              {data.leveraged && <p className="small text-muted mb-1">{LEVERAGED_FOOTNOTE}</p>}
             </>
           )}
 
