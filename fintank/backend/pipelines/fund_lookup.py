@@ -10,12 +10,13 @@ import pandas as pd
 from . import pipeline_config as cfg
 from .fund_universe import bucket_of
 from .thresholds import (FUND_BUCKETS, FUND_LEVERAGE_COVERAGE_PCT,
-                         FUND_MIN_HOLDING_PCT, FUND_WEIGHT_SUM_RANGE)
+                         FUND_LEVERAGE_MAX_PCT, FUND_MIN_HOLDING_PCT,
+                         FUND_WEIGHT_SUM_RANGE)
 
 EXPOSURE_COLS = ["company_id", "fund", "weight", "via", "bucket"]
 FUND_COLS = ["symbol", "name", "exchange", "region", "currency", "aum", "mer",
              "issuer", "asset_class", "fetched", "series", "rows",
-             "coverage_pct"]
+             "coverage_pct", "leveraged"]
 ISIN_COLS = ["symbol", "company_id", "name", "exchange", "is_adr"]
 
 
@@ -111,11 +112,16 @@ def build_lookup(holdings, funds, symbol_to_company, isin_to_company,
         stats[sym] = {"fetched": _fetched(rows),
                       "coverage": round(resolved / raw * 100, 2) if raw > 0 and resolved > 0 else 0}
 
-    # Holdings worth more than the fund (a leveraged line the name filter
-    # missed) would top every ranking: drop the fund from the lookup.
+    # Holdings worth more than the fund mean leverage the name filter missed.
+    # Up to FUND_LEVERAGE_MAX_PCT (e.g. "Enhanced" 1.25x ETFs) the fund is kept
+    # at its real weight and flagged; Django shows it only when asked. Beyond
+    # that it is dropped as bad data.
     levered = sorted(s for s, st in stats.items()
-                     if st["coverage"] > FUND_LEVERAGE_COVERAGE_PCT)
-    top10 = sorted(f["symbol"] for f in funds if f["symbol"] not in levered
+                     if st["coverage"] > FUND_LEVERAGE_MAX_PCT)
+    flagged = sorted(s for s, st in stats.items()
+                     if FUND_LEVERAGE_COVERAGE_PCT < st["coverage"] <= FUND_LEVERAGE_MAX_PCT)
+    top10 = sorted(f["symbol"] for f in funds
+                   if f["symbol"] not in levered and f["symbol"] not in flagged
                    and _top10_only(holdings.get(f["symbol"]) or [],
                                    fund_info.get(f["symbol"])))
     drop = set(levered) | set(top10)
@@ -140,8 +146,9 @@ def build_lookup(holdings, funds, symbol_to_company, isin_to_company,
             "fetched": stats[f["symbol"]]["fetched"],
             "series": list(f.get("series") or []),
             "rows": int(counts.get(f["symbol"], 0)),
-            "coverage_pct": stats[f["symbol"]]["coverage"]})
-    funds_df = pd.DataFrame(frecs, columns=FUND_COLS)
+            "coverage_pct": stats[f["symbol"]]["coverage"],
+            "leveraged": f["symbol"] in flagged})
+    funds_df = pd.DataFrame(frecs, columns=FUND_COLS).astype({"leveraged": bool})
     # Saved in funds.parquet's pandas metadata; Django shows it as a footnote.
     funds_df.attrs["dropped_top10_only"] = len(top10)
 
@@ -162,7 +169,7 @@ def build_lookup(holdings, funds, symbol_to_company, isin_to_company,
               "rows": len(exposure), "weight_sum_outside": sorted(outside),
               "unexpanded": sorted(set(unexpanded)),
               "deep_chains": sorted(deep), "xeqt_asset_rows": xeqt,
-              "dropped_leveraged_holdings": levered,
+              "dropped_leveraged_holdings": levered, "leveraged_kept": flagged,
               "dropped_top10_only": len(top10), "dropped_top10_only_symbols": top10,
               "bad_asset_rows": bad_assets}
     return exposure, funds_df, isin_map, detail

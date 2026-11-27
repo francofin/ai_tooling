@@ -9,6 +9,7 @@ import json
 import re
 from collections import Counter
 
+import numpy as np
 import pandas as pd
 import requests
 from django.core.cache import cache
@@ -70,16 +71,19 @@ def parse_query(params):
         raise BadQuery(f"at most {MAX_PICKS} stocks to include")
     if len(exclude) > MAX_PICKS:
         raise BadQuery(f"at most {MAX_PICKS} stocks to exclude")
-    return include, exclude, listed
+    # Leveraged funds (e.g. "Enhanced" 1.25x ETFs) only when asked, exactly "1".
+    leveraged = (params.get("leveraged") or "").strip() == "1"
+    return include, exclude, listed, leveraged
 
 
-FUNDS_COLUMNS = ["symbol", "name", "exchange", "region", "currency", "aum", "mer", "issuer", "fetched", "series"]
+FUNDS_COLUMNS = ["symbol", "name", "exchange", "region", "currency", "aum", "mer", "issuer", "fetched", "series",
+                 "coverage_pct", "leveraged"]
 UNAVAILABLE = "Fund data is unavailable right now."
 
 
 def _meta():
     """Slim, plain-Python meta: symbol -> company id, and fund rows as dicts."""
-    hit = cache.get("funds:meta:v1")
+    hit = cache.get("funds:meta:v2")
     if hit is not None:
         return hit
     isin = _read_parquet("fund_data/isin_map.parquet")
@@ -90,11 +94,14 @@ def _meta():
         "dropped_top10_only": int(funds.attrs.get("dropped_top10_only") or 0),
         "by_symbol": dict(zip(isin["symbol"], isin["company_id"])),
         "funds": {
-            r["symbol"]: {**r, "series": [str(x) for x in (r["series"] if r["series"] is not None else [])]}
+            r["symbol"]: {**r, "series": [str(x) for x in (r["series"] if r["series"] is not None else [])],
+                          # Missing in a funds.parquet older than the column: not leveraged.
+                          "leveraged": r["leveraged"] is True or r["leveraged"] is np.True_,
+                          "coverage_pct": _num(r["coverage_pct"])}
             for r in funds.reindex(columns=FUNDS_COLUMNS).to_dict("records")
         },
     }
-    cache.set("funds:meta:v1", meta, timeout=TTL)
+    cache.set("funds:meta:v2", meta, timeout=TTL)
     return meta
 
 
@@ -139,9 +146,11 @@ def _num(value):
 def _collapse(rows):
     """Merge duplicate funds in one market: same issuer and every pick's weight within tolerance."""
     kept = []
-    groups = {}  # (region, issuer) -> kept rows, in kept order; only these can merge
+    groups = {}  # (region, issuer, leveraged) -> kept rows, in kept order; only these can merge
     for row in sorted(rows, key=lambda r: -(r["aum"] or 0.0)):
-        group = groups.setdefault((row["region"], row["issuer"]), []) if row["issuer"] else []
+        # A leveraged fund never merges with a plain one: at a tiny weight 1.25x
+        # can fall within COLLAPSE_TOLERANCE of its unlevered sibling.
+        group = groups.setdefault((row["region"], row["issuer"], row["leveraged"]), []) if row["issuer"] else []
         for winner in group:
             if all(abs(winner["weights"][p]["weight"] - row["weights"][p]["weight"]) <= COLLAPSE_TOLERANCE
                    for p in winner["weights"]):
@@ -153,7 +162,7 @@ def _collapse(rows):
     return kept
 
 
-def _query(include, exclude, listed, limit):
+def _query(include, exclude, listed, limit, leveraged=False):
     meta = _meta()
     funds = meta["funds"]
     picks, unknown_in = _resolve(include, meta["by_symbol"])
@@ -164,7 +173,7 @@ def _query(include, exclude, listed, limit):
             raise BadQuery(f"{sym} is in both include and exclude")
     result = {"listed": listed, "include": [s for s, _ in picks], "exclude": [s for s, _ in out],
               "unknown": unknown_in + unknown_ex, "fetched": None, "funds": [],
-              "dropped_top10_only": meta.get("dropped_top10_only", 0)}
+              "dropped_top10_only": meta.get("dropped_top10_only", 0), "leveraged": leveraged}
     if not picks:
         return result
 
@@ -185,6 +194,8 @@ def _query(include, exclude, listed, limit):
         info = funds.get(fund_symbol)
         if info is None or (listed != "both" and info["region"] != listed):
             continue
+        if info["leveraged"] and not leveraged:
+            continue
         weights = {}
         for sym, cid in picks:
             weight, via = by_company.get(cid, (0.0, set()))
@@ -196,6 +207,7 @@ def _query(include, exclude, listed, limit):
             "weights": weights, "mer": _num(info["mer"]), "aum": _num(info["aum"]),
             "fetched": info["fetched"], "issuer": info["issuer"] if isinstance(info["issuer"], str) else None,
             "also": set(info["series"]) - {fund_symbol},
+            "leveraged": info["leveraged"], "coverage_pct": info["coverage_pct"],
         })
 
     rows = _collapse(rows)
@@ -211,14 +223,14 @@ def _query(include, exclude, listed, limit):
     return result
 
 
-def find_funds(include, exclude, listed, limit=DEFAULT_LIMIT):
+def find_funds(include, exclude, listed, limit=DEFAULT_LIMIT, leveraged=False):
     include, exclude = _symbols(",".join(include)), _symbols(",".join(exclude))
-    digest = hashlib.sha1(json.dumps([include, exclude, listed, limit]).encode()).hexdigest()
+    digest = hashlib.sha1(json.dumps([include, exclude, listed, limit, leveraged]).encode()).hexdigest()
     key = f"funds:query:{digest}:v1"
     hit = cache.get(key)
     if hit is not None:
         return hit
-    result = _query(include, exclude, listed, limit)
+    result = _query(include, exclude, listed, limit, leveraged)
     if result["include"]:  # junk queries must not mint cache keys
         cache.set(key, result, timeout=TTL)
     return result

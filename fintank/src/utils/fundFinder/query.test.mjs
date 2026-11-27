@@ -2,13 +2,21 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { parseQuery, toQuery, canSearch, formatMer, top10Footnote } from './query.mjs'
+import {
+  parseQuery,
+  toQuery,
+  canSearch,
+  formatMer,
+  top10Footnote,
+  leverageLabel,
+  LEVERAGED_FOOTNOTE,
+} from './query.mjs'
 
 describe('parseQuery / toQuery', () => {
   it('round-trips a full query', () => {
     const q = { listed: 'ca', include: 'RY.TO,TD.TO', exclude: 'SHOP.TO' }
     const state = parseQuery(q)
-    assert.deepEqual(state, { listed: 'ca', include: ['RY.TO', 'TD.TO'], exclude: ['SHOP.TO'] })
+    assert.deepEqual(state, { listed: 'ca', include: ['RY.TO', 'TD.TO'], exclude: ['SHOP.TO'], leveraged: false })
     assert.deepEqual(toQuery(state), q)
   })
 
@@ -43,7 +51,7 @@ describe('parseQuery / toQuery', () => {
   })
 
   it('handles a missing query object', () => {
-    assert.deepEqual(parseQuery(undefined), { listed: null, include: [], exclude: [] })
+    assert.deepEqual(parseQuery(undefined), { listed: null, include: [], exclude: [], leveraged: false })
   })
 
   it('toQuery omits empty lists and never invents listed', () => {
@@ -83,5 +91,47 @@ describe('top10Footnote', () => {
     assert.equal(top10Footnote(undefined), null)
     assert.equal(top10Footnote(null), null)
     assert.equal(top10Footnote('x'), null)
+  })
+})
+
+describe('leveraged', () => {
+  it('is on only for exactly "1"', () => {
+    assert.equal(parseQuery({ leveraged: '1' }).leveraged, true)
+    assert.equal(parseQuery({ leveraged: ['1'] }).leveraged, true)
+    assert.equal(parseQuery({}).leveraged, false)
+    assert.equal(parseQuery({ leveraged: 'true' }).leveraged, false)
+  })
+
+  it('toQuery writes leveraged=1 only when on', () => {
+    assert.deepEqual(toQuery({ listed: 'ca', include: ['RY.TO'], exclude: [], leveraged: true }), {
+      listed: 'ca',
+      include: 'RY.TO',
+      leveraged: '1',
+    })
+    assert.deepEqual(toQuery({ listed: 'ca', include: ['RY.TO'], exclude: [], leveraged: false }), {
+      listed: 'ca',
+      include: 'RY.TO',
+    })
+  })
+
+  it('round-trips on and off', () => {
+    for (const leveraged of [true, false]) {
+      const state = { listed: 'ca', include: ['RY.TO'], exclude: ['TD.TO'], leveraged }
+      assert.deepEqual(parseQuery(toQuery(state)), state)
+    }
+  })
+
+  it('labels the multiple from coverage percent', () => {
+    assert.equal(leverageLabel(124.4), '1.24x')
+    assert.equal(leverageLabel(100), null)
+    assert.equal(leverageLabel(null), null)
+    assert.equal(leverageLabel('x'), null)
+  })
+
+  it('has the footnote copy', () => {
+    assert.equal(
+      LEVERAGED_FOOTNOTE,
+      'Leveraged funds borrow to hold more than 100% of their assets; weights shown are their full exposure.',
+    )
   })
 })

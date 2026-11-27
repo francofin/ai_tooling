@@ -114,9 +114,14 @@ NEWS_FAILED_SHARE_FAIL = 0.5
 FUND_MIN_HOLDING_PCT = 0.001
 FUND_WEIGHT_SUM_RANGE = (90.0, 110.0)
 # A fund whose resolved holdings come to more than this percent of its raw
-# weights is leveraged (e.g. 127% Apple, a cash borrow below zero): dropped
-# from the lookup and listed in detail["dropped_leveraged_holdings"].
+# weights is leveraged (e.g. 127% Apple, a cash borrow below zero): flagged
+# (detail["leveraged_kept"]) up to FUND_LEVERAGE_MAX_PCT, dropped above it
+# (detail["dropped_leveraged_holdings"]).
 FUND_LEVERAGE_COVERAGE_PCT = 110.0
+# Funds between FUND_LEVERAGE_COVERAGE_PCT and this (e.g. Canadian "Enhanced"
+# 1.25x ETFs) are kept, flagged `leveraged` in funds.parquet and shown only
+# when the reader asks; above it they are dropped as bad data.
+FUND_LEVERAGE_MAX_PCT = 150.0
 FUND_BUCKETS = 64
 # Fund finder checks. FUND_MIN_FUNDS: 90% of the funds with stock exposure
 # rows, rounded down to 100 (local measurement 2026-11-23, with the leveraged

@@ -1,7 +1,7 @@
 import React from 'react'
 import Link from 'next/link'
-import { Table } from 'react-bootstrap'
-import { formatMer } from '@utils/fundFinder/query.mjs'
+import { Badge, Table } from 'react-bootstrap'
+import { formatMer, leverageLabel } from '@utils/fundFinder/query.mjs'
 
 export const EMPTY_TEXT = 'No ETF in this market holds these stocks without the excluded ones.'
 
@@ -41,6 +41,11 @@ const FundResultsTable = ({ funds, picks, fetched }) => {
               <Link href={`/etf-data/${encodeURIComponent(fund.symbol)}`}>
                 <strong>{fund.symbol}</strong>
               </Link>
+              {fund.leveraged && leverageLabel(fund.coverage_pct) && (
+                <Badge bg="warning" text="dark" className="ms-2" title="Leveraged fund">
+                  {leverageLabel(fund.coverage_pct)}
+                </Badge>
+              )}
               <div className="small text-muted">{fund.name}</div>
               {fund.also?.length > 0 && (
                 <div className="small text-muted">also available as {fund.also.join(', ')}</div>
