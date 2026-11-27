@@ -11,7 +11,7 @@ from pipelines import runner
 from pipelines import stock_pipeline as sp
 from pipelines.fund_universe import bucket_of, build_universe
 from pipelines.outputs import DATASET_ORDER
-from pipelines.tests.helpers import load_fixture
+from pipelines.tests.helpers import load_fixture, write_constituents
 
 RY = "CA7800871021"
 
@@ -240,3 +240,26 @@ def test_top10_count_reaches_funds_parquet(pipeline):
     fdf = pd.read_parquet(os.path.join(pipeline.fund_data_dir, "funds.parquet"))
     assert fdf.attrs["dropped_top10_only"] == 1
     assert "XEQT.TO" not in set(fdf.symbol)
+
+
+def test_build_merges_north_american_lines_from_index_lists(pipeline):
+    stage_inputs(pipeline)
+    write_constituents(pipeline, "sp500_const", ["AAPL"])
+    write_constituents(pipeline, "tsx_const", ["RY.TO", "TD.TO"])
+    detail = pipeline.build_fund_finder().detail
+    assert detail["north_american_merge"] is True
+
+
+def test_build_without_index_lists_still_builds(pipeline):
+    stage_inputs(pipeline)
+    result = pipeline.build_fund_finder()
+    assert result.failed == 0 and result.detail["north_american_merge"] is False
+
+
+def test_common_symbols_reads_asset_or_symbol_keys(pipeline):
+    write_constituents(pipeline, "sp500_const", ["GOOG", "GOOGL"])
+    path = pipeline.constituents_path("tsx_const")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        json.dump([{"symbol": "RY.TO"}, {"asset": ""}], f)
+    assert pipeline._common_symbols() == {"GOOG", "GOOGL", "RY.TO"}
