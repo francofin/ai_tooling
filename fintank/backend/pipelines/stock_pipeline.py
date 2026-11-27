@@ -922,6 +922,22 @@ class StockDataPipeline:
                   "previous fund files kept")
         return result
 
+    def _common_symbols(self):
+        """Symbols in the US and Canadian index lists on disk (common shares
+        only), so company_ids merges North American share classes but never
+        preferreds. Missing lists are skipped: those lines then stay unmerged."""
+        keys = (cfg.SUB_UNIVERSE_GROUPS["us"]["constituent_file_names"]
+                + cfg.SUB_UNIVERSE_GROUPS["canada"]["constituent_file_names"])
+        out = set()
+        for key in keys:
+            path = self.constituents_path(key)
+            if os.path.isfile(path):
+                for item in self._read_json(path) or []:
+                    symbol = item.get("asset") or item.get("symbol")
+                    if symbol:
+                        out.add(symbol)
+        return out
+
     _ADR_PAIRS = {"TSM": "2330.TW", "ASML": "ASML.AS", "NVO": "NOVO-B.CO"}
     _HOLDING_KEYS = ("asset", "isin", "weightPercentage", "updatedAt", "updated")
 
@@ -1024,7 +1040,7 @@ class StockDataPipeline:
                                       "is_adr": str(r.get("isAdr", "")).strip().lower()
                                       == "true"}
                         for r in slim if r.get("symbol")}
-            sym_to_cid, isin_to_cid, id_detail = company_ids(slim)
+            sym_to_cid, isin_to_cid, id_detail = company_ids(slim, self._common_symbols())
             exposure, funds_df, isin_map, detail = build_lookup(
                 holdings, funds, sym_to_cid, isin_to_cid, fund_info, listings=listings)
 

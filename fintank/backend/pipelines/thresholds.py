@@ -134,6 +134,10 @@ FUND_CROSSCHECK_PRESENT = 0.95
 FUND_CROSSCHECK_WEIGHT_PP = 0.5
 # ADR link share may fall at most this many points from the last published run.
 FUND_ADR_LINK_DROP_PP = 5.0
+# All lines of a company share one id (fund_universe.company_ids). The largest
+# real group on 2026-11-23 data had 6 ISINs (Telecom Italia); a bigger one
+# suggests a bad company-name match joining two companies.
+FUND_MERGE_MAX_ISINS = 8
 # fund_finder.look_through warns only above this many funds (measured
 # 2026-11-23: 165, mostly fund -> ETF -> ETF chains and held funds FMP has no
 # holdings for).

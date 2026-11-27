@@ -323,6 +323,19 @@ def check_fund_finder(detail: dict, previous: dict | None) -> list[CheckResult]:
             round(pct, 2), t.FUND_ADR_LINK_DROP_PP,
             f"{pct:.1f}% of ADRs linked (last published {base:.1f}%)"))
 
+    groups = detail.get("largest_groups", [])
+    biggest = max((len(g["isins"]) for g in groups), default=0)
+    big = [g["name"] for g in groups if len(g["isins"]) > t.FUND_MERGE_MAX_ISINS]
+    merged = f"{detail.get('merged_groups', 0):,} companies with several lines merged"
+    if not detail.get("north_american_merge", False):
+        merge_status, merge_msg = bad, merged + "; no index lists found, US/Canadian lines unmerged"
+    elif big:
+        merge_status, merge_msg = bad, merged + "; over the limit: " + ", ".join(big)
+    else:
+        merge_status, merge_msg = PASS, merged
+    out.append(CheckResult("fund_finder.company_merge", merge_status, biggest,
+                           t.FUND_MERGE_MAX_ISINS, merge_msg))
+
     left = sorted(set(detail.get("unexpanded", [])) | set(detail.get("deep_chains", [])))
     out.append(CheckResult("fund_finder.look_through",
                            bad if len(left) > t.FUND_LOOK_THROUGH_WARN else PASS,

@@ -182,3 +182,19 @@ def test_non_string_assets_skipped_and_counted():
                                    {"XIU.TO", "MIX.TO"})
     assert detail["bad_asset_rows"] == 3
     assert set(exp.fund) == {"XIU.TO", "MIX.TO"}
+
+
+def test_two_lines_of_one_company_sum_into_one_row():
+    def line(symbol, isin, exchange):
+        return {"symbol": symbol, "companyName": "Henkel AG & Co. KGaA", "isin": isin,
+                "exchange": exchange, "isEtf": "false", "isFund": "false", "isAdr": "false"}
+    lines = [line("HEN.DE", "DE0006048408", "XETRA"), line("HEN3.DE", "DE0006048432", "XETRA"),
+             line("HEN3.F", "DE0006048432", "FSX")]
+    sym, isin, _ = company_ids(lines)
+    fund = {"symbol": "F", "name": "F", "exchange": "TSX", "region": "ca",
+            "currency": "CAD", "aum": 1.0, "isin": "", "series": []}
+    holdings = {"F": [row("HEN.DE", 2.0, "DE0006048408"), row("HEN3.DE", 1.5, "DE0006048432")]}
+    exp, *_ = build_lookup(holdings, [fund], sym, isin, {}, listings=listings_of(lines))
+    r = exp[(exp.company_id == "DE0006048432") & (exp.fund == "F")]
+    assert len(r) == 1 and r.iloc[0].weight == pytest.approx(3.5)
+    assert len(exp[exp.fund == "F"]) == 1
