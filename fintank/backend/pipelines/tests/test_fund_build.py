@@ -91,7 +91,7 @@ def test_build_detail(pipeline):
     for key in ("funds", "funds_with_rows", "rows", "weight_sum_outside", "unexpanded",
                 "deep_chains", "xeqt_asset_rows", "adrs", "adrs_linked", "unlinked"):
         assert key in detail
-    assert detail["adr_link_pct"] == pytest.approx(75.0)          # 3 of 4 fixture ADRs
+    assert detail["adr_link_pct"] == pytest.approx(100.0)  # all 4 fixture ADRs, DUPE via its group
     assert detail["adr_pairs"]["TSM"] == {"adr": "TW0002330008", "home": "TW0002330008"}
     assert detail["adr_pairs"]["NVO"]["adr"] == detail["adr_pairs"]["NVO"]["home"]
     # FMP lists XIU.TO 9.43, ZEB.TO 19.8 (no holdings saved here), VEA 0.89.

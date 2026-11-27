@@ -48,14 +48,13 @@ def test_company_ids_adr_links():
     assert sym["ASML"] == "NL0010273215"
     assert sym["NVO"] == "DK0062498333"
     assert isin["US8740391003"] == "TW0002330008"
-    assert detail["adrs_linked"] == 3
+    assert detail["adrs_linked"] == 4          # DUPE now links too
 
 
-def test_company_ids_ambiguous_adr_unlinked():
+def test_company_ids_second_listing_merges():
     sym, _, detail = company_ids(rows())
-    assert sym["DUPE"] == "US0000000001"
-    assert detail["unlinked"] == ["DUPE"]
-    assert detail["adrs"] == 4
+    assert sym["DUPE"] == sym["TWN.L"] == sym["TWN.PA"] == "FR0000000001"  # tie -> smallest
+    assert detail["unlinked"] == [] and detail["adrs"] == 4
 
 
 def test_bucket_of_is_stable():
@@ -123,16 +122,107 @@ def test_company_ids_adr_links_past_cdr_and_own_isin_abroad():
     assert sym["TSM"] == "TW0002330008"
     assert sym["ASML"] == "NL0010273215"
     assert sym["NVO"] == "DK0062498333"
-    assert sym["DUPE"] == "US0000000001" and detail["unlinked"] == ["DUPE"]
-    assert detail["adrs_linked"] == 3
+    assert sym["DUPE"] == "FR0000000001" and detail["unlinked"] == []
+    assert detail["adrs_linked"] == 4
 
 
-def test_company_ids_majority_isin_wins_tie_unlinked():
+def test_company_ids_majority_isin_wins_tie_links_smallest():
     base = [_line("X", "Xco", "US1111111111", "NYSE", adr=True),
             _line("X.DE", "Xco", "DE0000000001", "XETRA"),
             _line("X.F", "Xco", "DE0000000001", "FSX"),
             _line("X2.DE", "Xco", "DE0000000002", "XETRA")]
     sym, _, _ = company_ids(base)
-    assert sym["X"] == "DE0000000001"
+    assert sym["X"] == sym["X2.DE"] == "DE0000000001"
     sym, _, detail = company_ids(base[:2] + base[3:])
-    assert sym["X"] == "US1111111111" and detail["unlinked"] == ["X"]
+    assert sym["X"] == "DE0000000001" and detail["unlinked"] == []
+
+
+def test_company_ids_share_classes_merge_when_in_index():
+    rs = [_line("GOOGL", "Alphabet Inc.", "US02079K3059", "NASDAQ"),
+          _line("ABEA.DE", "Alphabet Inc.", "US02079K3059", "XETRA"),
+          _line("GOOG", "Alphabet Inc.", "US02079K1079", "NASDAQ")]
+    sym, isin, detail = company_ids(rs, common_symbols={"GOOG", "GOOGL"})
+    assert sym["GOOG"] == sym["GOOGL"] == "US02079K3059"   # most lines
+    assert isin["US02079K1079"] == "US02079K3059"
+    assert detail["merged_groups"] == 1 and detail["merged_isins"] == 2
+    assert detail["north_american_merge"] is True
+
+
+def test_company_ids_north_american_unmerged_without_index_lists():
+    rs = [_line("GOOGL", "Alphabet Inc.", "US02079K3059", "NASDAQ"),
+          _line("GOOG", "Alphabet Inc.", "US02079K1079", "NASDAQ")]
+    sym, _, detail = company_ids(rs)
+    assert sym["GOOG"] == "US02079K1079" and sym["GOOGL"] == "US02079K3059"
+    assert detail["north_american_merge"] is False and detail["merged_groups"] == 0
+
+
+def test_company_ids_us_preferred_stays_separate():
+    rs = [_line("PSA", "Public Storage", "US74460D1090", "NYSE"),
+          _line("PSA-PF", "Public Storage", "US74460W6856", "NYSE"),
+          _line("HBANP", "Public Storage", "US4461507083", "NASDAQ"),
+          _line("TRTN-PA", "Public Storage", "BMG9078F1077", "NYSE")]  # foreign ISIN, US-listed
+    sym, _, _ = company_ids(rs, common_symbols={"PSA"})
+    assert sym["PSA"] == "US74460D1090"
+    assert sym["PSA-PF"] == "US74460W6856"
+    assert sym["HBANP"] == "US4461507083"
+    assert sym["TRTN-PA"] == "BMG9078F1077"
+
+
+def test_company_ids_european_preference_shares_merge():
+    rs = [_line("HEN.DE", "Henkel AG & Co. KGaA", "DE0006048408", "XETRA"),
+          _line("HEN3.DE", "Henkel AG & Co. KGaA", "DE0006048432", "XETRA"),
+          _line("HEN3.F", "Henkel AG & Co. KGaA", "DE0006048432", "FSX")]
+    sym, _, _ = company_ids(rs)
+    assert sym["HEN.DE"] == sym["HEN3.DE"] == "DE0006048432"
+
+
+def test_company_ids_dual_listing_merges():
+    rs = [_line("CCL.L", "Carnival Corporation & plc", "GB0031215220", "LSE"),
+          _line("POH1.DE", "Carnival Corporation & plc", "GB0031215220", "XETRA"),
+          _line("0EV1.L", "Carnival Corporation & plc", "BMG2004J1036", "LSE")]
+    sym, _, _ = company_ids(rs)
+    assert sym["CCL.L"] == sym["0EV1.L"] == "GB0031215220"
+
+
+def test_company_ids_mislabelled_line_does_not_bridge():
+    rs = [_line("SEA.TO", "Seabridge Gold Inc.", "CA8119271028", "TSX"),
+          _line("SAN.MX", "Seabridge Gold Inc.", "ES0113900J37", "MEX"),   # FMP mislabel
+          _line("SAN.MC", "Banco Santander, S.A.", "ES0113900J37", "BME"),
+          _line("BSD2.DE", "Banco Santander, S.A.", "ES0113900J37", "XETRA")]
+    sym, _, _ = company_ids(rs, common_symbols={"SEA.TO"})
+    assert sym["SEA.TO"] == "CA8119271028"
+    assert sym["SAN.MX"] == sym["SAN.MC"] == "ES0113900J37"
+
+
+def test_company_ids_owner_name_tie_keeps_own_id():
+    rs = [_line("A.L", "Aco", "GB0000000009", "LSE"),
+          _line("A.DE", "Bco", "GB0000000009", "XETRA"),
+          _line("A2.L", "Aco", "GB0000000008", "LSE")]
+    sym, _, _ = company_ids(rs)
+    assert sym["A.L"] == sym["A.DE"] == "GB0000000009"
+    assert sym["A2.L"] == "GB0000000008"
+
+
+def test_company_ids_blank_names_never_group():
+    rs = [_line("N1.L", "", "GB0000000011", "LSE"),
+          _line("N2.L", "", "GB0000000012", "LSE"),
+          {**_line("N3.L", "", "GB0000000013", "LSE"), "companyName": None}]
+    sym, _, detail = company_ids(rs)
+    assert sym == {"N1.L": "GB0000000011", "N2.L": "GB0000000012", "N3.L": "GB0000000013"}
+    assert detail["merged_groups"] == 0
+
+
+def test_company_ids_row_order_does_not_matter():
+    rs = rows() + [_line("HEN.DE", "Henkel AG & Co. KGaA", "DE0006048408", "XETRA"),
+                   _line("HEN3.DE", "Henkel AG & Co. KGaA", "DE0006048432", "XETRA")]
+    a = company_ids(rs)
+    b = company_ids(list(reversed(rs)))
+    assert a[0] == b[0] and a[1] == b[1] and a[2] == b[2]
+
+
+def test_company_ids_largest_groups_reported():
+    rs = [_line(f"T{i}.MI", "Telecom Italia S.p.A.", f"IT000000000{i}", "MIL") for i in range(3)]
+    _, _, detail = company_ids(rs)
+    assert detail["largest_groups"] == [
+        {"name": "Telecom Italia S.p.A.",
+         "isins": ["IT0000000000", "IT0000000001", "IT0000000002"]}]
