@@ -266,6 +266,7 @@ def _fund_detail(**over):
         "weight_sum_outside": [], "unexpanded": [], "deep_chains": [],
         "xeqt_asset_rows": 8285, "adrs": 100, "adrs_linked": 80, "unlinked": [],
         "adr_link_pct": 80.0, "adr_pairs": PAIRS,
+        "north_american_merge": True, "merged_groups": 0, "largest_groups": [],
         "crosscheck": {s: {"in_universe": 40, "present_pct": 100.0, "weight_ok_pct": 97.5}
                        for s in ("RY.TO", "TD.TO", "SHOP.TO", "AAPL", "MSFT")},
     }
@@ -278,20 +279,22 @@ def test_check_fund_finder_clean():
     assert out and {r.status for r in out} == {c.PASS}
     assert {"fund_finder.funds", "fund_finder.weight_sum", "fund_finder.crosscheck.RY.TO",
             "fund_finder.crosscheck.MSFT", "fund_finder.adr_pairs", "fund_finder.adr_links",
-            "fund_finder.look_through", "fund_finder.xeqt"} <= {r.name for r in out}
+            "fund_finder.look_through", "fund_finder.xeqt",
+            "fund_finder.company_merge"} <= {r.name for r in out}
 
 
 def test_check_fund_finder_warns_not_fails():
     detail = _fund_detail(
         funds=10, funds_with_rows=10, weight_sum_outside=["BAD.TO"],
         unexpanded=[f"MIX{i}.TO" for i in range(251)], xeqt_asset_rows=12, adr_link_pct=70.0, adr_pairs={},
+        largest_groups=[{"name": "Bridge", "isins": ["I"] * 9}],
         crosscheck={"RY.TO": {"in_universe": 4, "present_pct": 50.0,
                               "weight_ok_pct": 50.0}})
     out = statuses(c.check_fund_finder(detail, {"adr_link_pct": 80.0}))
     assert set(out.values()) == {c.WARN}
     assert {"fund_finder.funds", "fund_finder.crosscheck.RY.TO", "fund_finder.adr_links",
             "fund_finder.look_through", "fund_finder.xeqt",
-            "fund_finder.weight_sum"} <= set(out)
+            "fund_finder.weight_sum", "fund_finder.company_merge"} <= set(out)
 
 
 def test_check_fund_finder_crosscheck_weight_only():
@@ -370,3 +373,25 @@ def test_fund_finder_thresholds():
             t.FUND_ADR_LINK_DROP_PP, t.FUND_XEQT_MIN_ROWS) == (0.95, 0.5, 5.0, 1000)
     assert t.FUND_LOOK_THROUGH_WARN == 250 and t.FUND_LEVERAGE_COVERAGE_PCT == 110.0
     assert t.FUND_MIN_FUNDS == 2000
+
+
+def _merge_check(**over):
+    out = c.check_fund_finder(_fund_detail(**over), None)
+    return {r.name: r for r in out}["fund_finder.company_merge"]
+
+
+def test_check_company_merge_pass():
+    got = _merge_check(merged_groups=2280, largest_groups=[
+        {"name": "Telecom Italia S.p.A.", "isins": ["I"] * 6}])
+    assert got.status == c.PASS and got.value == 6
+    assert "2,280" in got.detail
+
+
+def test_check_company_merge_warns_on_big_group():
+    got = _merge_check(merged_groups=1, largest_groups=[{"name": "Bridge", "isins": ["I"] * 9}])
+    assert got.status == c.WARN and "Bridge" in got.detail
+
+
+def test_check_company_merge_warns_without_index_lists():
+    got = _merge_check(north_american_merge=False)
+    assert got.status == c.WARN and "index lists" in got.detail
